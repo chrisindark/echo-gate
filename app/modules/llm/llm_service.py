@@ -85,7 +85,8 @@ class LlmService:
                 if not cached_payload:
                     vector = await self.embedding_service.get_embedding_async(prompt_text)
                     filter_payload = {"model": request.model}
-                    threshold = 0.99
+                    # threshold for matching results based on similarity of the prompts/vectors
+                    threshold = 0.90
                     cached_payload, matched_score = self.qdrant_service.query_points(vector, threshold=threshold, filter_payload=filter_payload)
 
                     if cached_payload and "response" in cached_payload:

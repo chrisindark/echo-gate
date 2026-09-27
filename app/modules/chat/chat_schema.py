@@ -6,8 +6,8 @@ class ChatMessage(BaseModel):
     content: str
 
 class ChatCompletionRequest(BaseModel):
-    model: str
     service_name: Optional[str] = "ollama"
+    model: str
     messages: List[ChatMessage]
     temperature: Optional[float] = 1.0
     top_p: Optional[float] = 1.0

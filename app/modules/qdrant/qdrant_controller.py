@@ -23,7 +23,7 @@ class QdrantSearchResponse(BaseModel):
 @api_v1_router.post("/search", response_model=QdrantSearchResponse)
 async def search_qdrant(
     request: QdrantSearchRequest,
-    qdrant: QdrantService = Depends(get_qdrant_service),
+    qdrantService: QdrantService = Depends(get_qdrant_service),
     embedder: EmbeddingService = Depends(get_embedding_service)
 ) -> QdrantSearchResponse:
     """
@@ -37,9 +37,9 @@ async def search_qdrant(
         filter_payload = None
         if request.model_filter:
             filter_payload = {"model": request.model_filter}
-            
+
         # Search Qdrant
-        result_payload = qdrant.search(
+        result_payload = qdrantService.query_points(
             vector=vector, 
             threshold=request.threshold, 
             filter_payload=filter_payload
@@ -49,7 +49,7 @@ async def search_qdrant(
             return QdrantSearchResponse(found=True, payload=result_payload)
         else:
             return QdrantSearchResponse(found=False)
-            
+
     except Exception as e:
         logger.error(f"Error during Qdrant search: {e}")
         raise HTTPException(status_code=500, detail="Error searching Qdrant")
