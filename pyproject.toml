@@ -20,6 +20,7 @@ sqlalchemy = "^2.0.54"
 alembic = "^1.20.0"
 redis = "^5.0.8"
 dependency-injector = "^4.49.1"
+isort = "^9.0.1"
 
 [build-system]
 requires = ["poetry-core"]

@@ -1,0 +1,23 @@
+{
+    "editor.formatOnSave": true,
+  "editor.codeActionsOnSave": {
+    "source.organizeImports": "explicit",
+    "source.fixAll": "explicit"
+  },
+  "python.defaultInterpreterPath": "~/Library/Caches/pypoetry/virtualenvs/notgoogleplus-django-HPno4VCO-py3.14",
+  "python.formatting.provider": "none",
+  "python.analysis.autoImportCompletions": true,
+  "python.analysis.typeCheckingMode": "basic",
+  "python.analysis.diagnosticMode": "workspace",
+  "python.analysis.importFormat": "absolute",
+  "python.analysis.completeFunctionParens": true,
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.organizeImports": "always",
+      "source.fixAll": "always"
+    }
+  },
+    "python.REPL.enableREPLSmartSend": false
+}

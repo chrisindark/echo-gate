@@ -1,24 +1,35 @@
-import os
 import logging
-
+import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import APIRouter, FastAPI
 from dotenv import load_dotenv
-
+from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.core.dependencies import DependencyContainer
+from app.core.middleware import UserMiddleware, CorrelationIdMiddleware
+from app.core.logger import setup_logger
 from app.modules.chat.chat_controller import api_v1_router as chat_router
 from app.modules.qdrant.qdrant_controller import api_v1_router as qdrant_router
+
 # from app.modules.usage.usage_controller import router as usage_router
 
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+# Initialize the custom colored logger with correlation ID
+setup_logger()
 
 logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await DependencyContainer.initialize()
+    try:
+        yield
+    finally:
+        await DependencyContainer.shutdown()
+
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -45,9 +56,12 @@ load_dotenv()
 app = FastAPI(
     title="LLM Gateway",
     description="A FastAPI-based proxy for LLMs with Semantic Caching.",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
+app.add_middleware(UserMiddleware)
+app.add_middleware(CorrelationIdMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # For testing, allow all origins

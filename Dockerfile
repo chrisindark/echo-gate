@@ -11,8 +11,8 @@ COPY pyproject.toml poetry.lock* ./
 # Configure poetry to not create a virtual environment inside the container and install dependencies
 RUN poetry config virtualenvs.create false && poetry install --no-interaction --no-ansi --no-root
 
-# Pre-download the model so it's cached in the Docker image
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+# Pre-download the models so they are cached in the Docker image
+RUN python -c "from sentence_transformers import SentenceTransformer, CrossEncoder; SentenceTransformer('all-MiniLM-L6-v2'); CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')"
 
 # Copy the application code
 COPY . .
