@@ -1,0 +1,37 @@
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    restart: always
+    networks:
+      - app-network
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    restart: always
+    networks:
+      - app-network
+
+  echo-gate:
+    build:
+      context: .
+    ports:
+      - "8000:8000"
+    environment:
+      - QDRANT_URL=http://qdrant:6333
+      - REDIS_URL=redis://localhost:6379
+    depends_on:
+      - qdrant
+    restart: always
+
+volumes:
+  qdrant_data:
+
+networks:
+  app-network:
+    driver: bridge
