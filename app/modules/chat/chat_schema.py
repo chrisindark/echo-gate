@@ -22,6 +22,8 @@ class ChatCompletionRequest(BaseModel):
     frequency_penalty: float | None = 0.0
     logit_bias: dict[str, float] | None = None
     user: str | None = None
+    response_format: dict | None = None
+
 
 
 class Choice(BaseModel):
