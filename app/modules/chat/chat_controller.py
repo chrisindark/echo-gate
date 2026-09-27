@@ -2,9 +2,9 @@ import logging
 
 from fastapi import APIRouter, Depends, Request, Response
 
-from app.core.dependencies import get_llm_service
+from app.core.dependencies import get_llm_router_service
 from app.modules.chat.chat_schema import ChatCompletionRequest, ChatCompletionResponse
-from app.modules.llm.llm_service import LlmService
+from app.modules.llm.llm_router_service import LlmRouterService
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ async def create_chat_completion(
     request: ChatCompletionRequest,
     # background_tasks: BackgroundTasks,
     response: Response,
-    llmService: LlmService = Depends(get_llm_service),
+    llmService: LlmRouterService = Depends(get_llm_router_service),
 ) -> ChatCompletionResponse:
     """
     Handle chat completions with semantic caching.

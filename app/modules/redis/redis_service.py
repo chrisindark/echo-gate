@@ -1,7 +1,5 @@
-import json
 import logging
 import os
-from typing import Any
 
 from redis import asyncio as aioredis
 
@@ -23,29 +21,36 @@ class RedisService:
         except aioredis.ConnectionError:
             logger.info("Error in Redis connection")
 
-    async def get(self, key: str) -> dict[str, Any] | None:
+    async def get(self, key: str) -> str | None:
         """Retrieve an exact match from Redis cache."""
         try:
             cached_data = await self.redis.get(key)
             if cached_data:
                 logger.info("Redis exact cache hit!")
-                return json.loads(cached_data)
+                return cached_data
         except Exception as e:
             logger.error(f"Failed to get data from Redis: {e}")
+
         return None
 
-    async def set(
-        self, key: str, response: dict[str, Any], ttl: int | None = None
-    ) -> None:
+    async def set(self, key: str, value: str, ttl: int | None = None) -> None:
         """Cache the exact response for a prompt in Redis."""
         try:
             expire_time = ttl if ttl is not None else self.ttl
-            return await self.redis.set(key, json.dumps(response), ex=expire_time)
             logger.info("Successfully saved exact match to Redis")
+            response = await self.redis.set(key, value, ex=expire_time)
+            return response
         except Exception as e:
             logger.error(f"Failed to save data to Redis: {e}")
+
         return None
 
     async def close(self):
         """Close Redis connection."""
         await self.redis.close()
+
+    async def incr(self, key: str):
+        raise NotImplementedError
+
+    async def expire(self, key: str, seconds: int):
+        raise NotImplementedError

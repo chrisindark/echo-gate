@@ -26,6 +26,9 @@ class QdrantPayload(BaseModel):
     exact_hash: str | None = Field(
         None, description="SHA256 hash of the exact prompt for fast exact matching"
     )
+    tenant_id: str = Field(
+        "", description="The tenant ID associated with this cache entry"
+    )
     model: str | None = Field(None, description="The model used for the completion")
     embedding_model: str | None = Field(
         None, description="The model used for embeddings"

@@ -144,23 +144,24 @@ class QdrantService:
         prompt: str,
         response: dict[str, Any],
         exact_hash: str | None = None,
+        tenant_id: str = "anonymous",
+        model: str | None = None,
+        embedding_model: str | None = None,
+        embedding_version: str | None = None,
+        cacheable: bool = False,
+        cache_key_version: str | None = None,
         metadata: dict[str, Any] | None = None,
         created_at: int | None = None,
         expires_at: int | None = None,
     ) -> str | None:
         try:
             point_id = str(uuid.uuid4())
-
-            model = metadata.get("model") if metadata else None
-            embedding_model = metadata.get("embedding_model") if metadata else None
-            embedding_version = metadata.get("embedding_version") if metadata else None
-            cacheable = (metadata.get("cacheable") or False) if metadata else False
-            cache_key_version = metadata.get("cache_key_version") if metadata else None
             payload_obj = QdrantPayload(
                 prompt=prompt,
                 response=response,
                 exact_hash=exact_hash,
                 model=model,
+                tenant_id=tenant_id,
                 embedding_model=embedding_model,
                 embedding_version=embedding_version,
                 cacheable=cacheable,
