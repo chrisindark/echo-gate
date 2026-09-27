@@ -1,41 +1,47 @@
-from typing import List, Optional, Dict, Any
+from typing import Any
+
 from pydantic import BaseModel
+
 
 class ChatMessage(BaseModel):
     role: str
     content: str
 
+
 class ChatCompletionRequest(BaseModel):
-    service_name: Optional[str] = "ollama"
+    service_name: str | None = "ollama"
     model: str
-    messages: List[ChatMessage]
-    temperature: Optional[float] = 1.0
-    top_p: Optional[float] = 1.0
-    n: Optional[int] = 1
-    stream: Optional[bool] = False
-    stop: Optional[List[str]] = None
-    max_tokens: Optional[int] = None
-    presence_penalty: Optional[float] = 0.0
-    frequency_penalty: Optional[float] = 0.0
-    logit_bias: Optional[Dict[str, float]] = None
-    user: Optional[str] = None
+    messages: list[ChatMessage]
+    temperature: float | None = 1.0
+    top_p: float | None = 1.0
+    n: int | None = 1
+    stream: bool | None = False
+    stop: list[str] | None = None
+    max_tokens: int | None = None
+    presence_penalty: float | None = 0.0
+    frequency_penalty: float | None = 0.0
+    logit_bias: dict[str, float] | None = None
+    user: str | None = None
+
 
 class Choice(BaseModel):
     index: int
     message: ChatMessage
-    finish_reason: Optional[str] = None
+    finish_reason: str | None = None
+
 
 class Usage(BaseModel):
-    prompt_tokens: int
-    completion_tokens: int
-    total_tokens: int
+    prompt_tokens: int | None
+    completion_tokens: int | None
+    total_tokens: int | None
+
 
 class ChatCompletionResponse(BaseModel):
     id: str
     object: str = "chat.completion"
     created: int
     model: str
-    choices: List[Choice]
-    usage: Optional[Usage] = None
-    system_fingerprint: Optional[str] = None
-    is_cached: bool = False
+    choices: list[Choice]
+    usage: Usage | None = None
+    system_fingerprint: str | None = None
+    cache_info: dict[str, Any] | None = None
