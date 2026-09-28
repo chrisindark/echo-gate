@@ -1,0 +1,11 @@
+# Python
+*.py[cod]
+*$py.class
+*.py~
+*.so
+__pycache__/
+.venv/
+venv/
+env/
+
+sqlite3.db

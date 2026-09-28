@@ -1,9 +1,11 @@
+from app.core.database import get_db, get_db_read
 from app.modules.embedding.embedding_service import EmbeddingService
 from app.modules.intent_classifier.intent_classifier_service import (
     IntentClassifierService,
 )
 from app.modules.llm.llm_provider_service import LlmProviderService
 from app.modules.llm.llm_router_service import LlmRouterService
+from app.modules.llm_usage.llm_usage_service import LlmUsageService
 from app.modules.qdrant.qdrant_service import QdrantService
 from app.modules.redis.redis_service import RedisService
 from app.modules.reranking.reranker_service import RerankerService
@@ -17,6 +19,7 @@ class DependencyContainer:
     _redis_service: RedisService | None = None
     _reranker_service: RerankerService | None = None
     _intent_classifier_service: IntentClassifierService | None = None
+    _llm_usage_service: LlmUsageService | None = None
 
     @classmethod
     async def initialize(cls) -> None:
@@ -26,6 +29,7 @@ class DependencyContainer:
         cls.get_llm_provider_service()
         await cls.get_intent_classifier_service()
         await cls.get_llm_router_service()
+        cls.get_llm_usage_service()
 
     @classmethod
     async def shutdown(cls) -> None:
@@ -96,8 +100,17 @@ class DependencyContainer:
                 redis_service=await cls.get_redis_service(),
                 reranker_service=cls.get_reranker_service(),
                 intent_classifier_service=await cls.get_intent_classifier_service(),
+                llm_usage_service=cls.get_llm_usage_service(),
             )
         return cls._llm_router_service
+
+    @classmethod
+    def get_llm_usage_service(cls) -> LlmUsageService:
+        if cls._llm_usage_service is None:
+            cls._llm_usage_service = LlmUsageService(
+                db_session=next(get_db()), db_session_read=next(get_db_read())
+            )
+        return cls._llm_usage_service
 
 
 # FastAPI Depends compatible functions
@@ -127,3 +140,7 @@ async def get_intent_classifier_service() -> IntentClassifierService:
 
 async def get_llm_router_service() -> LlmRouterService:
     return await DependencyContainer.get_llm_router_service()
+
+
+def get_llm_usage_service() -> LlmUsageService:
+    return DependencyContainer.get_llm_usage_service()

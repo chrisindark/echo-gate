@@ -10,6 +10,8 @@ from app.modules.intent_classifier.intent_classifier_service import (
 )
 from app.modules.intent_classifier.intent_schema import IntentEnum
 from app.modules.llm.llm_provider_service import LlmProviderService
+from app.modules.llm_usage.llm_usage_schema import LlmUsageLogCreate
+from app.modules.llm_usage.llm_usage_service import LlmUsageService
 from app.modules.qdrant.qdrant_service import QdrantService
 from app.modules.redis.redis_service import RedisService
 from app.modules.reranking.reranker_service import RerankerService
@@ -26,6 +28,7 @@ class LlmRouterService:
         redis_service: RedisService,
         reranker_service: RerankerService,
         intent_classifier_service: IntentClassifierService,
+        llm_usage_service: LlmUsageService,
     ) -> None:
         self.llm_provider_service = llm_provider_service
         self.embedding_service = embedding_service
@@ -33,6 +36,7 @@ class LlmRouterService:
         self.redis_service = redis_service
         self.reranker_service = reranker_service
         self.intent_classifier_service = intent_classifier_service
+        self.llm_usage_service = llm_usage_service
 
     def _generate_cache_key(self, request: ChatCompletionRequest) -> str:
         key_dict = {
@@ -50,6 +54,7 @@ class LlmRouterService:
     async def generate_completion(
         self, request: ChatCompletionRequest
     ) -> ChatCompletionResponse:
+        start_time = time.time()
         logger.info(f"Service name {request.service_name}")
         service_name = request.service_name or "ollama"
         logger.warning(f"Generating completion for service {service_name}")
@@ -344,5 +349,59 @@ class LlmRouterService:
                         )
                 except Exception as e:
                     logger.error(f"Redis or Qdrant write error: {e}")
+
+        if response:
+            try:
+                latency_ms = int((time.time() - start_time) * 1000)
+                is_cache_hit = (
+                    response.cache_info.get("cache_hit", False)
+                    if hasattr(response, "cache_info")
+                    and isinstance(response.cache_info, dict)
+                    else False
+                )
+
+                input_text = prompt_text
+                output_text = (
+                    response.choices[0].message.content if response.choices else ""
+                )
+                prompt_tokens = response.usage.prompt_tokens if response.usage else 0
+                completion_tokens = (
+                    response.usage.completion_tokens if response.usage else 0
+                )
+                total_tokens = response.usage.total_tokens if response.usage else 0
+
+                cache_read_tokens = total_tokens if is_cache_hit else 0
+                cache_creation_tokens = 0 if is_cache_hit else total_tokens
+
+                finish_reason = None
+                if response.choices and len(response.choices) > 0:
+                    finish_reason = response.choices[0].finish_reason
+
+                log_data = LlmUsageLogCreate(
+                    service_name=service_name,
+                    model=request.model,
+                    caller_service_name="echo-gate-api",
+                    input_text=input_text,
+                    output_text=output_text,
+                    user_id=request.user,
+                    tenant_id=tenant_id,
+                    temperature=request.temperature,
+                    max_tokens=request.max_tokens,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=total_tokens,
+                    cache_read_tokens=cache_read_tokens,
+                    cache_creation_tokens=cache_creation_tokens,
+                    cost=0.0,
+                    latency_ms=latency_ms,
+                    status_code=200,
+                    is_success=True,
+                    finish_reason=finish_reason,
+                )
+
+                self.llm_usage_service.create_llm_usage_log(log_data)
+                logger.info(f"LLM usage logged successfully for {exact_hash}")
+            except Exception as e:
+                logger.error(f"Failed to log LLM usage: {e}")
 
         return response
