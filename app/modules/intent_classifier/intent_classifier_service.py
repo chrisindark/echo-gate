@@ -56,7 +56,7 @@ class IntentClassifierService:
             logger.info(
                 f"LLM provider service generated response successfully for {exact_hash}"
             )
-            content = response.choices[0].message.content
+            content = response.choices[0].message.content if response.choices else ""
             data = json.loads(content)
             intent_value = data.get("intent", IntentEnum.GENERAL_QUERY.value)
             return IntentEnum(intent_value)
