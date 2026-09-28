@@ -26,7 +26,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 BASE_DIR = Path(__file__).resolve().parent
-print(BASE_DIR)
 
 PYTHON_ENV = os.getenv("PYTHON_ENV", "local")
 

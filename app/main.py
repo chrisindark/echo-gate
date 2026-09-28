@@ -7,7 +7,6 @@ from dotenv import load_dotenv
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.database import init_db
 from app.core.dependencies import DependencyContainer
 from app.core.logger import setup_logger
 from app.core.middleware import CorrelationIdMiddleware, UserMiddleware
@@ -44,8 +43,6 @@ load_dotenv(ENV_FILE)
 logger.info(f"Loaded environment: {PYTHON_ENV}")
 
 load_dotenv()
-
-init_db()
 
 app = FastAPI(
     title="LLM Gateway",
