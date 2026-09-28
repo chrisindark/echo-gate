@@ -4,7 +4,8 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from app.modules.llm_usage.llm_usage_model import LlmUsageLog
-from app.modules.llm_usage.llm_usage_schema import LlmUsageLogCreate, LlmUsageLogUpdate
+from app.modules.llm_usage.llm_usage_schema import (LlmUsageLogCreate,
+                                                    LlmUsageLogUpdate)
 
 logger = logging.getLogger(__name__)
 

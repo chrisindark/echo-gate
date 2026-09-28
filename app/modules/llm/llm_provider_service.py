@@ -53,10 +53,12 @@ class LlmProviderService:
             logger.error(
                 f"Ollama returned HTTP error: {e.response.status_code} - {e.response.text}"
             )
-            raise HTTPException(status_code=502, detail="Ollama error")
+            raise HTTPException(
+                status_code=e.response.status_code, detail="Ollama error"
+            )
         except Exception as e:
             logger.error(f"Failed to call Ollama: {e}")
-            raise HTTPException(status_code=502, detail="Internal Gateway Error")
+            raise HTTPException(status_code=502, detail="Bad Gateway")
 
     async def generate_gemini_completion(
         self, request: ChatCompletionRequest
@@ -134,9 +136,14 @@ class LlmProviderService:
                     total_tokens=total_tokens,
                 ),
             )
+        except types.errors.APIError as e:
+            logger.error(f"Gemini API returned error: {e.code} - {e.message}")
+            raise HTTPException(
+                status_code=e.code, detail=f"Gemini API error: {e.message}"
+            )
         except Exception as e:
             logger.error(f"Failed to call Gemini API: {e}")
-            raise HTTPException(status_code=502, detail="Internal Gateway Error")
+            raise HTTPException(status_code=502, detail="Bad Gateway")
 
     async def generate_openai_completion(
         self, request: ChatCompletionRequest
@@ -171,10 +178,12 @@ class LlmProviderService:
             logger.error(
                 f"Upstream API returned HTTP error: {e.response.status_code} - {e.response.text}"
             )
-            raise HTTPException(status_code=502, detail="Upstream LLM error")
+            raise HTTPException(
+                status_code=e.response.status_code, detail="Upstream LLM error"
+            )
         except Exception as e:
             logger.error(f"Failed to call upstream LLM: {e}")
-            raise HTTPException(status_code=502, detail="Internal Gateway Error")
+            raise HTTPException(status_code=502, detail="Bad Gateway")
 
     def generate_mock_response(
         self, request: ChatCompletionRequest

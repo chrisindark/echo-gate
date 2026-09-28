@@ -1,7 +1,16 @@
+import asyncio
 import hashlib
 import json
 import logging
 import time
+
+from fastapi import HTTPException
+from tenacity import (
+    AsyncRetrying,
+    retry_if_exception,
+    stop_after_attempt,
+    wait_exponential_jitter,
+)
 
 from app.modules.chat.chat_schema import ChatCompletionRequest, ChatCompletionResponse
 from app.modules.embedding.embedding_service import EmbeddingService
@@ -10,6 +19,7 @@ from app.modules.intent_classifier.intent_classifier_service import (
 )
 from app.modules.intent_classifier.intent_schema import IntentEnum
 from app.modules.llm.llm_provider_service import LlmProviderService
+from app.modules.llm_quota.llm_quota_service import LlmQuotaService
 from app.modules.llm_usage.llm_usage_schema import LlmUsageLogCreate
 from app.modules.llm_usage.llm_usage_service import LlmUsageService
 from app.modules.qdrant.qdrant_service import QdrantService
@@ -29,6 +39,7 @@ class LlmRouterService:
         reranker_service: RerankerService,
         intent_classifier_service: IntentClassifierService,
         llm_usage_service: LlmUsageService,
+        llm_quota_service: LlmQuotaService = None,
     ) -> None:
         self.llm_provider_service = llm_provider_service
         self.embedding_service = embedding_service
@@ -37,6 +48,85 @@ class LlmRouterService:
         self.reranker_service = reranker_service
         self.intent_classifier_service = intent_classifier_service
         self.llm_usage_service = llm_usage_service
+        self.llm_quota_service = llm_quota_service
+
+    async def _call_provider_with_retry(
+        self,
+        request: ChatCompletionRequest,
+        service_name: str,
+        max_retries: int = 3,
+        timeout_seconds: float = 15.0,
+        fallback_service: str | None = "ollama",
+        fallback_model: str | None = "llama3.1:8b",
+    ) -> ChatCompletionResponse | None:
+        def is_retryable_exception(exc: BaseException) -> bool:
+            if isinstance(exc, asyncio.TimeoutError):
+                return True
+            if isinstance(exc, HTTPException):
+                if exc.status_code in (400, 401, 403, 500):
+                    return False
+                return True
+            return True
+
+        async def attempt_call(svc: str, req: ChatCompletionRequest):
+            if svc in ["gemini", "google-genai", "google genai"]:
+                return await self.llm_provider_service.generate_gemini_completion(req)
+            elif svc == "openai":
+                return await self.llm_provider_service.generate_openai_completion(req)
+            elif svc == "ollama":
+                return await self.llm_provider_service.generate_ollama_completion(req)
+            else:
+                logger.warning(f"Unknown service {svc}. Returning mock response.")
+                return self.llm_provider_service.generate_mock_response(req)
+
+        retryer = AsyncRetrying(
+            stop=stop_after_attempt(max_retries + 1)
+            if max_retries > 0
+            else stop_after_attempt(1),
+            wait=wait_exponential_jitter(initial=1, max=10),
+            retry=retry_if_exception(is_retryable_exception),
+            reraise=True,
+        )
+
+        try:
+            async for attempt in retryer:
+                with attempt:
+                    return await asyncio.wait_for(
+                        attempt_call(service_name, request), timeout=timeout_seconds
+                    )
+            return None  # Should not be reached
+        except Exception as e:
+            if isinstance(e, HTTPException) and e.status_code in (400, 401, 403, 500):
+                logger.error(
+                    f"Fatal error {e.status_code} from {service_name}. Failing immediately."
+                )
+                raise e
+
+            if fallback_service:
+                logger.warning(
+                    f"Primary service {service_name} failed. Attempting fallback {fallback_service}."
+                )
+                fallback_req = request.model_copy(deep=True)
+                if fallback_model:
+                    fallback_req.model = fallback_model
+
+                try:
+                    return await asyncio.wait_for(
+                        attempt_call(fallback_service, fallback_req),
+                        timeout=timeout_seconds,
+                    )
+                except Exception as fallback_e:
+                    logger.error(
+                        f"Fallback service {fallback_service} failed: {fallback_e}"
+                    )
+                    raise HTTPException(status_code=503, detail="Service Unavailable")
+            else:
+                logger.error(
+                    f"Primary service {service_name} failed and no fallback configured: {e}"
+                )
+                if isinstance(e, HTTPException):
+                    raise e
+                raise HTTPException(status_code=503, detail="Service Unavailable")
 
     def _generate_cache_key(self, request: ChatCompletionRequest) -> str:
         key_dict = {
@@ -52,7 +142,7 @@ class LlmRouterService:
         return hashlib.sha256(key_str.encode()).hexdigest()
 
     async def generate_completion(
-        self, request: ChatCompletionRequest
+        self, request: ChatCompletionRequest, api_key: str = None
     ) -> ChatCompletionResponse:
         start_time = time.time()
         logger.info(f"Service name {request.service_name}")
@@ -138,7 +228,7 @@ class LlmRouterService:
                 # 3. Try Semantic Match if Exact misses
                 if not cached_payload:
                     intent = await self.intent_classifier_service.classify_intent(
-                        prompt_text
+                        request
                     )
                     logger.info(
                         f"Classified intent for prompt {exact_hash}: {intent.value}"
@@ -251,23 +341,14 @@ class LlmRouterService:
                 logger.error(f"Qdrant Database read error: {e}")
 
         if not response:
-            if service_name in ["gemini", "google-genai", "google genai"]:
-                response = await self.llm_provider_service.generate_gemini_completion(
-                    request
-                )
-            elif service_name == "openai":
-                response = await self.llm_provider_service.generate_openai_completion(
-                    request
-                )
-            elif service_name == "ollama":
-                response = await self.llm_provider_service.generate_ollama_completion(
-                    request
-                )
-            else:
-                logger.warning(
-                    f"Unknown service {service_name}. Returning mock response."
-                )
-                response = self.llm_provider_service.generate_mock_response(request)
+            response = await self._call_provider_with_retry(
+                request=request,
+                service_name=service_name,
+                max_retries=3,
+                timeout_seconds=15.0,
+                fallback_service="ollama",
+                fallback_model="llama3.1:8b",
+            )
 
             if response and response.choices:
                 try:
@@ -289,7 +370,7 @@ class LlmRouterService:
                             # Classify the intent of the prompt using the IntentClassifierService if not already done
                             if intent is None:
                                 intent = await self.intent_classifier_service.classify_intent(
-                                    prompt_text
+                                    request
                                 )
                                 logger.info(
                                     f"Classified intent for prompt {exact_hash}: {intent.value}"
@@ -401,6 +482,19 @@ class LlmRouterService:
 
                 self.llm_usage_service.create_llm_usage_log(log_data)
                 logger.info(f"LLM usage logged successfully for {exact_hash}")
+
+                # Record tokens for TPM limit
+                if self.llm_quota_service and api_key and total_tokens > 0:
+                    try:
+                        await self.llm_quota_service.record_tokens(
+                            api_key=api_key,
+                            total_tokens=total_tokens,
+                            provider=service_name,
+                            model=request.model,
+                            user=request.user,
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to record TPM usage: {e}")
             except Exception as e:
                 logger.error(f"Failed to log LLM usage: {e}")
 

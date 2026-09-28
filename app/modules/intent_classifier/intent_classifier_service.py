@@ -15,7 +15,24 @@ class IntentClassifierService:
         self.model = "qwen2.5-coder:1.5b"  # default fast model
         self.llm_provider_service = llm_provider_service
 
-    async def classify_intent(self, prompt_text: str) -> IntentEnum:
+    def _generate_cache_key(self, request: ChatCompletionRequest) -> str:
+        key_dict = {
+            "service_name": request.service_name,
+            "model": request.model,
+            "temperature": request.temperature,
+            "tenant_id": request.user or "anonymous",
+            "messages": [
+                {"role": msg.role, "content": msg.content} for msg in request.messages
+            ],
+        }
+        key_str = json.dumps(key_dict, sort_keys=True)
+        return hashlib.sha256(key_str.encode()).hexdigest()
+
+    async def classify_intent(self, request: ChatCompletionRequest) -> IntentEnum:
+        prompt_text = "\n".join(
+            [f"{msg.role}: {msg.content}" for msg in request.messages]
+        )
+        prompt_text = f"model:{request.model}|{prompt_text}"
         enums_list = [e.value for e in IntentEnum]
 
         system_msg = (
@@ -54,7 +71,7 @@ class IntentClassifierService:
                 request
             )
             logger.info(
-                f"LLM provider service generated response successfully for {exact_hash}"
+                f"LLM classifier service generated response successfully for {exact_hash}"
             )
             content = response.choices[0].message.content if response.choices else ""
             data = json.loads(content)
