@@ -63,7 +63,7 @@ class LlmRouterService:
             if isinstance(exc, asyncio.TimeoutError):
                 return True
             if isinstance(exc, HTTPException):
-                if exc.status_code in (400, 401, 403, 500):
+                if exc.status_code in (400, 401, 403, 500, 502, 503, 504):
                     return False
                 return True
             return True
@@ -73,6 +73,12 @@ class LlmRouterService:
                 return await self.llm_provider_service.generate_gemini_completion(req)
             elif svc == "openai":
                 return await self.llm_provider_service.generate_openai_completion(req)
+            elif svc == "groq":
+                return await self.llm_provider_service.generate_groq_completion(req)
+            elif svc == "openrouter":
+                return await self.llm_provider_service.generate_openrouter_completion(
+                    req
+                )
             elif svc == "ollama":
                 return await self.llm_provider_service.generate_ollama_completion(req)
             else:

@@ -25,6 +25,11 @@ class LlmProviderService:
         self.openai_base_url: str = "https://api.openai.com/v1/chat/completions"
         self.gemini_api_key: str | None = os.getenv("GEMINI_API_KEY")
         self.ollama_base_url: str = os.getenv("OLLAMA_URL", "http://localhost:11434")
+        
+        self.groq_api_key: str | None = os.getenv("GROQ_API_KEY")
+        self.groq_base_url: str = "https://api.groq.com/openai/v1/chat/completions"
+        self.openrouter_api_key: str | None = os.getenv("OPENROUTER_API_KEY")
+        self.openrouter_base_url: str = "https://openrouter.ai/api/v1/chat/completions"
 
         self.gemini_client = None
         if genai and self.gemini_api_key:
@@ -164,7 +169,7 @@ class LlmProviderService:
 
         try:
             async with httpx.AsyncClient() as client:
-                logger.info(f"Forwarding request to upstream LLM ({request.model})...")
+                logger.info(f"Forwarding request to upstream OpenAI ({request.model})...")
                 response = await client.post(
                     self.openai_base_url,
                     json=payload_data,
@@ -183,6 +188,88 @@ class LlmProviderService:
             )
         except Exception as e:
             logger.error(f"Failed to call upstream LLM: {e}")
+            raise HTTPException(status_code=502, detail="Bad Gateway")
+
+    async def generate_groq_completion(
+        self, request: ChatCompletionRequest
+    ) -> ChatCompletionResponse:
+        if not self.groq_api_key:
+            logger.warning("No GROQ_API_KEY set. Returning mock response.")
+            return self.generate_mock_response(request)
+
+        headers: dict[str, str] = {
+            "Authorization": f"Bearer {self.groq_api_key}",
+            "Content-Type": "application/json",
+        }
+
+        # Remove service_name before sending
+        payload_data = request.model_dump(exclude_unset=True)
+        if "service_name" in payload_data:
+            del payload_data["service_name"]
+
+        try:
+            async with httpx.AsyncClient() as client:
+                logger.info(f"Forwarding request to upstream Groq ({request.model})...")
+                response = await client.post(
+                    self.groq_base_url,
+                    json=payload_data,
+                    headers=headers,
+                    timeout=60.0,
+                )
+                response.raise_for_status()
+                data = response.json()
+                return ChatCompletionResponse(**data)
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                f"Groq API returned HTTP error: {e.response.status_code} - {e.response.text}"
+            )
+            raise HTTPException(
+                status_code=e.response.status_code, detail="Groq LLM error"
+            )
+        except Exception as e:
+            logger.error(f"Failed to call Groq LLM: {e}")
+            raise HTTPException(status_code=502, detail="Bad Gateway")
+
+    async def generate_openrouter_completion(
+        self, request: ChatCompletionRequest
+    ) -> ChatCompletionResponse:
+        if not self.openrouter_api_key:
+            logger.warning("No OPENROUTER_API_KEY set. Returning mock response.")
+            return self.generate_mock_response(request)
+
+        headers: dict[str, str] = {
+            "Authorization": f"Bearer {self.openrouter_api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com/chrisindark/echo-gate", # Optional but recommended by openrouter
+            "X-Title": "Echo Gate", # Optional
+        }
+
+        # Remove service_name before sending
+        payload_data = request.model_dump(exclude_unset=True)
+        if "service_name" in payload_data:
+            del payload_data["service_name"]
+
+        try:
+            async with httpx.AsyncClient() as client:
+                logger.info(f"Forwarding request to upstream OpenRouter ({request.model})...")
+                response = await client.post(
+                    self.openrouter_base_url,
+                    json=payload_data,
+                    headers=headers,
+                    timeout=60.0,
+                )
+                response.raise_for_status()
+                data = response.json()
+                return ChatCompletionResponse(**data)
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                f"OpenRouter API returned HTTP error: {e.response.status_code} - {e.response.text}"
+            )
+            raise HTTPException(
+                status_code=e.response.status_code, detail="OpenRouter LLM error"
+            )
+        except Exception as e:
+            logger.error(f"Failed to call OpenRouter LLM: {e}")
             raise HTTPException(status_code=502, detail="Bad Gateway")
 
     def generate_mock_response(

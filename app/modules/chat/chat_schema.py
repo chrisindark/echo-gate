@@ -1,6 +1,39 @@
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
+
+ALLOWED_MODELS = {
+    "ollama": [
+        "llama3.1:8b",
+        "qwen2.5-coder:14b",
+        "qwen2.5-coder:1.5b",
+        "qwen2.5-coder:7b",
+    ],
+    "gemini": [
+        "gemini-3.1-flash-lite",
+        "gemini-3.5-flash-lite",
+        "gemini-3.8-flash",
+    ],
+    "google-genai": [
+        "gemini-3.1-flash-lite",
+        "gemini-3.5-flash-lite",
+        "gemini-3.8-flash",
+    ],
+    "google genai": [
+        "gemini-3.1-flash-lite",
+        "gemini-3.5-flash-lite",
+        "gemini-3.8-flash",
+    ],
+    "openai": [
+        "gpt-4o-mini",
+    ],
+    "groq": ["openai/gpt-oss-20b", "openai/gpt-oss-safeguard-20b"],
+    "openrouter": [
+        "qwen/qwen3.8-27b:free",
+        "google/gemma-4-26b-a4b-it:free",
+        "google/gemma-4-31b-it:free",
+    ],
+}
 
 
 class ChatMessage(BaseModel):
@@ -24,6 +57,16 @@ class ChatCompletionRequest(BaseModel):
     user: str | None = None
     response_format: dict | None = None
 
+    @model_validator(mode="after")
+    def validate_model_for_service(self) -> "ChatCompletionRequest":
+        service = self.service_name or "ollama"
+        if service in ALLOWED_MODELS:
+            if self.model not in ALLOWED_MODELS[service]:
+                allowed = ", ".join(ALLOWED_MODELS[service])
+                raise ValueError(
+                    f"Model '{self.model}' is not allowed for provider '{service}'. Allowed models are: {allowed}"
+                )
+        return self
 
 
 class Choice(BaseModel):
