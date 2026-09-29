@@ -174,8 +174,8 @@ class LlmRouterService:
         # Set created_at and expires_at timestamps for the cache entry
         now = int(time.time())
         created_at = now
-        # Set expiration to 1 day ago for filtering out old cache entries
-        expires_at = now - (1 * 24 * 60 * 60)
+        # Set expiration to 1 day in the future (can be dynamic later based on intent/entities)
+        expires_at = now + (1 * 24 * 60 * 60)
 
         # 1. Try exact match from Redis first
         if self.redis_service:
@@ -252,8 +252,7 @@ class LlmRouterService:
                         "cacheable": True,
                         "cache_key_version": "v1",
                         "intent": intent.value,
-                        # "temperature": request.temperature, # float values can be tricky to filter on; consider rounding or using a range if needed
-                        # "expires_at": expires_at, # filtering out expired entries; ensure your Qdrant collection has this field indexed and uses range filtering if needed
+                        "expires_at": {"gte": now},
                     }
                     # Set a threshold for semantic similarity; bumped to 0.95 for strict caching
                     threshold = 0.95
@@ -287,8 +286,9 @@ class LlmRouterService:
                         # Semantic constraints
                         top_prompt = top_match["payload"].get("prompt", "")
 
-                        # Determine if the top match is accepted based on a rerank score threshold and semantic rules
-                        is_accepted = rerank_score > rerank_threshold
+                        # We record the best matched result's score but hit the LLM irrespective
+                        # because it's a new service and chances of similarities > 0.95 for different intents are high.
+                        is_accepted = False
                         base_cache_info = {
                             "query": prompt_text,
                             "top_1_score": matched_score,

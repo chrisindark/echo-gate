@@ -108,10 +108,13 @@ class QdrantService:
         try:
             query_filter = None
             if filter_payload:
-                must_conditions = [
-                    models.FieldCondition(key=k, match=models.MatchValue(value=v))
-                    for k, v in filter_payload.items()
-                ]
+                must_conditions = []
+                for k, v in filter_payload.items():
+                    if isinstance(v, dict):
+                        # Support range filters like {"gte": 123}
+                        must_conditions.append(models.FieldCondition(key=k, range=models.Range(**v)))
+                    else:
+                        must_conditions.append(models.FieldCondition(key=k, match=models.MatchValue(value=v)))
                 query_filter = models.Filter(must=must_conditions)
 
             results = self.client.query_points(
