@@ -4,9 +4,26 @@
 *.py~
 *.so
 __pycache__/
+
+# Model Caches (e.g., from Hugging Face, PyTorch, or other AI libraries)
+.model_cache/
+.cache/
+*.pt
+*.pth
+
+# Virtual Environments
 .venv/
 venv/
+ENV/
 env/
+
+# IDE and OS configs
+.vscode/
+.idea/
+.DS_Store
+
+# SQLite Database
+sqlite3.db
 
 # Environment variables
 .env

@@ -54,18 +54,21 @@ class ChatCompletionRequest(BaseModel):
     presence_penalty: float | None = 0.0
     frequency_penalty: float | None = 0.0
     logit_bias: dict[str, float] | None = None
-    user: str | None = None
+    user: dict[str, Any] | None = None
+    user_id: str | None = None
+    tenant_id: str | None = None
+    session_id: str | None = None
+    conversation_id: str | None = None
     response_format: dict | None = None
 
     @model_validator(mode="after")
     def validate_model_for_service(self) -> "ChatCompletionRequest":
         service = self.service_name or "ollama"
-        if service in ALLOWED_MODELS:
-            if self.model not in ALLOWED_MODELS[service]:
-                allowed = ", ".join(ALLOWED_MODELS[service])
-                raise ValueError(
-                    f"Model '{self.model}' is not allowed for provider '{service}'. Allowed models are: {allowed}"
-                )
+        if service in ALLOWED_MODELS and self.model not in ALLOWED_MODELS[service]:
+            allowed = ", ".join(ALLOWED_MODELS[service])
+            raise ValueError(
+                f"Model '{self.model}' is not allowed for provider '{service}'. Allowed models are: {allowed}"
+            )
         return self
 
 

@@ -1,6 +1,7 @@
 import csv
 import json
 import os
+import time
 
 import httpx
 
@@ -9,8 +10,7 @@ API_URL = os.getenv(
     "http://localhost:8000/api/v1/chat/completions",
 )
 RESULTS_CSV = os.getenv("ECHO_GATE_RESULTS_CSV", "send_prompt_results.csv")
-SIMILARITY_THRESHOLD = 0.90
-# TENANT_ID = str(uuid.uuid4())
+API_KEY = "development"
 TENANT_ID = "74140c21-bf4b-4dec-84ac-98c1b573f764"
 
 THRESHOLD_TESTS = [
@@ -139,6 +139,7 @@ THRESHOLD_TESTS = [
 REQUESTS = [
     {
         "index": 0,
+        "canonical_id": "0",
         "model": "gemini-3.1-flash-lite",
         "service_name": "google-genai",
         "messages": [
@@ -155,6 +156,7 @@ REQUESTS = [
     },
     {
         "index": 1,
+        "canonical_id": "1",
         "model": "gemini-3.1-flash-lite",
         "service_name": "google-genai",
         "messages": [
@@ -171,6 +173,7 @@ REQUESTS = [
     },
     {
         "index": 2,
+        "canonical_id": "2",
         "model": "gemini-3.1-flash-lite",
         "service_name": "google-genai",
         "messages": [
@@ -187,6 +190,7 @@ REQUESTS = [
     },
     {
         "index": 3,
+        "canonical_id": "3",
         "model": "gemini-3.1-flash-lite",
         "service_name": "google-genai",
         "messages": [
@@ -203,6 +207,7 @@ REQUESTS = [
     },
     {
         "index": 4,
+        "canonical_id": "4",
         "model": "gemini-3.1-flash-lite",
         "service_name": "google-genai",
         "messages": [
@@ -219,6 +224,7 @@ REQUESTS = [
     },
     {
         "index": 5,
+        "canonical_id": "5",
         "model": "gemini-3.1-flash-lite",
         "service_name": "google-genai",
         "messages": [
@@ -235,6 +241,7 @@ REQUESTS = [
     },
     {
         "index": 6,
+        "canonical_id": "6",
         "model": "gemini-3.1-flash-lite",
         "service_name": "google-genai",
         "messages": [
@@ -251,6 +258,7 @@ REQUESTS = [
     },
     {
         "index": 7,
+        "canonical_id": "7",
         "model": "gemini-3.1-flash-lite",
         "service_name": "google-genai",
         "messages": [
@@ -267,6 +275,7 @@ REQUESTS = [
     },
     {
         "index": 8,
+        "canonical_id": "8",
         "model": "gemini-3.1-flash-lite",
         "service_name": "google-genai",
         "messages": [
@@ -283,6 +292,7 @@ REQUESTS = [
     },
     {
         "index": 9,
+        "canonical_id": "9",
         "model": "gemini-3.1-flash-lite",
         "service_name": "google-genai",
         "messages": [
@@ -299,6 +309,7 @@ REQUESTS = [
     },
     {
         "index": 10,
+        "canonical_id": "10",
         "model": "gemini-3.1-flash-lite",
         "service_name": "google-genai",
         "messages": [
@@ -315,6 +326,7 @@ REQUESTS = [
     },
     {
         "index": 11,
+        "canonical_id": "11",
         "model": "gemini-3.1-flash-lite",
         "service_name": "google-genai",
         "messages": [
@@ -331,6 +343,7 @@ REQUESTS = [
     },
     {
         "index": 12,
+        "canonical_id": "12",
         "model": "gemini-3.1-flash-lite",
         "service_name": "google-genai",
         "messages": [
@@ -347,6 +360,7 @@ REQUESTS = [
     },
     {
         "index": 13,
+        "canonical_id": "13",
         "model": "gemini-3.1-flash-lite",
         "service_name": "google-genai",
         "messages": [
@@ -363,6 +377,7 @@ REQUESTS = [
     },
     {
         "index": 14,
+        "canonical_id": "14",
         "model": "gemini-3.1-flash-lite",
         "service_name": "google-genai",
         "messages": [
@@ -379,6 +394,7 @@ REQUESTS = [
     },
     {
         "index": 15,
+        "canonical_id": "15",
         "model": "gemini-3.1-flash-lite",
         "service_name": "google-genai",
         "messages": [
@@ -395,6 +411,7 @@ REQUESTS = [
     },
     {
         "index": 16,
+        "canonical_id": "16",
         "model": "gemini-3.1-flash-lite",
         "service_name": "google-genai",
         "messages": [
@@ -417,8 +434,7 @@ REQUESTS.extend(
         "test_id": test["test_id"],
         "canonical_id": test["canonical_id"],
         "expected_match": test["expected_match"],
-        "threshold": SIMILARITY_THRESHOLD,
-        "model": "gemini-3.1-flash-lite",
+        "model": "gemini-3.5-flash-lite",
         "service_name": "google-genai",
         "messages": [
             {
@@ -439,7 +455,6 @@ def main() -> None:
         "test_id",
         "canonical_id",
         "expected_match",
-        "threshold",
         "prompt",
         "http_status",
         "x_cache",
@@ -457,29 +472,34 @@ def main() -> None:
         with httpx.Client(timeout=120.0) as client:
             for index, payload in enumerate(REQUESTS, start=1):
                 print(f"\n--- Request {index}/{len(REQUESTS)} ---")
+                prompt = next(
+                    (
+                        message["content"]
+                        for message in payload["messages"]
+                        if message["role"] == "user"
+                    ),
+                    "",
+                )
                 row = {
                     "index": index,
                     "test_id": payload.get("test_id", ""),
                     "canonical_id": payload.get("canonical_id", ""),
                     "expected_match": payload.get("expected_match", ""),
-                    "threshold": SIMILARITY_THRESHOLD if payload.get("test_id") else "",
-                    "prompt": next(
-                        (
-                            message["content"]
-                            for message in payload["messages"]
-                            if message["role"] == "user"
-                        ),
-                        "",
-                    ),
+                    "prompt": prompt,
                 }
+
+                print(f"Testing: [{payload['canonical_id']}] -> {prompt[:50]}...")
                 try:
                     response = client.post(
-                        API_URL, json=payload, headers={"x-tenant-id": TENANT_ID}
+                        API_URL,
+                        json=payload,
+                        headers={"x-api-key": API_KEY, "x-tenant-id": TENANT_ID},
                     )
                 except httpx.HTTPError as error:
                     row["error"] = str(error)
                     writer.writerow(row)
                     print(f"Request failed: {error}")
+                    time.sleep(4.2)
                     continue
 
                 print(f"HTTP status: {response.status_code}")
@@ -496,12 +516,13 @@ def main() -> None:
                         "accepted", cache_info.get("cache_hit", "")
                     )
                     row["response"] = json.dumps(response_data, ensure_ascii=False)
-                    print(json.dumps(response_data, indent=2))
+                    print(f"  -> Actual: {row['actual_match']}")
                 except ValueError:
                     row["response"] = response.text
                     print(response.text)
 
                 writer.writerow(row)
+                time.sleep(4.2)
 
     print(f"\nResults written to {RESULTS_CSV}")
 

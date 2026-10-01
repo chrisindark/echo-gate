@@ -30,7 +30,7 @@ class CorrelationIdMiddleware:
 
         # Set the correlation ID in the context variable
         correlation_id_ctx_var.set(correlation_id)
-        
+
         start_time = time.time()
         status_code = 500
 
@@ -54,18 +54,19 @@ class CorrelationIdMiddleware:
                 method = scope.get("method", "")
                 path = scope.get("path", "")
                 http_version = scope.get("http_version", "1.1")
-                
+
                 logger.info(
                     f'{client_ip} - "{method} {path} HTTP/{http_version}" {status_code} '
-                    f'({process_time:.3f}s)'
+                    f"({process_time:.3f}s)"
                 )
 
 
 class UserMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        # Fallback to session ID from headers or tenant ID if no user is provided
+        # Fallback to session ID from headers or tenant ID if no user ID is provided
         user = (
-            request.headers.get("x-session-id")
+            request.headers.get("x-user-id")
+            or request.headers.get("x-session-id")
             or request.headers.get("x-tenant-id")
             or "anonymous"
         )

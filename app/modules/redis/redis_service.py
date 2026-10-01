@@ -18,8 +18,8 @@ class RedisService:
         try:
             if await self.redis.ping():
                 logger.info("Redis connection is successful")
-        except aioredis.ConnectionError:
-            logger.info("Error in Redis connection")
+        except aioredis.ConnectionError as e:
+            logger.error(f"Error in Redis connection: {e}")
 
     async def get(self, key: str) -> str | None:
         """Retrieve an exact match from Redis cache."""

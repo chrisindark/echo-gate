@@ -99,6 +99,16 @@ class LlmProviderService:
         if system_instruction:
             config_kwargs["system_instruction"] = system_instruction
 
+        if request.response_format:
+            response_format_type = request.response_format.get("type")
+            if response_format_type == "json_object":
+                config_kwargs["response_mime_type"] = "application/json"
+            elif response_format_type == "json_schema":
+                config_kwargs["response_mime_type"] = "application/json"
+                schema = request.response_format.get("json_schema", {}).get("schema")
+                if schema:
+                    config_kwargs["response_json_schema"] = schema
+
         config = types.GenerateContentConfig(**config_kwargs)
 
         try:
