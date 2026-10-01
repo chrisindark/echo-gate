@@ -13,7 +13,7 @@ Redis exact matches and Qdrant semantic matches with embeddings/reranking.
 ## Where To Work
 
 - App/lifespan/routers: `app/main.py`
-- Shared dependencies: `app/core/dependencies.py`
+- Shared modules: `app/core`
 - API modules: `app/modules/<feature>/`
 - Cache and provider orchestration: `app/modules/llm/llm_router_service.py`
 - Provider adapters: `app/modules/llm/llm_provider_service.py`

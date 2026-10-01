@@ -4,8 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.dependencies import get_embedding_service, get_qdrant_service
 from app.modules.embedding.embedding_service import EmbeddingService
-from app.modules.qdrant.qdrant_schema import (QdrantSearchRequest,
-                                              QdrantSearchResponse)
+from app.modules.qdrant.qdrant_schema import QdrantSearchRequest, QdrantSearchResponse
 from app.modules.qdrant.qdrant_service import QdrantService
 
 logger = logging.getLogger(__name__)
@@ -23,8 +22,21 @@ async def search_qdrant(
     Search the Qdrant service using semantic similarity.
     """
     try:
-        # Get the embedding for the query text
-        vector = await embedder.get_embedding_async(request.query_text)
+        system_prompt_vector = None
+        system_prompt_sparse = None
+        user_prompt_vector = None
+        user_prompt_sparse = None
+
+        system_prompt = next((m.content for m in request.messages if m.role == "system"), None)
+        user_prompt = next((m.content for m in request.messages if m.role == "user"), None)
+
+        if system_prompt:
+            system_prompt_vector = await embedder.get_embedding_async(system_prompt)
+            system_prompt_sparse = embedder.get_sparse_embedding(system_prompt)
+
+        if user_prompt:
+            user_prompt_vector = await embedder.get_embedding_async(user_prompt)
+            user_prompt_sparse = embedder.get_sparse_embedding(user_prompt)
 
         # Prepare filter if provided
         filter_payload = None
@@ -33,7 +45,11 @@ async def search_qdrant(
 
         # Search Qdrant
         result_payload = qdrantService.query_points(
-            vector=vector, filter_payload=filter_payload
+            system_prompt_vector=system_prompt_vector,
+            system_prompt_sparse=system_prompt_sparse,
+            user_prompt_vector=user_prompt_vector,
+            user_prompt_sparse=user_prompt_sparse,
+            filter_payload=filter_payload
         )
 
         if result_payload:

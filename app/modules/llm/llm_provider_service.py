@@ -25,7 +25,7 @@ class LlmProviderService:
         self.openai_base_url: str = "https://api.openai.com/v1/chat/completions"
         self.gemini_api_key: str | None = os.getenv("GEMINI_API_KEY")
         self.ollama_base_url: str = os.getenv("OLLAMA_URL", "http://localhost:11434")
-        
+
         self.groq_api_key: str | None = os.getenv("GROQ_API_KEY")
         self.groq_base_url: str = "https://api.groq.com/openai/v1/chat/completions"
         self.openrouter_api_key: str | None = os.getenv("OPENROUTER_API_KEY")
@@ -179,7 +179,9 @@ class LlmProviderService:
 
         try:
             async with httpx.AsyncClient() as client:
-                logger.info(f"Forwarding request to upstream OpenAI ({request.model})...")
+                logger.info(
+                    f"Forwarding request to upstream OpenAI ({request.model})..."
+                )
                 response = await client.post(
                     self.openai_base_url,
                     json=payload_data,
@@ -250,8 +252,8 @@ class LlmProviderService:
         headers: dict[str, str] = {
             "Authorization": f"Bearer {self.openrouter_api_key}",
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/chrisindark/echo-gate", # Optional but recommended by openrouter
-            "X-Title": "Echo Gate", # Optional
+            "HTTP-Referer": "https://github.com/chrisindark/echo-gate",  # Optional but recommended by openrouter
+            "X-Title": "Echo Gate",  # Optional
         }
 
         # Remove service_name before sending
@@ -261,7 +263,9 @@ class LlmProviderService:
 
         try:
             async with httpx.AsyncClient() as client:
-                logger.info(f"Forwarding request to upstream OpenRouter ({request.model})...")
+                logger.info(
+                    f"Forwarding request to upstream OpenRouter ({request.model})..."
+                )
                 response = await client.post(
                     self.openrouter_base_url,
                     json=payload_data,

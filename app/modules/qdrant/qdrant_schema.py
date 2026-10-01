@@ -12,8 +12,10 @@ class CacheScope(str, Enum):
     CONVERSATION = "CONVERSATION"
 
 
+from app.modules.chat.chat_schema import ChatMessage
+
 class QdrantSearchRequest(BaseModel):
-    query_text: str
+    messages: list[ChatMessage]
     threshold: float = 0.90
     model_filter: str | None = None
 

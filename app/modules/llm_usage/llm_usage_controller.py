@@ -5,9 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db, get_db_read
-from app.modules.llm_usage.llm_usage_schema import (LlmUsageLogCreate,
-                                                    LlmUsageLogResponse,
-                                                    LlmUsageLogUpdate)
+from app.modules.llm_usage.llm_usage_schema import (
+    LlmUsageLogCreate,
+    LlmUsageLogResponse,
+    LlmUsageLogUpdate,
+)
 from app.modules.llm_usage.llm_usage_service import LlmUsageService
 
 logger = logging.getLogger(__name__)
