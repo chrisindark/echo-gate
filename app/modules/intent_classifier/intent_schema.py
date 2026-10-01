@@ -1,5 +1,7 @@
 from enum import Enum
+
 from pydantic import BaseModel, Field
+
 
 class IntentEnum(str, Enum):
     CODE_GENERATION = "code_generation"
@@ -20,11 +22,12 @@ class IntentEnum(str, Enum):
     PRODUCT_INFO = "product_info"
     FACTUAL_STATIC = "factual_static"
 
+
 class IntentClassificationResult(BaseModel):
     intent: IntentEnum
     time_sensitivity: float = Field(
-        ..., 
+        ...,
         description="Score between 0.0 (static) and 1.0 (highly time-sensitive)",
-        ge=0.0, 
-        le=1.0
+        ge=0.0,
+        le=1.0,
     )

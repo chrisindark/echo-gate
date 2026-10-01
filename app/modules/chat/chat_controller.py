@@ -1,18 +1,18 @@
 import logging
 
 from fastapi import APIRouter, Depends, Request, Response
+from pydantic import BaseModel
 
 from app.core.dependencies import get_llm_router_service
 from app.core.guard import llm_quota_guard
 from app.modules.chat.chat_schema import ChatCompletionRequest, ChatCompletionResponse
 from app.modules.llm.llm_router_service import LlmRouterService
-from pydantic import BaseModel
+
 
 class CacheSavePayload(BaseModel):
     request: ChatCompletionRequest
     response: ChatCompletionResponse
 
-from app.modules.llm.llm_router_service import LlmRouterService
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +53,7 @@ async def create_chat_completion(
 
     return llm_response
 
+
 @api_v1_router.post(
     "/completions/semantic-search",
     response_model=dict,
@@ -66,17 +67,22 @@ async def semantic_search(
     Test endpoint for semantic search only.
     """
     if not request.user:
-        request.user = getattr(http_request.state, "user", None) or http_request.headers.get("X-User-ID")
+        request.user = getattr(
+            http_request.state, "user", None
+        ) or http_request.headers.get("X-User-ID")
     request.tenant_id = request.tenant_id or http_request.headers.get("X-Tenant-ID")
     request.session_id = request.session_id or http_request.headers.get("X-Session-ID")
-    request.conversation_id = request.conversation_id or http_request.headers.get("X-Conversation-ID")
+    request.conversation_id = request.conversation_id or http_request.headers.get(
+        "X-Conversation-ID"
+    )
 
     result = await llmService.evaluate_semantic_cache(request)
-    
+
     if result.get("intent"):
         result["intent"] = result["intent"].value
-    
+
     return result
+
 
 @api_v1_router.post(
     "/completions/exact-search",
@@ -91,13 +97,18 @@ async def exact_search(
     Test endpoint for exact search only.
     """
     if not request.user:
-        request.user = getattr(http_request.state, "user", None) or http_request.headers.get("X-User-ID")
+        request.user = getattr(
+            http_request.state, "user", None
+        ) or http_request.headers.get("X-User-ID")
     request.tenant_id = request.tenant_id or http_request.headers.get("X-Tenant-ID")
     request.session_id = request.session_id or http_request.headers.get("X-Session-ID")
-    request.conversation_id = request.conversation_id or http_request.headers.get("X-Conversation-ID")
+    request.conversation_id = request.conversation_id or http_request.headers.get(
+        "X-Conversation-ID"
+    )
 
     payload, point_id = await llmService.get_exact_match(request)
     return {"payload": payload, "point_id": point_id}
+
 
 @api_v1_router.post(
     "/completions/cache-save",
@@ -115,10 +126,14 @@ async def cache_save(
     response = payload.response
 
     if not request.user:
-        request.user = getattr(http_request.state, "user", None) or http_request.headers.get("X-User-ID")
+        request.user = getattr(
+            http_request.state, "user", None
+        ) or http_request.headers.get("X-User-ID")
     request.tenant_id = request.tenant_id or http_request.headers.get("X-Tenant-ID")
     request.session_id = request.session_id or http_request.headers.get("X-Session-ID")
-    request.conversation_id = request.conversation_id or http_request.headers.get("X-Conversation-ID")
+    request.conversation_id = request.conversation_id or http_request.headers.get(
+        "X-Conversation-ID"
+    )
 
     point_id = await llmService.save_to_cache(request=request, response=response)
     return {"point_id": point_id}

@@ -1,10 +1,11 @@
 import logging
 import os
-from app.core.config import EMBEDDING_MODEL_NAME
 
 import httpx
 from fastembed import SparseTextEmbedding
 from sentence_transformers import SentenceTransformer
+
+from app.core.config import EMBEDDING_MODEL_NAME
 
 logger = logging.getLogger(__name__)
 

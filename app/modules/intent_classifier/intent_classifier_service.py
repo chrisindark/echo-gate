@@ -1,8 +1,8 @@
 import hashlib
 import json
 import logging
-from app.core.config import INTENT_CLASSIFIER_MODEL, INTENT_CLASSIFIER_SERVICE
 
+from app.core.config import INTENT_CLASSIFIER_MODEL, INTENT_CLASSIFIER_SERVICE
 from app.modules.chat.chat_schema import ChatCompletionRequest, ChatMessage
 from app.modules.intent_classifier.intent_schema import (
     IntentClassificationResult,
