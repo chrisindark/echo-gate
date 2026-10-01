@@ -4,7 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.dependencies import get_embedding_service, get_qdrant_service
 from app.modules.embedding.embedding_service import EmbeddingService
-from app.modules.qdrant.qdrant_schema import QdrantSearchRequest, QdrantSearchResponse
+from app.modules.qdrant.qdrant_schema import (QdrantSearchRequest,
+                                              QdrantSearchResponse)
 from app.modules.qdrant.qdrant_service import QdrantService
 
 logger = logging.getLogger(__name__)

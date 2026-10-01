@@ -18,8 +18,8 @@ class RedisService:
         try:
             if await self.redis.ping():
                 logger.info("Redis connection is successful")
-        except aioredis.ConnectionError:
-            logger.info("Error in Redis connection")
+        except aioredis.ConnectionError as e:
+            logger.error(f"Error in Redis connection: {e}")
 
     async def get(self, key: str) -> str | None:
         """Retrieve an exact match from Redis cache."""
@@ -49,8 +49,42 @@ class RedisService:
         """Close Redis connection."""
         await self.redis.close()
 
-    async def incr(self, key: str):
-        raise NotImplementedError
-
     async def expire(self, key: str, seconds: int):
-        raise NotImplementedError
+        try:
+            return await self.redis.expire(key, seconds)
+        except Exception as e:
+            logger.error(f"Failed to expire key in Redis: {e}")
+
+        return None
+
+    async def incr(self, key: str):
+        try:
+            return await self.redis.incr(key)
+        except Exception as e:
+            logger.error(f"Failed to increment key in Redis: {e}")
+
+        return None
+
+    async def incrby(self, key: str, amount: int):
+        try:
+            return await self.redis.incrby(key, amount)
+        except Exception as e:
+            logger.error(f"Failed to increment key in Redis: {e}")
+
+        return None
+
+    async def decr(self, key: str):
+        try:
+            return await self.redis.decr(key)
+        except Exception as e:
+            logger.error(f"Failed to decrement key in Redis: {e}")
+
+        return None
+
+    async def decrby(self, key: str, amount: int):
+        try:
+            return await self.redis.decrby(key, amount)
+        except Exception as e:
+            logger.error(f"Failed to decrement key in Redis: {e}")
+
+        return None

@@ -51,8 +51,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.add_middleware(UserMiddleware)
 app.add_middleware(CorrelationIdMiddleware)
+app.add_middleware(UserMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # For testing, allow all origins

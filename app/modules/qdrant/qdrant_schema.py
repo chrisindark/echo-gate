@@ -1,6 +1,15 @@
+from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+
+class CacheScope(str, Enum):
+    GLOBAL = "GLOBAL"
+    TENANT = "TENANT"
+    USER = "USER"
+    SESSION = "SESSION"
+    CONVERSATION = "CONVERSATION"
 
 
 class QdrantSearchRequest(BaseModel):
@@ -20,16 +29,37 @@ class QdrantPayload(BaseModel):
     """
 
     prompt: str = Field(..., description="The original prompt string that was embedded")
+    system_prompt: str | None = Field(None, description="The system part of the prompt")
+    user_prompt: str | None = Field(None, description="The user part of the prompt")
     response: dict[str, Any] = Field(
         ..., description="The LLM completion response dictionary"
     )
     exact_hash: str | None = Field(
         None, description="SHA256 hash of the exact prompt for fast exact matching"
     )
-    tenant_id: str = Field(
-        "", description="The tenant ID associated with this cache entry"
+    tenant_id: str | None = Field(
+        None, description="The tenant ID associated with this cache entry"
+    )
+    user_id: str | None = Field(
+        None, description="The user ID associated with this cache entry"
+    )
+    session_id: str | None = Field(
+        None, description="The session ID associated with this cache entry"
+    )
+    conversation_id: str | None = Field(
+        None, description="The conversation ID associated with this cache entry"
     )
     model: str | None = Field(None, description="The model used for the completion")
+    service_name: str | None = Field(None, description="The LLM provider service name")
+    scope: str = Field(
+        "GLOBAL", description="Cache scope: GLOBAL, TENANT, USER, SESSION, CONVERSATION"
+    )
+    entities: list[str] = Field(
+        default_factory=list, description="List of extracted entities"
+    )
+    time_sensitivity: float | None = Field(
+        None, description="Score of how time sensitive this query is"
+    )
     embedding_model: str | None = Field(
         None, description="The model used for embeddings"
     )

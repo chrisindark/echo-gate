@@ -41,6 +41,7 @@ class LlmUsageLog(Base):
     cache_creation_tokens = Column(Integer, default=0)  # Tokens written to cache
 
     cost = Column(Numeric(precision=12, scale=6), default=0.000000)
+    cost_calculated = Column(Boolean, default=False, server_default="0", index=True)
 
     latency_ms = Column(
         Integer, nullable=True

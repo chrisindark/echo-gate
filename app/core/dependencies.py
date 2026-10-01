@@ -1,10 +1,15 @@
+from app.core.config import EMBEDDING_MODEL_NAME
 from app.core.database import get_db, get_db_read
 from app.modules.embedding.embedding_service import EmbeddingService
+from app.modules.intent_classifier.entity_extractor_service import (
+    EntityExtractorService,
+)
 from app.modules.intent_classifier.intent_classifier_service import (
     IntentClassifierService,
 )
 from app.modules.llm.llm_provider_service import LlmProviderService
 from app.modules.llm.llm_router_service import LlmRouterService
+from app.modules.llm_quota.llm_quota_service import LlmQuotaService
 from app.modules.llm_usage.llm_usage_service import LlmUsageService
 from app.modules.qdrant.qdrant_service import QdrantService
 from app.modules.redis.redis_service import RedisService
@@ -19,7 +24,9 @@ class DependencyContainer:
     _redis_service: RedisService | None = None
     _reranker_service: RerankerService | None = None
     _intent_classifier_service: IntentClassifierService | None = None
+    _entity_extractor_service: EntityExtractorService | None = None
     _llm_usage_service: LlmUsageService | None = None
+    _llm_quota_service: LlmQuotaService | None = None
 
     @classmethod
     async def initialize(cls) -> None:
@@ -28,8 +35,10 @@ class DependencyContainer:
         await cls.get_redis_service()
         cls.get_llm_provider_service()
         await cls.get_intent_classifier_service()
+        cls.get_entity_extractor_service()
         await cls.get_llm_router_service()
         cls.get_llm_usage_service()
+        cls.get_llm_quota_service()
 
     @classmethod
     async def shutdown(cls) -> None:
@@ -46,11 +55,15 @@ class DependencyContainer:
             cls._redis_service = None
             cls._reranker_service = None
             cls._intent_classifier_service = None
+            cls._entity_extractor_service = None
 
     @classmethod
     def get_embedding_service(cls) -> EmbeddingService:
         if cls._embedding_service is None:
-            cls._embedding_service = EmbeddingService()
+            # use_ollama=False frees up the Ollama slot and uses local CPU/GPU via Python
+            cls._embedding_service = EmbeddingService(
+                use_ollama=False, model_name=EMBEDDING_MODEL_NAME
+            )
         return cls._embedding_service
 
     @classmethod
@@ -58,7 +71,7 @@ class DependencyContainer:
         if cls._qdrant_service is None:
             embedding_svc = cls.get_embedding_service()
             cls._qdrant_service = QdrantService(
-                collection_name="prompt_embeddings",
+                collection_name="embeddings_multivector",
                 vector_size=embedding_svc.embedding_dimension,
             )
         return cls._qdrant_service
@@ -91,6 +104,12 @@ class DependencyContainer:
         return cls._intent_classifier_service
 
     @classmethod
+    def get_entity_extractor_service(cls) -> EntityExtractorService:
+        if cls._entity_extractor_service is None:
+            cls._entity_extractor_service = EntityExtractorService()
+        return cls._entity_extractor_service
+
+    @classmethod
     async def get_llm_router_service(cls) -> LlmRouterService:
         if cls._llm_router_service is None:
             cls._llm_router_service = LlmRouterService(
@@ -100,7 +119,9 @@ class DependencyContainer:
                 redis_service=await cls.get_redis_service(),
                 reranker_service=cls.get_reranker_service(),
                 intent_classifier_service=await cls.get_intent_classifier_service(),
+                entity_extractor_service=cls.get_entity_extractor_service(),
                 llm_usage_service=cls.get_llm_usage_service(),
+                llm_quota_service=cls.get_llm_quota_service(),
             )
         return cls._llm_router_service
 
@@ -111,6 +132,21 @@ class DependencyContainer:
                 db_session=next(get_db()), db_session_read=next(get_db_read())
             )
         return cls._llm_usage_service
+
+    @classmethod
+    def get_llm_quota_service(cls) -> LlmQuotaService:
+        if cls._llm_quota_service is None:
+            import asyncio
+
+            redis = (
+                asyncio.run(cls.get_redis_service())
+                if not cls._redis_service
+                else cls._redis_service
+            )
+            cls._llm_quota_service = LlmQuotaService(
+                redis_service=redis, db_session=next(get_db())
+            )
+        return cls._llm_quota_service
 
 
 # FastAPI Depends compatible functions
@@ -138,9 +174,17 @@ async def get_intent_classifier_service() -> IntentClassifierService:
     return await DependencyContainer.get_intent_classifier_service()
 
 
+def get_entity_extractor_service() -> EntityExtractorService:
+    return DependencyContainer.get_entity_extractor_service()
+
+
 async def get_llm_router_service() -> LlmRouterService:
     return await DependencyContainer.get_llm_router_service()
 
 
 def get_llm_usage_service() -> LlmUsageService:
     return DependencyContainer.get_llm_usage_service()
+
+
+def get_llm_quota_service() -> LlmQuotaService:
+    return DependencyContainer.get_llm_quota_service()

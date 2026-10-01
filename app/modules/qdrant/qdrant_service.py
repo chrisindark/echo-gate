@@ -33,9 +33,34 @@ class QdrantService:
                 logger.info(f"Creating Qdrant collection: {self.collection_name}")
                 self.client.create_collection(
                     collection_name=self.collection_name,
-                    vectors_config=models.VectorParams(
-                        size=self.vector_size, distance=models.Distance.COSINE
-                    ),
+                    vectors_config={
+                        "prompt_embedding": models.VectorParams(
+                            size=self.vector_size, distance=models.Distance.COSINE
+                        ),
+                        "system_prompt_embedding": models.VectorParams(
+                            size=self.vector_size, distance=models.Distance.COSINE
+                        ),
+                        "user_prompt_embedding": models.VectorParams(
+                            size=self.vector_size, distance=models.Distance.COSINE
+                        ),
+                        "intent_embedding": models.VectorParams(
+                            size=self.vector_size, distance=models.Distance.COSINE
+                        ),
+                        "response_embedding": models.VectorParams(
+                            size=self.vector_size, distance=models.Distance.COSINE
+                        ),
+                    },
+                    sparse_vectors_config={
+                        "prompt_bm25": models.SparseVectorParams(
+                            index=models.SparseIndexParams(on_disk=False)
+                        ),
+                        "system_prompt_bm25": models.SparseVectorParams(
+                            index=models.SparseIndexParams(on_disk=False)
+                        ),
+                        "user_prompt_bm25": models.SparseVectorParams(
+                            index=models.SparseIndexParams(on_disk=False)
+                        ),
+                    },
                 )
 
                 # Create payload indexes for faster filtering
@@ -53,6 +78,36 @@ class QdrantService:
                 self.client.create_payload_index(
                     collection_name=self.collection_name,
                     field_name="tenant_id",
+                    field_schema=models.PayloadSchemaType.KEYWORD,
+                )
+                self.client.create_payload_index(
+                    collection_name=self.collection_name,
+                    field_name="user_id",
+                    field_schema=models.PayloadSchemaType.KEYWORD,
+                )
+                self.client.create_payload_index(
+                    collection_name=self.collection_name,
+                    field_name="session_id",
+                    field_schema=models.PayloadSchemaType.KEYWORD,
+                )
+                self.client.create_payload_index(
+                    collection_name=self.collection_name,
+                    field_name="conversation_id",
+                    field_schema=models.PayloadSchemaType.KEYWORD,
+                )
+                self.client.create_payload_index(
+                    collection_name=self.collection_name,
+                    field_name="scope",
+                    field_schema=models.PayloadSchemaType.KEYWORD,
+                )
+                self.client.create_payload_index(
+                    collection_name=self.collection_name,
+                    field_name="entities",
+                    field_schema=models.PayloadSchemaType.KEYWORD,
+                )
+                self.client.create_payload_index(
+                    collection_name=self.collection_name,
+                    field_name="response_format_hash",
                     field_schema=models.PayloadSchemaType.KEYWORD,
                 )
             else:
@@ -100,23 +155,81 @@ class QdrantService:
 
     def query_points(
         self,
-        vector: list[float],
+        system_prompt_vector: list[float] | None = None,
+        system_prompt_sparse: dict[str, list] | None = None,
+        user_prompt_vector: list[float] | None = None,
+        user_prompt_sparse: dict[str, list] | None = None,
         filter_payload: dict[str, Any] | None = None,
+        query_filter: models.Filter | None = None,
         limit: int = 10,
         score_threshold: float | None = None,
     ) -> list[dict[str, Any]]:
         try:
-            query_filter = None
-            if filter_payload:
-                must_conditions = [
-                    models.FieldCondition(key=k, match=models.MatchValue(value=v))
-                    for k, v in filter_payload.items()
-                ]
+            if filter_payload and not query_filter:
+                must_conditions = []
+                for k, v in filter_payload.items():
+                    if isinstance(v, dict):
+                        # Support range filters like {"gte": 123}
+                        must_conditions.append(
+                            models.FieldCondition(key=k, range=models.Range(**v))
+                        )
+                    else:
+                        must_conditions.append(
+                            models.FieldCondition(
+                                key=k, match=models.MatchValue(value=v)
+                            )
+                        )
                 query_filter = models.Filter(must=must_conditions)
+
+            prefetch = []
+
+            if system_prompt_vector:
+                prefetch.append(
+                    models.Prefetch(
+                        query=system_prompt_vector,
+                        using="system_prompt_embedding",
+                        limit=limit * 2,
+                    )
+                )
+            if system_prompt_sparse and system_prompt_sparse.get("indices"):
+                prefetch.append(
+                    models.Prefetch(
+                        query=models.SparseVector(
+                            indices=system_prompt_sparse["indices"],
+                            values=system_prompt_sparse["values"],
+                        ),
+                        using="system_prompt_bm25",
+                        limit=limit * 2,
+                    )
+                )
+
+            if user_prompt_vector:
+                prefetch.append(
+                    models.Prefetch(
+                        query=user_prompt_vector,
+                        using="user_prompt_embedding",
+                        limit=limit * 2,
+                    )
+                )
+            if user_prompt_sparse and user_prompt_sparse.get("indices"):
+                prefetch.append(
+                    models.Prefetch(
+                        query=models.SparseVector(
+                            indices=user_prompt_sparse["indices"],
+                            values=user_prompt_sparse["values"],
+                        ),
+                        using="user_prompt_bm25",
+                        limit=limit * 2,
+                    )
+                )
+
+            if not prefetch:
+                return []
 
             results = self.client.query_points(
                 collection_name=self.collection_name,
-                query=vector,
+                prefetch=prefetch,
+                query=models.FusionQuery(fusion=models.Fusion.RRF),
                 query_filter=query_filter,
                 limit=limit,
                 with_payload=True,
@@ -140,12 +253,26 @@ class QdrantService:
 
     def upsert(
         self,
-        vector: list[float],
         prompt: str,
         response: dict[str, Any],
+        system_prompt_vector: list[float] | None = None,
+        system_prompt_sparse: dict[str, list] | None = None,
+        user_prompt_vector: list[float] | None = None,
+        user_prompt_sparse: dict[str, list] | None = None,
+        prompt_vector: list[float] | None = None,
+        prompt_sparse: dict[str, list] | None = None,
+        system_prompt: str | None = None,
+        user_prompt: str | None = None,
         exact_hash: str | None = None,
-        tenant_id: str = "anonymous",
+        tenant_id: str | None = None,
+        user_id: str | None = None,
+        session_id: str | None = None,
+        conversation_id: str | None = None,
         model: str | None = None,
+        service_name: str | None = None,
+        scope: str = "GLOBAL",
+        entities: list[str] | None = None,
+        time_sensitivity: float | None = None,
         embedding_model: str | None = None,
         embedding_version: str | None = None,
         cacheable: bool = False,
@@ -158,10 +285,19 @@ class QdrantService:
             point_id = str(uuid.uuid4())
             payload_obj = QdrantPayload(
                 prompt=prompt,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
                 response=response,
                 exact_hash=exact_hash,
                 model=model,
+                service_name=service_name,
+                scope=scope,
+                entities=entities or [],
+                time_sensitivity=time_sensitivity,
                 tenant_id=tenant_id,
+                user_id=user_id,
+                session_id=session_id,
+                conversation_id=conversation_id,
                 embedding_model=embedding_model,
                 embedding_version=embedding_version,
                 cacheable=cacheable,
@@ -171,11 +307,37 @@ class QdrantService:
                 metadata=metadata,
             )
 
+            # Construct the point vector using multiple named vectors
+            point_vector = {}
+            if system_prompt_vector:
+                point_vector["system_prompt_embedding"] = system_prompt_vector
+            if system_prompt_sparse and system_prompt_sparse.get("indices"):
+                point_vector["system_prompt_bm25"] = models.SparseVector(
+                    indices=system_prompt_sparse["indices"],
+                    values=system_prompt_sparse["values"],
+                )
+            if user_prompt_vector:
+                point_vector["user_prompt_embedding"] = user_prompt_vector
+            if user_prompt_sparse and user_prompt_sparse.get("indices"):
+                point_vector["user_prompt_bm25"] = models.SparseVector(
+                    indices=user_prompt_sparse["indices"],
+                    values=user_prompt_sparse["values"],
+                )
+            if prompt_vector:
+                point_vector["prompt_embedding"] = prompt_vector
+            if prompt_sparse and prompt_sparse.get("indices"):
+                point_vector["prompt_bm25"] = models.SparseVector(
+                    indices=prompt_sparse["indices"],
+                    values=prompt_sparse["values"],
+                )
+
             self.client.upsert(
                 collection_name=self.collection_name,
                 points=[
                     models.PointStruct(
-                        id=point_id, vector=vector, payload=payload_obj.to_qdrant_dict()
+                        id=point_id,
+                        vector=point_vector,
+                        payload=payload_obj.to_qdrant_dict(),
                     )
                 ],
                 wait=False,

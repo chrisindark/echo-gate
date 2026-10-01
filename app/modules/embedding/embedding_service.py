@@ -2,30 +2,42 @@ import logging
 import os
 
 import httpx
+from fastembed import SparseTextEmbedding
 from sentence_transformers import SentenceTransformer
+
+from app.core.config import EMBEDDING_MODEL_NAME
 
 logger = logging.getLogger(__name__)
 
 
 class EmbeddingService:
     def __init__(
-        self, use_ollama: bool = True, model_name: str = "nomic-embed-text:latest"
+        self, use_ollama: bool = True, model_name: str = EMBEDDING_MODEL_NAME
     ) -> None:
         self.use_ollama = use_ollama
         self.model_name = model_name
         self.ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434")
+        self.hf_home = os.getenv("HF_HOME", "./.model_cache")
+        self.bm25_model_path = os.getenv("BM25_MODEL_PATH", "")
+
+        logger.info("Loading sparse embedding model (BM25)...")
+        self.sparse_model = SparseTextEmbedding(
+            model_name="Qdrant/bm25",
+            local_files_only=True,
+            specific_model_path=self.bm25_model_path,
+            cache_folder=self.hf_home,
+        )
 
         if self.use_ollama:
             logger.info(f"Using Ollama for embeddings with model: {self.model_name}")
             # nomic-embed-text dimension is 768
             self.embedding_dimension = 768
+            logger.info(f"Model loaded. Dimension: {self.embedding_dimension}")
         else:
             logger.info(f"Loading local embedding model: {model_name}")
-            try:
-                self.model: SentenceTransformer = SentenceTransformer(model_name, local_files_only=True)
-            except Exception:
-                logger.info(f"Model {model_name} not found locally, downloading...")
-                self.model: SentenceTransformer = SentenceTransformer(model_name)
+            self.model: SentenceTransformer = SentenceTransformer(
+                model_name, local_files_only=True, cache_folder=self.hf_home
+            )
             self.embedding_dimension = self.model.get_embedding_dimension() or 384
             logger.info(f"Model loaded. Dimension: {self.embedding_dimension}")
 
@@ -62,3 +74,19 @@ class EmbeddingService:
         else:
             # Note: sentence-transformers encode is blocking
             return self.model.encode(text).tolist()
+
+    def get_sparse_embedding(self, text: str) -> dict[str, list]:
+        """
+        Generates sparse embeddings (BM25) using fastembed.
+        Returns a dictionary with 'indices' and 'values'.
+        """
+        # sparse_model.embed returns a generator of SparseEmbedding objects
+        # SparseEmbedding has .indices and .values
+        embeddings = list(self.sparse_model.embed([text]))
+        if not embeddings:
+            return {"indices": [], "values": []}
+
+        return {
+            "indices": embeddings[0].indices.tolist(),
+            "values": embeddings[0].values.tolist(),
+        }

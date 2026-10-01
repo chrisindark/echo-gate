@@ -1,9 +1,10 @@
 import csv
 import os
+import time
 
 import httpx
 
-from app.scripts.send_prompts import SIMILARITY_THRESHOLD, THRESHOLD_TESTS
+from app.scripts.test_dataset import TEST_DATASET
 
 API_URL = os.getenv(
     "ECHO_GATE_URL",
@@ -73,11 +74,9 @@ TESTS = [
     },
 ]
 
-TESTS.extend(THRESHOLD_TESTS)
+TESTS.extend(TEST_DATASET)
 
-# TESTS = TEST_DATASET
-
-# TENANT_ID = str(uuid.uuid4())
+API_KEY = "development"
 TENANT_ID = "74140c21-bf4b-4dec-84ac-98c1b573f764"
 
 
@@ -88,7 +87,6 @@ def main():
         "canonical_id",
         "query",
         "expected_match",
-        "threshold",
         "actual_match",
         "top_1_score",
         "top_1_rerank_score",
@@ -111,7 +109,7 @@ def main():
         with httpx.Client(timeout=120.0) as client:
             for test in TESTS:
                 payload = {
-                    "model": "gemini-3.1-flash-lite",
+                    "model": "gemini-3.5-flash-lite",
                     "service_name": "google-genai",
                     "messages": [
                         {
@@ -128,14 +126,16 @@ def main():
                     response = client.post(
                         API_URL,
                         json=payload,
-                        headers={"x-tenant-id": TENANT_ID},
+                        headers={"x-api-key": API_KEY, "x-tenant-id": TENANT_ID},
                     )
                 except httpx.HTTPError as error:
                     print(f"Request failed: {error}")
+                    time.sleep(4.2)
                     continue
 
                 if response.status_code != 200:
                     print(f"Error: HTTP {response.status_code} - {response.text}")
+                    time.sleep(4.2)
                     continue
 
                 data = response.json()
@@ -149,7 +149,6 @@ def main():
                         "canonical_id": test["canonical_id"],
                         "query": test["prompt"],
                         "expected_match": test["expected_match"],
-                        "threshold": SIMILARITY_THRESHOLD,
                         "actual_match": actual_match,
                         "top_1_score": cache_info.get("top_1_score", ""),
                         "top_1_rerank_score": cache_info.get("top_1_rerank_score", ""),
@@ -166,6 +165,7 @@ def main():
                 print(
                     f"  -> Expected: {test['expected_match']} | Actual: {actual_match}"
                 )
+                time.sleep(4.2)
 
     print(f"\nResults written to {csv_file}")
 
