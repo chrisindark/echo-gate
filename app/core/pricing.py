@@ -6,17 +6,21 @@ PRICING_CONFIG = {
         "gpt-4o-mini": {"prompt": 0.150 / 1_000_000, "completion": 0.600 / 1_000_000},
         "gpt-4o": {"prompt": 5.0 / 1_000_000, "completion": 15.0 / 1_000_000},
     },
-    "gemini": {
-        "gemini-1.5-flash": {
+    "google-genai": {
+        "gemini-3.1-flash-lite": {
             "prompt": 0.075 / 1_000_000,
             "completion": 0.300 / 1_000_000,
         },
-        "gemini-1.5-pro": {"prompt": 1.25 / 1_000_000, "completion": 5.00 / 1_000_000},
+        "gemini-3.5-flash-lite": {
+            "prompt": 1.25 / 1_000_000,
+            "completion": 5.00 / 1_000_000,
+        },
     },
     "ollama": {
         # Local models are free
         "default": {"prompt": 0.0, "completion": 0.0}
     },
+    "mock": {"default": {"prompt": 0.0, "completion": 0.0}},
     "groq": {"default": {"prompt": 0.0, "completion": 0.0}},
     "openrouter": {
         "qwen/qwen3.8-27b:free": {"prompt": 0.0, "completion": 0.0},

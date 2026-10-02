@@ -6,6 +6,24 @@ class Config:
         self.load()
 
     def load(self):
+        # Urls
+        self.OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
+        self.REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+        self.QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
+        self.DATABASE_URL = os.getenv(
+            "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/echo_gate"
+        )
+        self.DATABASE_URL_READ = os.getenv(
+            "DATABASE_URL_READ",
+            "postgresql://postgres:postgres@localhost:5432/echo_gate_read",
+        )
+        self.CELERY_REDIS_URL = os.getenv(
+            "CELERY_REDIS_URL", "redis://localhost:6379/1"
+        )
+
+        # Redis
+        self.REDIS_TTL = int(os.getenv("REDIS_TTL", 3600))  # Default 1 hour TTL
+
         # Provider & Fallback Defaults
         self.USE_FALLBACK_LLM = os.getenv("USE_FALLBACK_LLM", "true")
         self.DEFAULT_LLM_SERVICE = os.getenv("DEFAULT_LLM_SERVICE", "google-genai")
@@ -60,7 +78,7 @@ class Config:
             "INTENT_CLASSIFIER_MODEL", "qwen2.5-coder:3b"
         )
 
-        self.cross_encoder_verifier_model = os.getenv(
+        self.CROSS_ENCODER_VERIFIER_MODEL = os.getenv(
             "CROSS_ENCODER_VERIFIER_MODEL", "cross-encoder/ms-marco-MiniLM-L6-v2"
         )
 
