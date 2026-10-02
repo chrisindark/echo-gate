@@ -35,7 +35,8 @@ def process_uncalculated_costs(self):
         )
 
         if not uncalculated_logs:
-            latency_ms = int((time.time() - start_time) * 1000)
+            end_time = time.time()
+            latency_ms = int((end_time - start_time) * 1000)
             logger.info(
                 f"[{task_id}] No uncalculated costs found. (latency: {latency_ms}ms)"
             )
@@ -46,26 +47,32 @@ def process_uncalculated_costs(self):
             prompt_price, completion_price = get_model_prices(
                 str(log.service_name), str(log.model)
             )
-
+            logger.info(f"[{task_id}] Prompt price: {prompt_price} for log {log.id}")
+            logger.info(
+                f"[{task_id}] Completion price: {completion_price} for log {log.id}"
+            )
             # Calculate cost based on tokens.
             # cache_read_tokens are usually billed at a discount in actual APIs (like Anthropic),
             # but for this MVP, we just use standard prompt and completion tokens.
             prompt_cost = (log.prompt_tokens or 0) * prompt_price
             completion_cost = (log.completion_tokens or 0) * completion_price
             total_cost = prompt_cost + completion_cost
-
+            logger.info(f"[{task_id}] Calculated cost: {total_cost} for log {log.id}")
             log.cost = Decimal(str(total_cost))
             log.cost_calculated = True
             updated_count += 1
 
         db.commit()
-        latency_ms = int((time.time() - start_time) * 1000)
+
+        end_time = time.time()
+        latency_ms = int((end_time - start_time) * 1000)
         logger.info(
             f"[{task_id}] Successfully calculated and updated costs for {updated_count} logs. (latency: {latency_ms}ms)"
         )
         return f"Updated {updated_count} rows."
     except Exception as e:
-        latency_ms = int((time.time() - start_time) * 1000)
+        end_time = time.time()
+        latency_ms = int((end_time - start_time) * 1000)
         logger.error(
             f"[{task_id}] Error calculating costs: {e} (latency: {latency_ms}ms)"
         )

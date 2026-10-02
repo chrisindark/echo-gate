@@ -1,8 +1,8 @@
 import logging
-import os
 
 from redis import asyncio as aioredis
 
+from app.core.config import config
 from app.core.logger import log_latency
 
 logger = logging.getLogger(__name__)
@@ -10,10 +10,10 @@ logger = logging.getLogger(__name__)
 
 class RedisService:
     def __init__(self, redis_url: str | None = None):
-        self.redis_url = redis_url or os.getenv("REDIS_URL", "redis://localhost:6379/0")
+        self.redis_url = redis_url or config.REDIS_URL
         self.redis = aioredis.from_url(self.redis_url, decode_responses=True)
 
-        self.ttl = int(os.getenv("REDIS_TTL", 3600))  # Default 1 hour TTL
+        self.ttl = int(config.REDIS_TTL)
         logger.info(f"Connecting to Redis at {self.redis_url}")
 
     async def ping(self):

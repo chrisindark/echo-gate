@@ -24,6 +24,7 @@ isort = "^9.0.1"
 tenacity = "^9.1.4"
 celery = "^5.6.3"
 fastembed = "^0.8.1"
+billiard = "<4.3"
 
 [build-system]
 requires = ["poetry-core"]
