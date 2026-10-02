@@ -7,11 +7,13 @@ class Config:
 
     def load(self):
         # Provider & Fallback Defaults
-        self.FALLBACK_LLM = os.getenv("FALLBACK_LLM", "true")
+        self.USE_FALLBACK_LLM = os.getenv("USE_FALLBACK_LLM", "true")
         self.DEFAULT_LLM_SERVICE = os.getenv("DEFAULT_LLM_SERVICE", "google-genai")
-        self.FALLBACK_LLM_SERVICE = os.getenv("FALLBACK_LLM_SERVICE", "google-genai")
-        self.FALLBACK_LLM_MODEL = os.getenv(
-            "FALLBACK_LLM_MODEL", "gemini-3.1-flash-lite"
+        self.USE_FALLBACK_LLM_SERVICE = os.getenv(
+            "USE_FALLBACK_LLM_SERVICE", "google-genai"
+        )
+        self.USE_FALLBACK_LLM_MODEL = os.getenv(
+            "USE_FALLBACK_LLM_MODEL", "gemini-3.1-flash-lite"
         )
 
         # Timeouts & Retries
@@ -37,6 +39,12 @@ class Config:
         self.DEFAULT_CACHE_TTL_SECONDS = int(
             os.getenv("DEFAULT_CACHE_TTL_SECONDS", str(1 * 24 * 60 * 60))
         )
+        self.USE_REDIS_SEMANTIC_MATCHING = os.getenv(
+            "USE_REDIS_SEMANTIC_MATCHING", "true"
+        ).lower()
+        self.USE_QDRANT_SEMANTIC_MATCHING = os.getenv(
+            "USE_QDRANT_SEMANTIC_MATCHING", "true"
+        ).lower()
 
         # Model Configuration
         self.EMBEDDING_MODEL_NAME = os.getenv(
