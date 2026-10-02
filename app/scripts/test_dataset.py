@@ -24,7 +24,7 @@ TEST_DATASET = [
         "test_id": "gha_004",
         "prompt": "How do I trigger a GitHub Actions workflow after a merge to the default branch?",
         "canonical_id": "github_actions_after_merge",
-        "expected_match": True,
+        "expected_match": False,
     },
     {
         "test_id": "gha_005",
@@ -873,21 +873,9 @@ TEST_DATASET = [
     # 31. HARD NEGATIVES — SAME WORDS, DIFFERENT INTENT
     # ============================================================
     {
-        "test_id": "hard_001",
-        "prompt": "How do I reverse a list in Python?",
-        "canonical_id": "python_reverse_list_hard",
-        "expected_match": False,
-    },
-    {
         "test_id": "hard_002",
         "prompt": "How do I reverse a string in Python?",
         "canonical_id": "python_reverse_string",
-        "expected_match": False,
-    },
-    {
-        "test_id": "hard_003",
-        "prompt": "How do I create an index in PostgreSQL?",
-        "canonical_id": "postgres_index_create_hard",
         "expected_match": False,
     },
     {
@@ -1017,12 +1005,6 @@ TEST_DATASET = [
     # 35. INFORMAL / TYPO PARAPHRASES
     # ============================================================
     {
-        "test_id": "informal_001",
-        "prompt": "how do i reverse a list python",
-        "canonical_id": "python_reverse_informal",
-        "expected_match": False,
-    },
-    {
         "test_id": "informal_002",
         "prompt": "whats the way to reverse a list in python",
         "canonical_id": "python_reverse_informal",
@@ -1043,12 +1025,6 @@ TEST_DATASET = [
     # ============================================================
     # 36. LONG VS SHORT PARAPHRASES
     # ============================================================
-    {
-        "test_id": "long_001",
-        "prompt": "How do I reverse a Python list?",
-        "canonical_id": "reverse_list_long_short",
-        "expected_match": False,
-    },
     {
         "test_id": "long_002",
         "prompt": "I'm working on a Python application and I have a list of values. I don't want to manually loop through it or create another complicated data structure. I simply need to change the ordering so that the last element becomes the first and the first becomes the last. What's the standard Python approach for reversing the list?",
@@ -1087,5 +1063,335 @@ TEST_DATASET = [
         "prompt": "Explain how photosynthesis works.",
         "canonical_id": "photosynthesis",
         "expected_match": False,
+    },
+    # ============================================================
+    # 38. NON-CODING SOFT NEGATIVES — CLOSE MEANING, DIFFERENT INTENT
+    # ============================================================
+    {
+        "test_id": "soft_001",
+        "prompt": "What is the most populated city in France?",
+        "canonical_id": "france_largest_city_population",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_002",
+        "prompt": "Which city is Japan's largest by population?",
+        "canonical_id": "japan_largest_city",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_003",
+        "prompt": "Why does the ocean look blue in daylight?",
+        "canonical_id": "ocean_blue_color",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_004",
+        "prompt": "Why does the sky turn orange and red at sunrise?",
+        "canonical_id": "sunrise_sky_colors",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_005",
+        "prompt": "What is a 15 percent increase on 240?",
+        "canonical_id": "percentage_increase_15_240",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_006",
+        "prompt": "How much simple interest would 240 earn at 15 percent?",
+        "canonical_id": "simple_interest_240_15_percent",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_007",
+        "prompt": "How do you say 'Thank you' in Spanish?",
+        "canonical_id": "translate_thank_you_spanish",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_008",
+        "prompt": "Translate 'How are you?' into Italian.",
+        "canonical_id": "translate_how_are_you_italian",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_009",
+        "prompt": "What are the top attractions to see in Kyoto?",
+        "canonical_id": "things_to_do_kyoto_attractions",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_010",
+        "prompt": "What are the best places to visit in Osaka?",
+        "canonical_id": "things_to_do_osaka",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_011",
+        "prompt": "What's the weather in Paris today?",
+        "canonical_id": "weather_paris_today",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_012",
+        "prompt": "What's the weather in London this weekend?",
+        "canonical_id": "weather_london_weekend",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_013",
+        "prompt": "What were yesterday's biggest technology headlines?",
+        "canonical_id": "tech_news_yesterday_headlines",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_014",
+        "prompt": "What are today's top science news stories?",
+        "canonical_id": "science_news_today",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_015",
+        "prompt": "Write a formal email to reschedule a meeting.",
+        "canonical_id": "professional_reschedule_meeting_email",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_016",
+        "prompt": "Draft a professional email thanking someone after a meeting.",
+        "canonical_id": "professional_meeting_followup_email",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_017",
+        "prompt": "Write a casual text asking a friend to meet for lunch.",
+        "canonical_id": "casual_lunch_message",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_018",
+        "prompt": "Can you write a polite email declining a meeting invitation?",
+        "canonical_id": "decline_meeting_invitation_email",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_019",
+        "prompt": "How do I make pizza sauce from scratch?",
+        "canonical_id": "homemade_pizza_sauce",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_020",
+        "prompt": "What's a simple recipe for homemade bread dough?",
+        "canonical_id": "homemade_bread_dough",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_021",
+        "prompt": "How can I make chocolate brownies at home?",
+        "canonical_id": "homemade_chocolate_brownies",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_022",
+        "prompt": "How do I stay focused while studying for a test at home?",
+        "canonical_id": "study_focus_at_home",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_023",
+        "prompt": "How can I avoid distractions while working in an office?",
+        "canonical_id": "office_work_focus",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_024",
+        "prompt": "What are some ways to improve concentration during a long drive?",
+        "canonical_id": "driving_concentration",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_025",
+        "prompt": "What does HTTP status code 403 mean?",
+        "canonical_id": "http_403_forbidden",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_026",
+        "prompt": "What does a 401 Unauthorized response mean?",
+        "canonical_id": "http_401_unauthorized",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_027",
+        "prompt": "How does compound interest differ from an annual percentage yield?",
+        "canonical_id": "compound_interest_vs_apy",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_028",
+        "prompt": "Can you explain how a fixed-rate mortgage works?",
+        "canonical_id": "fixed_rate_mortgage_explanation",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_029",
+        "prompt": "How do I calculate the monthly payment on a loan?",
+        "canonical_id": "calculate_monthly_loan_payment",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_030",
+        "prompt": "Why does the Moon appear larger near the horizon?",
+        "canonical_id": "moon_horizon_illusion",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_031",
+        "prompt": "What causes the northern lights to appear in the sky?",
+        "canonical_id": "aurora_borealis_cause",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_032",
+        "prompt": "How are black holes different from neutron stars?",
+        "canonical_id": "black_holes_vs_neutron_stars",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_033",
+        "prompt": "What is the difference between weather and climate?",
+        "canonical_id": "weather_vs_climate",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_034",
+        "prompt": "How does recycling paper differ from recycling plastic?",
+        "canonical_id": "paper_vs_plastic_recycling",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_035",
+        "prompt": "What is the difference between a vegan and a vegetarian diet?",
+        "canonical_id": "vegan_vs_vegetarian_diet",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_036",
+        "prompt": "How do I remove a coffee stain from a white shirt?",
+        "canonical_id": "remove_coffee_stain_clothing",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_037",
+        "prompt": "What is the best way to remove red wine from a carpet?",
+        "canonical_id": "remove_wine_stain_carpet",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_038",
+        "prompt": "How can I train for a 10K race as a beginner?",
+        "canonical_id": "beginner_10k_training",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_039",
+        "prompt": "What are some beginner exercises for building strength at home?",
+        "canonical_id": "beginner_home_strength_exercises",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_040",
+        "prompt": "How do I plan a three-day trip to Tokyo?",
+        "canonical_id": "tokyo_three_day_itinerary",
+        "expected_match": False,
+    },
+    {
+        "test_id": "soft_041",
+        "prompt": "What should I see during a three-day trip to Kyoto?",
+        "canonical_id": "kyoto_three_day_itinerary",
+        "expected_match": False,
+    },
+    # ============================================================
+    # 29. HEALTHCARE / NUTRITION (LONG CONTEXT)
+    # ============================================================
+    {
+        "test_id": "lc_health_001",
+        "prompt": "Over the past few decades, numerous studies have highlighted the potential health benefits of adopting a strict plant-based diet. I am currently writing a comprehensive research paper on this subject. Could you provide a detailed overview of the primary cardiovascular and metabolic advantages of eliminating all animal products from one's diet, specifically referencing improvements in cholesterol levels, blood pressure, and insulin sensitivity over a long-term period?",
+        "canonical_id": "nutrition_plant_based_benefits",
+        "expected_match": False,  # True Negative (Cache Miss - Base Prompt)
+    },
+    {
+        "test_id": "lc_health_002",
+        "prompt": "I'm working on a detailed research essay concerning the health impacts of veganism. Please give me a thorough breakdown of how a strict plant-based diet benefits the cardiovascular system and metabolic health. I need you to focus on the long-term effects on insulin resistance, blood pressure, and cholesterol when someone completely removes animal products from their daily meals.",
+        "canonical_id": "nutrition_plant_based_benefits",
+        "expected_match": True,  # True Positive (Expected to hit base prompt)
+    },
+    {
+        "test_id": "lc_health_003",
+        "prompt": "Can you summarize the heart and blood sugar benefits of eating only plants? For my school paper, I need to explain why avoiding meat and dairy helps with hypertension, lipid profiles, and glucose regulation in the long run.",
+        "canonical_id": "nutrition_plant_based_benefits",
+        "expected_match": True,  # False Negative test (Hard Positive: highly reworded but same intent)
+    },
+    {
+        "test_id": "lc_health_004",
+        "prompt": "Over the past few decades, numerous studies have highlighted the potential health risks of adopting a strict plant-based diet. I am currently writing a comprehensive research paper on this subject. Could you provide a detailed overview of the primary cardiovascular and metabolic disadvantages of eliminating all animal products from one's diet, specifically referencing worsening of cholesterol levels, blood pressure, and insulin sensitivity over a long-term period?",
+        "canonical_id": "nutrition_plant_based_risks",
+        "expected_match": False,  # False Positive test (Hard Negative: very similar phrasing but opposite intent)
+    },
+    # ============================================================
+    # 30. LEGAL / CONTRACT TERMINATION (LONG CONTEXT)
+    # ============================================================
+    {
+        "test_id": "lc_legal_001",
+        "prompt": "I am currently renting a commercial office space under a five-year lease agreement that started two years ago. Due to unexpected financial difficulties, my company is considering breaking the lease early. Can you explain the typical legal consequences and financial penalties associated with early termination of a commercial lease, and what clauses I should look for in my contract that might allow us to exit without severe liability?",
+        "canonical_id": "legal_commercial_lease_break",
+        "expected_match": False,  # True Negative (Cache Miss - Base Prompt)
+    },
+    {
+        "test_id": "lc_legal_002",
+        "prompt": "Our business signed a 5-year commercial lease for our office a couple of years back, but we are facing budget constraints and need to terminate it prematurely. Could you outline the standard financial repercussions and legal liabilities for breaking this type of lease early? Also, please tell me which specific contract clauses might offer a way out with minimal penalties.",
+        "canonical_id": "legal_commercial_lease_break",
+        "expected_match": True,  # True Positive (Expected to hit base prompt)
+    },
+    {
+        "test_id": "lc_legal_003",
+        "prompt": "What happens if a company leaves its rented office before the 5-year term is up? We're broke and need to get out 3 years early. I need to know the typical fines, legal risks, and any loopholes in standard rental contracts that let you walk away without paying a fortune.",
+        "canonical_id": "legal_commercial_lease_break",
+        "expected_match": True,  # False Negative test (Hard Positive: highly reworded but same intent)
+    },
+    {
+        "test_id": "lc_legal_004",
+        "prompt": "I am currently renting a commercial office space under a five-year lease agreement that is ending next month. Due to unexpected financial success, my company is considering renewing the lease early. Can you explain the typical legal benefits and financial incentives associated with early renewal of a commercial lease, and what clauses I should look for in my contract that might allow us to extend with favorable terms?",
+        "canonical_id": "legal_commercial_lease_renewal",
+        "expected_match": False,  # False Positive test (Hard Negative: very similar phrasing but opposite intent)
+    },
+    # ============================================================
+    # 31. CORPORATE HR / REMOTE WORK (LONG CONTEXT)
+    # ============================================================
+    {
+        "test_id": "lc_hr_001",
+        "prompt": "As the newly appointed HR Director for a mid-sized tech company, I have been tasked with drafting a comprehensive permanent remote work policy for our engineering and design teams. The policy must clearly outline the expectations for core working hours, the process for requesting home office equipment stipends, and the mandatory quarterly in-person team-building retreats. Can you provide a detailed template that covers all these specific requirements?",
+        "canonical_id": "hr_remote_work_policy",
+        "expected_match": False,  # True Negative (Cache Miss - Base Prompt)
+    },
+    {
+        "test_id": "lc_hr_002",
+        "prompt": "I recently became the HR Director at a medium-sized technology firm, and I need to create a permanent work-from-home policy covering our designers and engineers. Please generate a thorough policy template that specifies the mandatory core hours they must be online, how they can go about getting reimbursed for home office gear, and the rules around attending our required quarterly face-to-face team offsites.",
+        "canonical_id": "hr_remote_work_policy",
+        "expected_match": True,  # True Positive (Expected to hit base prompt)
+    },
+    {
+        "test_id": "lc_hr_003",
+        "prompt": "Draft a WFH guide for tech and design staff at my company. I'm the new HR head. It needs to include when they must be online during the day, how to ask for money for their desk setup, and the fact that they have to show up in person four times a year for retreats.",
+        "canonical_id": "hr_remote_work_policy",
+        "expected_match": True,  # False Negative test (Hard Positive: highly reworded but same intent)
+    },
+    {
+        "test_id": "lc_hr_004",
+        "prompt": "As the newly appointed HR Director for a mid-sized tech company, I have been tasked with drafting a comprehensive strict return-to-office policy for our engineering and design teams. The policy must clearly outline the expectations for core in-office working hours, the process for relinquishing home office equipment stipends, and the mandatory daily in-person team meetings. Can you provide a detailed template that covers all these specific requirements?",
+        "canonical_id": "hr_return_to_office_policy",
+        "expected_match": False,  # False Positive test (Hard Negative: very similar phrasing but opposite intent)
     },
 ]

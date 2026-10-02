@@ -1,5 +1,6 @@
 import logging
 import time
+from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
@@ -43,7 +44,7 @@ def process_uncalculated_costs(self):
         updated_count = 0
         for log in uncalculated_logs:
             prompt_price, completion_price = get_model_prices(
-                log.service_name, log.model
+                str(log.service_name), str(log.model)
             )
 
             # Calculate cost based on tokens.
@@ -53,7 +54,7 @@ def process_uncalculated_costs(self):
             completion_cost = (log.completion_tokens or 0) * completion_price
             total_cost = prompt_cost + completion_cost
 
-            log.cost = total_cost
+            log.cost = Decimal(str(total_cost))
             log.cost_calculated = True
             updated_count += 1
 

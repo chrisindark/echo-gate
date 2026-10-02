@@ -1,4 +1,4 @@
-from app.core.config import EMBEDDING_MODEL_NAME
+from app.core.config import config
 from app.core.database import get_db, get_db_read
 from app.modules.embedding.embedding_service import EmbeddingService
 from app.modules.intent_classifier.entity_extractor_service import (
@@ -14,6 +14,9 @@ from app.modules.llm_usage.llm_usage_service import LlmUsageService
 from app.modules.qdrant.qdrant_service import QdrantService
 from app.modules.redis.redis_service import RedisService
 from app.modules.reranking.reranker_service import RerankerService
+from app.modules.verifiers.cross_encoder_verifier_service import (
+    CrossEncoderVerifierService,
+)
 
 
 class DependencyContainer:
@@ -27,6 +30,7 @@ class DependencyContainer:
     _entity_extractor_service: EntityExtractorService | None = None
     _llm_usage_service: LlmUsageService | None = None
     _llm_quota_service: LlmQuotaService | None = None
+    _cross_encoder_verifier_service: CrossEncoderVerifierService | None = None
 
     @classmethod
     async def initialize(cls) -> None:
@@ -39,6 +43,7 @@ class DependencyContainer:
         await cls.get_llm_router_service()
         cls.get_llm_usage_service()
         cls.get_llm_quota_service()
+        cls.get_cross_encoder_verifier_service()
 
     @classmethod
     async def shutdown(cls) -> None:
@@ -56,13 +61,14 @@ class DependencyContainer:
             cls._reranker_service = None
             cls._intent_classifier_service = None
             cls._entity_extractor_service = None
+            cls._cross_encoder_verifier_service = None
 
     @classmethod
     def get_embedding_service(cls) -> EmbeddingService:
         if cls._embedding_service is None:
             # use_ollama=False frees up the Ollama slot and uses local CPU/GPU via Python
             cls._embedding_service = EmbeddingService(
-                use_ollama=False, model_name=EMBEDDING_MODEL_NAME
+                use_ollama=False, model_name=config.EMBEDDING_MODEL_NAME
             )
         return cls._embedding_service
 
@@ -148,6 +154,12 @@ class DependencyContainer:
             )
         return cls._llm_quota_service
 
+    @classmethod
+    def get_cross_encoder_verifier_service(cls) -> CrossEncoderVerifierService:
+        if cls._cross_encoder_verifier_service is None:
+            cls._cross_encoder_verifier_service = CrossEncoderVerifierService()
+        return cls._cross_encoder_verifier_service
+
 
 # FastAPI Depends compatible functions
 def get_embedding_service() -> EmbeddingService:
@@ -188,3 +200,7 @@ def get_llm_usage_service() -> LlmUsageService:
 
 def get_llm_quota_service() -> LlmQuotaService:
     return DependencyContainer.get_llm_quota_service()
+
+
+def get_cross_encoder_verifier_service() -> CrossEncoderVerifierService:
+    return DependencyContainer.get_cross_encoder_verifier_service()

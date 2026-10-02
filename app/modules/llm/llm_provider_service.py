@@ -6,8 +6,9 @@ import uuid
 import httpx
 from fastapi import HTTPException
 from google import genai
-from google.genai import types
+from google.genai import errors, types
 
+from app.core.logger import log_latency
 from app.modules.chat.chat_schema import (
     ChatCompletionRequest,
     ChatCompletionResponse,
@@ -35,6 +36,7 @@ class LlmProviderService:
         if genai and self.gemini_api_key:
             self.gemini_client = genai.Client(api_key=self.gemini_api_key)
 
+    @log_latency()
     async def generate_ollama_completion(
         self, request: ChatCompletionRequest
     ) -> ChatCompletionResponse:
@@ -65,6 +67,7 @@ class LlmProviderService:
             logger.error(f"Failed to call Ollama: {e}")
             raise HTTPException(status_code=502, detail="Bad Gateway")
 
+    @log_latency()
     async def generate_gemini_completion(
         self, request: ChatCompletionRequest
     ) -> ChatCompletionResponse:
@@ -151,7 +154,7 @@ class LlmProviderService:
                     total_tokens=total_tokens,
                 ),
             )
-        except types.errors.APIError as e:
+        except errors.APIError as e:
             logger.error(f"Gemini API returned error: {e.code} - {e.message}")
             raise HTTPException(
                 status_code=e.code, detail=f"Gemini API error: {e.message}"
@@ -160,6 +163,7 @@ class LlmProviderService:
             logger.error(f"Failed to call Gemini API: {e}")
             raise HTTPException(status_code=502, detail="Bad Gateway")
 
+    @log_latency()
     async def generate_openai_completion(
         self, request: ChatCompletionRequest
     ) -> ChatCompletionResponse:
@@ -202,6 +206,7 @@ class LlmProviderService:
             logger.error(f"Failed to call upstream LLM: {e}")
             raise HTTPException(status_code=502, detail="Bad Gateway")
 
+    @log_latency()
     async def generate_groq_completion(
         self, request: ChatCompletionRequest
     ) -> ChatCompletionResponse:
@@ -242,6 +247,7 @@ class LlmProviderService:
             logger.error(f"Failed to call Groq LLM: {e}")
             raise HTTPException(status_code=502, detail="Bad Gateway")
 
+    @log_latency()
     async def generate_openrouter_completion(
         self, request: ChatCompletionRequest
     ) -> ChatCompletionResponse:

@@ -68,9 +68,11 @@ class LlmQuotaService:
         max_rpm, max_tpm = await self.get_applicable_limits(
             provider, model, user, tenant_id
         )
-
         if max_rpm is None:
-            max_rpm = 100  # Default RPM limit
+            max_rpm = 1000  # Default RPM limit # move to config
+
+        if max_tpm is None:
+            max_tpm = 1000  # Default TPM limit # move to config
 
         redis_suffix = f"{api_key}:{provider or 'any'}:{model or 'any'}:{user or 'any'}"
         rpm_key = f"rpm:{redis_suffix}"
@@ -99,15 +101,17 @@ class LlmQuotaService:
                 detail=f"Rate limit exceeded (Limit: {max_rpm} RPM)",
             )
 
-        if max_tpm is not None and tpm is not None:
-            try:
-                if float(tpm) > max_tpm:
-                    raise HTTPException(
-                        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                        detail=f"Token rate limit exceeded (Limit: {max_tpm} TPM)",
-                    )
-            except (TypeError, ValueError):
-                pass
+        if tpm is None:
+            tpm = 0
+
+        try:
+            if float(tpm) > max_tpm:
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail=f"Token rate limit exceeded (Limit: {max_tpm} TPM)",
+                )
+        except (TypeError, ValueError):
+            logger.error(f"Error in check_quota TPM and MAX_TPM: {tpm} | {max_tpm}")
 
         try:
             budget_val = float(budget or "0")
@@ -128,9 +132,11 @@ class LlmQuotaService:
         total_tokens: int,
         provider: str | None = None,
         model: str | None = None,
-        user: str | None = None,
+        user_id: str | None = None,
     ):
-        redis_suffix = f"{api_key}:{provider or 'any'}:{model or 'any'}:{user or 'any'}"
+        redis_suffix = (
+            f"{api_key}:{provider or 'any'}:{model or 'any'}:{user_id or 'any'}"
+        )
         tpm_key = f"tpm:{redis_suffix}"
 
         tpm = await self.redis_service.incrby(tpm_key, total_tokens)

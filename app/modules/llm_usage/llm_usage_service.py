@@ -36,7 +36,7 @@ class LlmUsageService:
                 .all()
             )
         except Exception as e:
-            logger.error(f"Failed to get LLM usage logs: {e}")
+            logger.exception("Failed to get LLM usage logs")
             raise e
 
     def get_llm_usage_log(self, log_id: int) -> LlmUsageLog | None:
@@ -52,7 +52,7 @@ class LlmUsageService:
             self.db_session.refresh(llm_usage_log)
             return llm_usage_log
         except Exception as e:
-            logger.error(f"Failed to create LLM usage log: {e}")
+            logger.exception("Failed to create LLM usage log")
             self.db_session.rollback()
             raise e
 
@@ -72,7 +72,7 @@ class LlmUsageService:
             self.db_session.refresh(llm_usage_log)
             return llm_usage_log
         except Exception as e:
-            logger.error(f"Failed to update LLM usage log {log_id}: {e}")
+            logger.exception(f"Failed to update LLM usage log {log_id}")
             self.db_session.rollback()
             raise e
 
@@ -86,6 +86,6 @@ class LlmUsageService:
             self.db_session.commit()
             return True
         except Exception as e:
-            logger.error(f"Failed to delete LLM usage log {log_id}: {e}")
+            logger.exception(f"Failed to delete LLM usage log {log_id}")
             self.db_session.rollback()
             raise e

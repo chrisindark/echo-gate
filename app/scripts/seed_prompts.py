@@ -134,6 +134,66 @@ THRESHOLD_TESTS = [
         "canonical_id": "python_reverse_string",
         "expected_match": False,
     },
+    {
+        "test_id": "gha_merge_free_plan_paraphrase",
+        "prompt": "I have a repo with 2 apps, an api and a web now i have added .github/workflow yaml files for basic build check api service is nestjs and web is nextjs service can i have github actions running on master after every merge request ? i am on a free tier",
+        "canonical_id": "github_actions_after_merge",
+        "expected_match": False,  # First query for this canonical id
+    },
+    {
+        "test_id": "gha_merge_free_plan_paraphrase_2",
+        "prompt": "I have a repo with 2 apps, an api and a web now i have added .github/workflow yaml files for basic build check api service is nestjs and web is nextjs service can i have github actions running on master after every merge request ? i am not on a paid account",
+        "canonical_id": "github_actions_after_merge",
+        "expected_match": True,
+    },
+    {
+        "test_id": "gha_merge_free_plan_paraphrase_3",
+        "prompt": "I have a mono repo with a nestjs api and nextjs web. I added .github/workflow yaml files for build checks. Can I run github actions on master after merging PRs? My account is on the free tier.",
+        "canonical_id": "github_actions_after_merge",
+        "expected_match": True,
+    },
+    {
+        "test_id": "nestjs_redis_cache_1",
+        "prompt": "How do I implement Redis caching in a NestJS application?",
+        "canonical_id": "nestjs_redis_cache",
+        "expected_match": False,
+    },
+    {
+        "test_id": "nestjs_redis_cache_2",
+        "prompt": "Can you show me how to add Redis caching to my NestJS api?",
+        "canonical_id": "nestjs_redis_cache",
+        "expected_match": True,
+    },
+    {
+        "test_id": "capital_france_1",
+        "prompt": "What is the capital of France?",
+        "canonical_id": "capital_france",
+        "expected_match": False,
+    },
+    {
+        "test_id": "capital_france_2",
+        "prompt": "Tell me the capital city of France.",
+        "canonical_id": "capital_france",
+        "expected_match": True,
+    },
+    {
+        "test_id": "python_reverse_string_1",
+        "prompt": "Write a python script to reverse a string.",
+        "canonical_id": "python_reverse_string",
+        "expected_match": False,
+    },
+    {
+        "test_id": "python_reverse_string_2",
+        "prompt": "How do I reverse a string in Python?",
+        "canonical_id": "python_reverse_string",
+        "expected_match": True,
+    },
+    {
+        "test_id": "python_reverse_string_3",
+        "prompt": "Give me Python code for string reversal.",
+        "canonical_id": "python_reverse_string",
+        "expected_match": True,
+    },
 ]
 
 REQUESTS = [
@@ -434,7 +494,7 @@ REQUESTS.extend(
         "test_id": test["test_id"],
         "canonical_id": test["canonical_id"],
         "expected_match": test["expected_match"],
-        "model": "gemini-3.5-flash-lite",
+        "model": "gemini-3.1-flash-lite",
         "service_name": "google-genai",
         "messages": [
             {
