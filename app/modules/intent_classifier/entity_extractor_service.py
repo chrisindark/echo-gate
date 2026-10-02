@@ -76,7 +76,7 @@ class EntityExtractorService:
 
         return tags
 
-    def determine_max_scope(self, text: str) -> str:
+    def determine_max_scope(self, text: str) -> CacheScope:
         """
         Determines the maximum allowable cache scope based on extracted entities.
         If sensitive account information is detected, restricts from GLOBAL to USER.

@@ -14,6 +14,7 @@ class CacheScope(str, Enum):
 
 from app.modules.chat.chat_schema import ChatMessage
 
+
 class QdrantSearchRequest(BaseModel):
     messages: list[ChatMessage]
     threshold: float = 0.90
@@ -61,6 +62,13 @@ class QdrantPayload(BaseModel):
     )
     time_sensitivity: float | None = Field(
         None, description="Score of how time sensitive this query is"
+    )
+    intent: str | None = Field(None, description="The classified intent of the query")
+    core_operation: str | None = Field(
+        None, description="The core operation or action verb of the query"
+    )
+    core_subject: str | None = Field(
+        None, description="The core subject or noun of the query"
     )
     embedding_model: str | None = Field(
         None, description="The model used for embeddings"

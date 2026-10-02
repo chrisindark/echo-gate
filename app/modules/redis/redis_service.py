@@ -3,6 +3,8 @@ import os
 
 from redis import asyncio as aioredis
 
+from app.core.logger import log_latency
+
 logger = logging.getLogger(__name__)
 
 
@@ -21,6 +23,7 @@ class RedisService:
         except aioredis.ConnectionError as e:
             logger.error(f"Error in Redis connection: {e}")
 
+    @log_latency()
     async def get(self, key: str) -> str | None:
         """Retrieve an exact match from Redis cache."""
         try:
@@ -33,6 +36,7 @@ class RedisService:
 
         return None
 
+    @log_latency()
     async def set(self, key: str, value: str, ttl: int | None = None) -> None:
         """Cache the exact response for a prompt in Redis."""
         try:

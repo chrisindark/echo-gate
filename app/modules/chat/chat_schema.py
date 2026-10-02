@@ -4,9 +4,10 @@ from pydantic import BaseModel, model_validator
 
 ALLOWED_MODELS = {
     "ollama": [
-        "llama3.1:8b",
+        "qwen3:8b",
         "qwen2.5-coder:14b",
         "qwen2.5-coder:1.5b",
+        "qwen2.5-coder:3b",
         "qwen2.5-coder:7b",
     ],
     "gemini": [
@@ -15,11 +16,6 @@ ALLOWED_MODELS = {
         "gemini-3.8-flash",
     ],
     "google-genai": [
-        "gemini-3.1-flash-lite",
-        "gemini-3.5-flash-lite",
-        "gemini-3.8-flash",
-    ],
-    "google genai": [
         "gemini-3.1-flash-lite",
         "gemini-3.5-flash-lite",
         "gemini-3.8-flash",
@@ -45,7 +41,7 @@ class ChatCompletionRequest(BaseModel):
     service_name: str | None = "ollama"
     model: str
     messages: list[ChatMessage]
-    temperature: float | None = 1.0
+    temperature: float = 1.0
     top_p: float | None = 1.0
     n: int | None = 1
     stream: bool | None = False

@@ -4,6 +4,7 @@ from app.modules.qdrant.qdrant_schema import CacheScope
 EMBEDDING_VERSION = "v1"
 CACHE_KEY_VERSION = "v1"
 PROMPT_VERSION = "1.0"
+INTENT_PROMPT_VERSION = "1.0"
 
 # String Prefixes & Identifiers
 EMBEDDING_QUERY_PREFIX = "search_query: "

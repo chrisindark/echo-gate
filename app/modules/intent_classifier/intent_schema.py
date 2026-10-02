@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 
 class IntentEnum(str, Enum):
+    EMPTY = ""
     CODE_GENERATION = "code_generation"
     DATA_EXTRACTION = "data_extraction"
     SUMMARIZATION = "summarization"
@@ -30,4 +31,28 @@ class IntentClassificationResult(BaseModel):
         description="Score between 0.0 (static) and 1.0 (highly time-sensitive)",
         ge=0.0,
         le=1.0,
+    )
+    core_operation: str = Field(
+        "",
+        description="The primary action verb or operation being requested, e.g. 'book', 'cancel', 'compare', 'sort', 'delete', 'translate'. Max 2 words.",
+    )
+    core_subject: str = Field(
+        "",
+        description="The primary noun or subject being acted upon, e.g. 'flight ticket', 'docker container', 'apple stock', 'chocolate cake'. Max 4 words.",
+    )
+    negative_operation: str | None = Field(
+        None,
+        description="The exact opposite action of the core_operation if it makes sense, e.g., if core_operation is 'start', negative_operation could be 'stop'. If none applies, return null.",
+    )
+    contrasting_subject: str | None = Field(
+        None,
+        description="A contrasting or commonly confused subject that would make the query irrelevant, e.g., if core_subject is 'Kyoto', contrasting_subject could be 'Tokyo'. If none applies, return null.",
+    )
+    subject_modifier: str | None = Field(
+        None,
+        description="The specific attribute, quality, or constraint applied to the subject, e.g. 'cheapest' for flights, 'latest' for news, 'secure' for connection. If none applies, return null.",
+    )
+    action_modifier: str | None = Field(
+        None,
+        description="The style, method, or parameters defining how the operation should be performed, e.g. 'alphabetically', 'silently', 'quickly'. If none applies, return null.",
     )

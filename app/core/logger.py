@@ -1,6 +1,9 @@
 import copy
+import functools
+import inspect
 import logging
 import os
+import time
 from contextvars import ContextVar
 
 # Context variable for storing the correlation ID
@@ -70,3 +73,43 @@ def setup_logger():
 
     # Disable default uvicorn access logs to prevent duplicates
     logging.getLogger("uvicorn.access").disabled = True
+
+
+def log_latency(action_name: str | None = None):
+    """
+    A decorator to log the latency of synchronous and asynchronous functions.
+    """
+
+    def decorator(func):
+        logger = logging.getLogger(func.__module__)
+
+        if inspect.iscoroutinefunction(func):
+
+            @functools.wraps(func)
+            async def async_wrapper(*args, **kwargs):
+                name = action_name or func.__qualname__
+                start_time = time.time()
+                try:
+                    return await func(*args, **kwargs)
+                finally:
+                    end_time = time.time()
+                    latency_ms = int((end_time - start_time) * 1000)
+                    logger.info(f"{name} took {latency_ms} ms")
+
+            return async_wrapper
+        else:
+
+            @functools.wraps(func)
+            def sync_wrapper(*args, **kwargs):
+                name = action_name or func.__qualname__
+                start_time = time.time()
+                try:
+                    return func(*args, **kwargs)
+                finally:
+                    end_time = time.time()
+                    latency_ms = int((end_time - start_time) * 1000)
+                    logger.info(f"{name} took {latency_ms} ms")
+
+            return sync_wrapper
+
+    return decorator

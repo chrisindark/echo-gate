@@ -5,17 +5,16 @@ import httpx
 from fastembed import SparseTextEmbedding
 from sentence_transformers import SentenceTransformer
 
-from app.core.config import EMBEDDING_MODEL_NAME
+from app.core.config import config
+from app.core.logger import log_latency
 
 logger = logging.getLogger(__name__)
 
 
 class EmbeddingService:
-    def __init__(
-        self, use_ollama: bool = True, model_name: str = EMBEDDING_MODEL_NAME
-    ) -> None:
+    def __init__(self, use_ollama: bool = True, model_name: str | None = None) -> None:
         self.use_ollama = use_ollama
-        self.model_name = model_name
+        self.model_name = model_name or config.EMBEDDING_MODEL_NAME
         self.ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434")
         self.hf_home = os.getenv("HF_HOME", "./.model_cache")
         self.bm25_model_path = os.getenv("BM25_MODEL_PATH", "")
@@ -41,6 +40,7 @@ class EmbeddingService:
             self.embedding_dimension = self.model.get_embedding_dimension() or 384
             logger.info(f"Model loaded. Dimension: {self.embedding_dimension}")
 
+    @log_latency()
     def get_embedding(self, text: str) -> list[float]:
         """
         Synchronous fallback (mostly for local SentenceTransformer).
@@ -58,6 +58,7 @@ class EmbeddingService:
         else:
             return self.model.encode(text).tolist()
 
+    @log_latency()
     async def get_embedding_async(self, text: str) -> list[float]:
         """
         Asynchronous generation of embedding.
@@ -75,6 +76,7 @@ class EmbeddingService:
             # Note: sentence-transformers encode is blocking
             return self.model.encode(text).tolist()
 
+    @log_latency()
     def get_sparse_embedding(self, text: str) -> dict[str, list]:
         """
         Generates sparse embeddings (BM25) using fastembed.

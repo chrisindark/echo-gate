@@ -41,8 +41,8 @@ class LlmQuotaGuard:
                 model = body.get("model")
                 if body.get("user"):
                     user = body.get("user")
-        except Exception as e:
-            logger.error(f"Error reading request body: {e}")
+        except Exception:
+            logger.exception("Error reading request body")
 
         # Check quota
         await llm_quota_service.check_quota(

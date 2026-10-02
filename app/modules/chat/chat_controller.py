@@ -38,10 +38,8 @@ async def create_chat_completion(
 
     if not request.user:
         # Fallback to user set by UserMiddleware or custom headers
-        request.user = getattr(
-            http_request.state, "user", None
-        ) or http_request.headers.get("X-User-ID")
-
+        request.user = getattr(http_request.state, "user", None)
+    request.user_id = request.user_id or http_request.headers.get("X-User-ID")
     request.tenant_id = request.tenant_id or http_request.headers.get("X-Tenant-ID")
     request.session_id = request.session_id or http_request.headers.get("X-Session-ID")
     request.conversation_id = request.conversation_id or http_request.headers.get(
@@ -67,9 +65,8 @@ async def semantic_search(
     Test endpoint for semantic search only.
     """
     if not request.user:
-        request.user = getattr(
-            http_request.state, "user", None
-        ) or http_request.headers.get("X-User-ID")
+        request.user = getattr(http_request.state, "user", None)
+    request.user_id = request.user_id or http_request.headers.get("X-User-ID")
     request.tenant_id = request.tenant_id or http_request.headers.get("X-Tenant-ID")
     request.session_id = request.session_id or http_request.headers.get("X-Session-ID")
     request.conversation_id = request.conversation_id or http_request.headers.get(
@@ -97,9 +94,8 @@ async def exact_search(
     Test endpoint for exact search only.
     """
     if not request.user:
-        request.user = getattr(
-            http_request.state, "user", None
-        ) or http_request.headers.get("X-User-ID")
+        request.user = getattr(http_request.state, "user", None)
+    request.user_id = request.user_id or http_request.headers.get("X-User-ID")
     request.tenant_id = request.tenant_id or http_request.headers.get("X-Tenant-ID")
     request.session_id = request.session_id or http_request.headers.get("X-Session-ID")
     request.conversation_id = request.conversation_id or http_request.headers.get(
@@ -126,9 +122,8 @@ async def cache_save(
     response = payload.response
 
     if not request.user:
-        request.user = getattr(
-            http_request.state, "user", None
-        ) or http_request.headers.get("X-User-ID")
+        request.user = getattr(http_request.state, "user", None)
+    request.user_id = request.user_id or http_request.headers.get("X-User-ID")
     request.tenant_id = request.tenant_id or http_request.headers.get("X-Tenant-ID")
     request.session_id = request.session_id or http_request.headers.get("X-Session-ID")
     request.conversation_id = request.conversation_id or http_request.headers.get(

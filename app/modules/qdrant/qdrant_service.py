@@ -6,6 +6,7 @@ from typing import Any
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 
+from app.core.logger import log_latency
 from app.modules.qdrant.qdrant_schema import QdrantPayload
 
 logger = logging.getLogger(__name__)
@@ -110,17 +111,33 @@ class QdrantService:
                     field_name="response_format_hash",
                     field_schema=models.PayloadSchemaType.KEYWORD,
                 )
+                self.client.create_payload_index(
+                    collection_name=self.collection_name,
+                    field_name="intent",
+                    field_schema=models.PayloadSchemaType.KEYWORD,
+                )
+                self.client.create_payload_index(
+                    collection_name=self.collection_name,
+                    field_name="core_operation",
+                    field_schema=models.PayloadSchemaType.KEYWORD,
+                )
+                self.client.create_payload_index(
+                    collection_name=self.collection_name,
+                    field_name="core_subject",
+                    field_schema=models.PayloadSchemaType.KEYWORD,
+                )
             else:
                 logger.info(
                     f"Qdrant collection '{self.collection_name}' already exists."
                 )
-        except Exception as e:
-            logger.error(f"Failed to initialize Qdrant collection: {e}")
+        except Exception:
+            logger.exception("Failed to initialize Qdrant collection")
 
     def close(self):
         """Close Qdrant connection."""
         self.client.close()
 
+    @log_latency()
     def search_exact(
         self, exact_hash: str, tenant_id: str | None = None
     ) -> tuple[dict[str, Any] | None, str | None]:
@@ -149,10 +166,11 @@ class QdrantService:
                 logger.info("Exact search hit in Qdrant!")
                 return results[0].payload, str(results[0].id)
             return None, None
-        except Exception as e:
-            logger.error(f"Failed to search exact in Qdrant: {e}")
+        except Exception:
+            logger.exception("Failed to search exact in Qdrant")
             return None, None
 
+    @log_latency()
     def query_points(
         self,
         system_prompt_vector: list[float] | None = None,
@@ -247,10 +265,11 @@ class QdrantService:
                         }
                     )
             return matches
-        except Exception as e:
-            logger.error(f"Failed to search in Qdrant: {e}")
+        except Exception:
+            logger.exception("Failed to search in Qdrant")
             return []
 
+    @log_latency()
     def upsert(
         self,
         prompt: str,
@@ -273,6 +292,9 @@ class QdrantService:
         scope: str = "GLOBAL",
         entities: list[str] | None = None,
         time_sensitivity: float | None = None,
+        intent: str | None = None,
+        core_operation: str | None = None,
+        core_subject: str | None = None,
         embedding_model: str | None = None,
         embedding_version: str | None = None,
         cacheable: bool = False,
@@ -294,6 +316,9 @@ class QdrantService:
                 scope=scope,
                 entities=entities or [],
                 time_sensitivity=time_sensitivity,
+                intent=intent,
+                core_operation=core_operation,
+                core_subject=core_subject,
                 tenant_id=tenant_id,
                 user_id=user_id,
                 session_id=session_id,
