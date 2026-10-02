@@ -90,12 +90,14 @@ class LlmRouterService:
         fallback_service = (
             fallback_service
             if fallback_service is not None
-            else config.FALLBACK_LLM_SERVICE
+            else config.USE_FALLBACK_LLM_SERVICE
         )
         fallback_model = (
-            fallback_model if fallback_model is not None else config.FALLBACK_LLM_MODEL
+            fallback_model
+            if fallback_model is not None
+            else config.USE_FALLBACK_LLM_MODEL
         )
-        fallback = config.FALLBACK_LLM
+        fallback = config.USE_FALLBACK_LLM
 
         def is_retryable_exception(exc: BaseException) -> bool:
             if isinstance(exc, asyncio.TimeoutError):
@@ -279,6 +281,9 @@ class LlmRouterService:
             "matches": [],
             "eligible_matches": [],
         }
+
+        if config.USE_QDRANT_SEMANTIC_MATCHING != "true":
+            return result
 
         if not self.qdrant_service:
             return result
@@ -566,7 +571,6 @@ class LlmRouterService:
                         **base_cache_info,
                     }
                     response.cache_info = cache_info
-                    response_dump = response.model_dump(exclude={"cache_info"})
 
                     # Cache semantic match (even without a hit, to avoid future full re-reranks)
                     await self._save_to_redis_cache(
@@ -596,6 +600,9 @@ class LlmRouterService:
         subject_modifier: str | None = None,
         action_modifier: str | None = None,
     ) -> str | None:
+        if config.USE_QDRANT_SEMANTIC_MATCHING != "true":
+            return None
+
         if not self.qdrant_service:
             return None
 
@@ -730,6 +737,9 @@ class LlmRouterService:
     async def _get_redis_exact_match(
         self, exact_hash: str, service_name: str
     ) -> ChatCompletionResponse | None:
+        if config.USE_REDIS_SEMANTIC_MATCHING != "true":
+            return None
+
         if not self.redis_service:
             return None
 
@@ -752,6 +762,9 @@ class LlmRouterService:
     async def _get_qdrant_exact_match(
         self, exact_hash: str, tenant_id: str | None, prompt_text: str
     ) -> tuple[ChatCompletionResponse | None, str | None]:
+        if config.USE_QDRANT_SEMANTIC_MATCHING != "true":
+            return None, None
+
         if not self.qdrant_service:
             return None, None
 
@@ -781,6 +794,9 @@ class LlmRouterService:
     async def _save_to_redis_cache(
         self, exact_hash: str, response: ChatCompletionResponse, log_message: str
     ) -> None:
+        if config.USE_REDIS_SEMANTIC_MATCHING != "true":
+            return
+
         if self.redis_service:
             logger.info(log_message)
             response_dump = response.model_dump(exclude={"cache_info"})
@@ -924,8 +940,8 @@ class LlmRouterService:
                 service_name=service_name,
                 max_retries=config.LLM_MAX_RETRIES,
                 timeout_seconds=config.LLM_PROVIDER_TIMEOUT_SECONDS,
-                fallback_service=config.FALLBACK_LLM_SERVICE,
-                fallback_model=config.FALLBACK_LLM_MODEL,
+                fallback_service=config.USE_FALLBACK_LLM_SERVICE,
+                fallback_model=config.USE_FALLBACK_LLM_MODEL,
             )
 
             if response and response.choices:
