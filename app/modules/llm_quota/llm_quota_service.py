@@ -72,10 +72,10 @@ class LlmQuotaService:
             provider, model, user, tenant_id
         )
         if max_rpm is None:
-            max_rpm = 1000  # Default RPM limit # move to config
+            max_rpm = 10  # Default RPM limit # move to config
 
         if max_tpm is None:
-            max_tpm = 1000  # Default TPM limit # move to config
+            max_tpm = 20000  # Default TPM limit # move to config
 
         redis_suffix = f"{api_key}:{provider or 'any'}:{model or 'any'}:{user or 'any'}"
         rpm_key = f"rpm:{redis_suffix}"

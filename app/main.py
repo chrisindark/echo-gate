@@ -18,6 +18,7 @@ from app.modules.gateway_requests.gateway_requests_controller import (
 from app.modules.llm_usage.llm_usage_controller import api_v1_router as llm_usage_router
 from app.modules.qdrant.qdrant_controller import api_v1_router as qdrant_router
 from app.modules.verifiers.verifier_controller import api_v1_router as verifier_router
+from app.modules.analytics.analytics_controller import api_v1_router as analytics_router
 
 # Initialize the custom colored logger with correlation ID
 setup_logger()
@@ -90,3 +91,4 @@ app.include_router(qdrant_router)
 app.include_router(llm_usage_router)
 app.include_router(verifier_router)
 app.include_router(gateway_requests_router)
+app.include_router(analytics_router)
