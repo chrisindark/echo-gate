@@ -89,3 +89,32 @@ class LlmUsageService:
             logger.exception(f"Failed to delete LLM usage log {log_id}")
             self.db_session.rollback()
             raise e
+
+    def get_pending_cost_calculations(self, limit: int = 50) -> list[LlmUsageLog]:
+        """Fetch pending requests for background cost calculation."""
+        try:
+            return (
+                self.db_session_read.query(LlmUsageLog)
+                .filter(LlmUsageLog.cost_calculated.is_(False))
+                .order_by(LlmUsageLog.id.asc())
+                .limit(limit)
+                .all()
+            )
+        except Exception as e:
+            logger.exception("Failed to get pending cost calculations")
+            raise e
+
+    def bulk_update_costs(self, updates: list[dict]) -> bool:
+        """
+        Bulk update cost and cost_calculated fields for LLM usage logs.
+        `updates` should be a list of dicts, e.g.:
+        [{"id": 1, "cost": Decimal("0.05"), "cost_calculated": True}, ...]
+        """
+        try:
+            self.db_session.bulk_update_mappings(LlmUsageLog, updates)
+            self.db_session.commit()
+            return True
+        except Exception as e:
+            logger.exception("Failed to bulk update LLM usage logs")
+            self.db_session.rollback()
+            raise e

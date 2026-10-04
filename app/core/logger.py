@@ -4,7 +4,9 @@ import inspect
 import logging
 import os
 import time
+from collections.abc import Callable, Coroutine
 from contextvars import ContextVar
+from typing import Any, TypeVar, overload
 
 # Context variable for storing the correlation ID
 correlation_id_ctx_var: ContextVar[str] = ContextVar("correlation_id", default="-")
@@ -75,7 +77,28 @@ def setup_logger():
     logging.getLogger("uvicorn.access").disabled = True
 
 
-def log_latency(action_name: str | None = None):
+# Type variables for decorator
+P = TypeVar("P")
+R = TypeVar("R")
+
+
+@overload
+def log_latency(
+    action_name: str | None = None,
+) -> Callable[
+    [Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]
+]: ...
+
+
+@overload
+def log_latency(
+    action_name: str | None = None,
+) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
+
+
+def log_latency(
+    action_name: str | None = None,
+) -> Callable[[Callable[P, Any]], Callable[P, Any]]:
     """
     A decorator to log the latency of synchronous and asynchronous functions.
     """
@@ -88,11 +111,11 @@ def log_latency(action_name: str | None = None):
             @functools.wraps(func)
             async def async_wrapper(*args, **kwargs):
                 name = action_name or func.__qualname__
-                start_time = time.time()
+                start_time = time.perf_counter()
                 try:
                     return await func(*args, **kwargs)
                 finally:
-                    end_time = time.time()
+                    end_time = time.perf_counter()
                     latency_ms = int((end_time - start_time) * 1000)
                     logger.info(f"{name} took {latency_ms} ms")
 
@@ -102,11 +125,11 @@ def log_latency(action_name: str | None = None):
             @functools.wraps(func)
             def sync_wrapper(*args, **kwargs):
                 name = action_name or func.__qualname__
-                start_time = time.time()
+                start_time = time.perf_counter()
                 try:
                     return func(*args, **kwargs)
                 finally:
-                    end_time = time.time()
+                    end_time = time.perf_counter()
                     latency_ms = int((end_time - start_time) * 1000)
                     logger.info(f"{name} took {latency_ms} ms")
 

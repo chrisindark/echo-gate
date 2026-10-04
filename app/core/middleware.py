@@ -31,7 +31,7 @@ class CorrelationIdMiddleware:
         # Set the correlation ID in the context variable
         correlation_id_ctx_var.set(correlation_id)
 
-        start_time = time.time()
+        start_time = time.perf_counter()
         status_code = 500
 
         async def send_wrapper(message):
@@ -48,7 +48,8 @@ class CorrelationIdMiddleware:
             await self.app(scope, receive, send_wrapper)
         finally:
             if scope["type"] == "http":
-                process_time = time.time() - start_time
+                end_time = time.perf_counter()
+                process_time = end_time - start_time
                 client = scope.get("client")
                 client_ip = f"{client[0]}:{client[1]}" if client else "unknown"
                 method = scope.get("method", "")

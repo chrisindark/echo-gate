@@ -29,6 +29,11 @@ from app.core.constants import (
 from app.core.logger import log_latency
 from app.modules.chat.chat_schema import ChatCompletionRequest, ChatCompletionResponse
 from app.modules.embedding.embedding_service import EmbeddingService
+from app.modules.gateway_requests.gateway_requests_schema import (
+    GatewayRequestLogCreate,
+    RoutingDecision,
+)
+from app.modules.gateway_requests.gateway_requests_service import GatewayRequestsService
 from app.modules.intent_classifier.entity_extractor_service import (
     EntityExtractorService,
 )
@@ -61,6 +66,7 @@ class LlmRouterService:
         entity_extractor_service: EntityExtractorService,
         llm_usage_service: LlmUsageService,
         llm_quota_service: LlmQuotaService = None,
+        gateway_requests_service: GatewayRequestsService = None,
     ) -> None:
         self.llm_provider_service = llm_provider_service
         self.embedding_service = embedding_service
@@ -71,6 +77,7 @@ class LlmRouterService:
         self.entity_extractor_service = entity_extractor_service
         self.llm_usage_service = llm_usage_service
         self.llm_quota_service = llm_quota_service
+        self.gateway_requests_service = gateway_requests_service
 
     async def _call_provider_with_retry(
         self,
@@ -90,12 +97,10 @@ class LlmRouterService:
         fallback_service = (
             fallback_service
             if fallback_service is not None
-            else config.USE_FALLBACK_LLM_SERVICE
+            else config.FALLBACK_LLM_SERVICE
         )
         fallback_model = (
-            fallback_model
-            if fallback_model is not None
-            else config.USE_FALLBACK_LLM_MODEL
+            fallback_model if fallback_model is not None else config.FALLBACK_LLM_MODEL
         )
         fallback = config.USE_FALLBACK_LLM
 
@@ -198,6 +203,12 @@ class LlmRouterService:
             "session_id": request.session_id,
             "conversation_id": request.conversation_id,
             "response_format": request.response_format,
+            "max_tokens": request.max_tokens,
+            "stop": request.stop,
+            "top_p": request.top_p,
+            "presence_penalty": request.presence_penalty,
+            "frequency_penalty": request.frequency_penalty,
+            "logit_bias": request.logit_bias,
             "messages": [
                 {"role": msg.role, "content": msg.content} for msg in request.messages
             ],
@@ -205,20 +216,16 @@ class LlmRouterService:
         key_str = json.dumps(key_dict, sort_keys=True)
         return hashlib.sha256(key_str.encode()).hexdigest()
 
-    async def _get_embeddings(self, text: str, prefix: str = EMBEDDING_QUERY_PREFIX):
-        if not text:
-            return None, None
-        vec = await self.embedding_service.get_embedding_async(f"{prefix}{text}")
-        sparse = self.embedding_service.get_sparse_embedding(text)
-        return vec, sparse
-
-    async def _get_doc_embeddings(
-        self, text: str, prefix: str = EMBEDDING_DOCUMENT_PREFIX
+    async def _get_embeddings(
+        self, text: str, get_sparse: bool = True, prefix: str = ""
     ):
         if not text:
             return None, None
         vec = await self.embedding_service.get_embedding_async(f"{prefix}{text}")
-        sparse = self.embedding_service.get_sparse_embedding(text)
+        if get_sparse:
+            sparse = self.embedding_service.get_sparse_embedding(text)
+        else:
+            sparse = None
         return vec, sparse
 
     def _prepare_prompts(self, request: ChatCompletionRequest) -> tuple[str, str, str]:
@@ -270,7 +277,7 @@ class LlmRouterService:
         embedding_version = EMBEDDING_VERSION
         # Set cache key version; this can be updated based on changes to cache key generation strategy
         cache_key_version = CACHE_KEY_VERSION
-        now = int(time.time())
+        now = int(time.perf_counter())
 
         result: dict[str, Any] = {
             "response": None,
@@ -311,8 +318,15 @@ class LlmRouterService:
                 (Subject Modifier: {subject_modifier}) (Action Modifier: {action_modifier})"""
             )
 
-            system_vector, system_sparse = await self._get_embeddings(system_prompt)
-            user_vector, user_sparse = await self._get_embeddings(user_prompt)
+            prompt_vector, _ = await self._get_embeddings(
+                prompt_text, False, EMBEDDING_QUERY_PREFIX
+            )
+            system_vector, system_sparse = await self._get_embeddings(
+                system_prompt, EMBEDDING_QUERY_PREFIX
+            )
+            user_vector, user_sparse = await self._get_embeddings(
+                user_prompt, EMBEDDING_QUERY_PREFIX
+            )
 
             must_conditions = [
                 models.FieldCondition(
@@ -352,6 +366,30 @@ class LlmRouterService:
                 must_conditions.append(
                     models.IsEmptyCondition(
                         is_empty=models.PayloadField(key="response_format_hash")
+                    )
+                )
+
+            if request.stop:
+                stop_str = json.dumps(request.stop, sort_keys=True)
+                stop_hash = hashlib.sha256(stop_str.encode()).hexdigest()
+                must_conditions.append(
+                    models.FieldCondition(
+                        key="stop_hash",
+                        match=models.MatchValue(value=stop_hash),
+                    )
+                )
+            else:
+                must_conditions.append(
+                    models.IsEmptyCondition(
+                        is_empty=models.PayloadField(key="stop_hash")
+                    )
+                )
+
+            if request.max_tokens is not None:
+                must_conditions.append(
+                    models.FieldCondition(
+                        key="completion_tokens",
+                        range=models.Range(lte=request.max_tokens)
                     )
                 )
 
@@ -433,7 +471,54 @@ class LlmRouterService:
             # Lowered threshold to retrieve a wider pool of candidates for the Reranker
             threshold = config.QDRANT_SEARCH_THRESHOLD
 
-            matches = self.qdrant_service.query_points(
+            if prompt_vector:
+                dense_matches = self.qdrant_service.query_points_dense(
+                    vector=prompt_vector,
+                    using="prompt_embedding",
+                    query_filter=query_filter,
+                    limit=1,
+                )
+                if dense_matches:
+                    logger.info(
+                        f"Found semantic dense matches for prompt {exact_hash}: {len(dense_matches)}"
+                    )
+                    for match in dense_matches:
+                        logger.info(
+                            f"Semantic match ID: {match['id']}, Score: {match['score']}, Prompt: {match['payload'].get('prompt', '')}"
+                        )
+                    top_dense_match = dense_matches[0]
+                    if top_dense_match["score"] >= config.QDRANT_SEARCH_HIGH_THRESHOLD:
+                        logger.info(
+                            f"Fast path bypass triggered with dense score {top_dense_match['score']}"
+                        )
+                        matched_score = top_dense_match["score"]
+                        top_prompt = top_dense_match["payload"].get("prompt", "")
+
+                        cache_info = {
+                            "matched": True,
+                            "score": matched_score,
+                            "rerank_score": matched_score,
+                            "source": "qdrant_fast_path",
+                            "cache_hit": True,
+                            "point_id": top_dense_match["id"],
+                            "intent": intent.value,
+                            "query": prompt_text,
+                            "top_1_score": matched_score,
+                            "top_1_rerank_score": matched_score,
+                            "top_1_prompt": top_prompt,
+                            "accepted": True,
+                        }
+
+                        if "response" in top_dense_match["payload"]:
+                            response = ChatCompletionResponse(
+                                **top_dense_match["payload"]["response"]
+                            )
+                            response.cache_info = cache_info
+                            result["response"] = response
+                            result["cache_info"] = cache_info
+                        return result
+
+            matches = self.qdrant_service.query_points_rrf(
                 system_prompt_vector=system_vector,
                 system_prompt_sparse=system_sparse,
                 user_prompt_vector=user_vector,
@@ -442,148 +527,120 @@ class LlmRouterService:
                 query_filter=query_filter,
                 limit=config.QDRANT_SEARCH_LIMIT,
             )
-            result["matches"] = matches
-            logger.info(
-                f"Found semantic matches for prompt {exact_hash}: {len(matches)}"
-            )
-            for match in matches:
-                logger.info(
-                    f"Semantic match ID: {match['id']}, Score: {match['score']}, Prompt: {match['payload'].get('prompt', '')}"
-                )
-            eligible_matches = [
-                match for match in matches if match["score"] >= threshold
-            ]
-            result["eligible_matches"] = eligible_matches
 
-            if eligible_matches:
-                top_qdrant_match = eligible_matches[0]
-                if top_qdrant_match["score"] >= config.QDRANT_SEARCH_HIGH_THRESHOLD:
+            if matches:
+                logger.info(
+                    f"Found semantic rrf matches for prompt {exact_hash}: {len(matches)}"
+                )
+                result["matches"] = matches
+                for match in matches:
                     logger.info(
-                        f"Fast path bypass triggered with score {top_qdrant_match['score']}"
+                        f"Semantic match ID: {match['id']}, Score: {match['score']}, Prompt: {match['payload'].get('prompt', '')}"
+                    )
+                eligible_matches = [
+                    match for match in matches if match["score"] >= threshold
+                ]
+                result["eligible_matches"] = eligible_matches
+
+                if eligible_matches:
+                    request_entities = (
+                        self.entity_extractor_service.get_qdrant_entity_tags(
+                            prompt_text
+                        )
                     )
 
-                    matched_score = top_qdrant_match["score"]
-                    top_prompt = top_qdrant_match["payload"].get("prompt", "")
+                    matches_reranked = self.reranker_service.rerank(
+                        query=prompt_text,
+                        candidates=eligible_matches,
+                        request_model=request.model,
+                        request_service=service_name,
+                        request_intent=intent.value,
+                        request_temperature=request.temperature,
+                        request_entities=request_entities,
+                        request_core_operation=core_operation,
+                        request_core_subject=core_subject,
+                        request_subject_modifier=subject_modifier,
+                        request_action_modifier=action_modifier,
+                        user_query=user_prompt,
+                        system_query=system_prompt,
+                    )
 
-                    cache_info = {
-                        "matched": True,
-                        "score": matched_score,
-                        "rerank_score": matched_score,
-                        "source": "qdrant_fast_path",
-                        "cache_hit": True,
-                        "point_id": top_qdrant_match["id"],
-                        "intent": intent.value,
+                    top_match = matches_reranked[0]
+                    matched_score = top_match["score"]
+                    rerank_score = top_match.get("rerank_score", 0.0)
+
+                    logger.info(
+                        f"Reranked top match: {top_match['id']} with final rank score {rerank_score}"
+                    )
+
+                    # Semantic constraints
+                    top_prompt = top_match["payload"].get("prompt", "")
+
+                    # Evaluate if the cache should be accepted based on the dynamic confidence formula
+                    is_accepted = CacheConfidenceEvaluator.evaluate(
+                        rerank_score=rerank_score,
+                        request_temperature=request.temperature,
+                        request_intent=intent.value,
+                    )
+                    logger.info(f"Cache confidence evaluation: {is_accepted}")
+
+                    base_cache_info = {
                         "query": prompt_text,
                         "top_1_score": matched_score,
-                        "top_1_rerank_score": matched_score,
+                        "top_1_rerank_score": rerank_score,
                         "top_1_prompt": top_prompt,
-                        "accepted": True,
+                        "accepted": is_accepted,
                     }
-
-                    if "response" in top_qdrant_match["payload"]:
-                        response = ChatCompletionResponse(
-                            **top_qdrant_match["payload"]["response"]
+                    if len(matches_reranked) > 1:
+                        base_cache_info["top_2_score"] = matches_reranked[1]["score"]
+                        base_cache_info["top_2_rerank_score"] = matches_reranked[1].get(
+                            "rerank_score", 0.0
                         )
+                        base_cache_info["top_2_prompt"] = matches_reranked[1][
+                            "payload"
+                        ].get("prompt", "")
+                    if len(matches_reranked) > 2:
+                        base_cache_info["top_3_score"] = matches_reranked[2]["score"]
+                        base_cache_info["top_3_rerank_score"] = matches_reranked[2].get(
+                            "rerank_score", 0.0
+                        )
+                        base_cache_info["top_3_prompt"] = matches_reranked[2][
+                            "payload"
+                        ].get("prompt", "")
+
+                    if is_accepted and "response" in top_match["payload"]:
+                        logger.info(
+                            f"Serving response from Qdrant semantic search query with threshold {threshold}, score {matched_score}, rerank_score {rerank_score}."
+                        )
+                        response = ChatCompletionResponse(
+                            **top_match["payload"]["response"]
+                        )
+
+                        cache_info = {
+                            "matched": True,
+                            "score": matched_score,
+                            "rerank_score": rerank_score,
+                            "source": "qdrant_semantic_path",
+                            "cache_hit": is_accepted,
+                            "point_id": top_match["id"],
+                            "intent": intent.value,
+                            **base_cache_info,
+                        }
                         response.cache_info = cache_info
+
+                        # Cache semantic match (even without a hit, to avoid future full re-reranks)
+                        await self._save_to_redis_cache(
+                            exact_hash,
+                            response,
+                            "Saving Qdrant semantic search query matched response in Redis",
+                        )
+
                         result["response"] = response
                         result["cache_info"] = cache_info
-                    return result
+                    else:
+                        result["miss_cache_info"] = base_cache_info
 
-                request_entities = self.entity_extractor_service.get_qdrant_entity_tags(
-                    prompt_text
-                )
-
-                matches_reranked = self.reranker_service.rerank(
-                    query=prompt_text,
-                    candidates=eligible_matches,
-                    request_model=request.model,
-                    request_service=service_name,
-                    request_intent=intent.value,
-                    request_temperature=request.temperature,
-                    request_entities=request_entities,
-                    request_core_operation=core_operation,
-                    request_core_subject=core_subject,
-                    request_subject_modifier=subject_modifier,
-                    request_action_modifier=action_modifier,
-                    user_query=user_prompt,
-                    system_query=system_prompt,
-                )
-
-                top_match = matches_reranked[0]
-                matched_score = top_match["score"]
-                rerank_score = top_match.get("rerank_score", 0.0)
-
-                logger.info(
-                    f"Reranked top match: {top_match['id']} with final rank score {rerank_score}"
-                )
-
-                # Semantic constraints
-                top_prompt = top_match["payload"].get("prompt", "")
-
-                # Evaluate if the cache should be accepted based on the dynamic confidence formula
-                is_accepted = CacheConfidenceEvaluator.evaluate(
-                    rerank_score=rerank_score,
-                    request_temperature=request.temperature,
-                    request_intent=intent.value,
-                )
-                logger.info(f"Cache confidence evaluation: {is_accepted}")
-
-                base_cache_info = {
-                    "query": prompt_text,
-                    "top_1_score": matched_score,
-                    "top_1_rerank_score": rerank_score,
-                    "top_1_prompt": top_prompt,
-                    "accepted": is_accepted,
-                }
-                if len(matches_reranked) > 1:
-                    base_cache_info["top_2_score"] = matches_reranked[1]["score"]
-                    base_cache_info["top_2_rerank_score"] = matches_reranked[1].get(
-                        "rerank_score", 0.0
-                    )
-                    base_cache_info["top_2_prompt"] = matches_reranked[1][
-                        "payload"
-                    ].get("prompt", "")
-                if len(matches_reranked) > 2:
-                    base_cache_info["top_3_score"] = matches_reranked[2]["score"]
-                    base_cache_info["top_3_rerank_score"] = matches_reranked[2].get(
-                        "rerank_score", 0.0
-                    )
-                    base_cache_info["top_3_prompt"] = matches_reranked[2][
-                        "payload"
-                    ].get("prompt", "")
-
-                if is_accepted and "response" in top_match["payload"]:
-                    logger.info(
-                        f"Serving response from Qdrant semantic search query with threshold {threshold}, score {matched_score}, rerank_score {rerank_score}."
-                    )
-                    response = ChatCompletionResponse(
-                        **top_match["payload"]["response"]
-                    )
-
-                    cache_info = {
-                        "matched": True,
-                        "score": matched_score,
-                        "rerank_score": rerank_score,
-                        "source": "qdrant",
-                        "cache_hit": is_accepted,
-                        "point_id": top_match["id"],
-                        "intent": intent.value,
-                        **base_cache_info,
-                    }
-                    response.cache_info = cache_info
-
-                    # Cache semantic match (even without a hit, to avoid future full re-reranks)
-                    await self._save_to_redis_cache(
-                        exact_hash,
-                        response,
-                        "Saving Qdrant semantic search query matched response in Redis",
-                    )
-
-                    result["response"] = response
-                    result["cache_info"] = cache_info
-                else:
-                    result["miss_cache_info"] = base_cache_info
-
+                return result
             return result
         except Exception:
             logger.exception("Qdrant Database read error")
@@ -621,7 +678,7 @@ class LlmRouterService:
         cache_key_version = CACHE_KEY_VERSION
 
         # Set created_at and expires_at timestamps for the cache entry
-        now = int(time.time())
+        now = int(time.perf_counter())
         created_at = now
         # Set expiration to 1 day in the future (can be dynamic later based on intent/entities)
         expires_at = now + config.DEFAULT_CACHE_TTL_SECONDS
@@ -631,9 +688,15 @@ class LlmRouterService:
         try:
             logger.info("Embeddings generation started...")
 
-            system_vec, system_sparse = await self._get_doc_embeddings(system_prompt)
-            user_vec, user_sparse = await self._get_doc_embeddings(user_prompt)
-            prompt_vec, prompt_sparse = await self._get_doc_embeddings(prompt_text)
+            system_vec, system_sparse = await self._get_embeddings(
+                system_prompt, True, EMBEDDING_DOCUMENT_PREFIX
+            )
+            user_vec, user_sparse = await self._get_embeddings(
+                user_prompt, True, EMBEDDING_DOCUMENT_PREFIX
+            )
+            prompt_vec, prompt_sparse = await self._get_embeddings(
+                prompt_text, True, EMBEDDING_DOCUMENT_PREFIX
+            )
             logger.info("Embeddings generated successfully")
 
             if intent is None:
@@ -690,6 +753,13 @@ class LlmRouterService:
                 metadata["response_format_hash"] = hashlib.sha256(
                     rf_str.encode()
                 ).hexdigest()
+
+            if request.stop:
+                stop_str = json.dumps(request.stop, sort_keys=True)
+                metadata["stop_hash"] = hashlib.sha256(stop_str.encode()).hexdigest()
+
+            if response.usage and response.usage.completion_tokens:
+                metadata["completion_tokens"] = response.usage.completion_tokens
 
             logger.info("Saving generated embedding in Qdrant...")
 
@@ -780,8 +850,8 @@ class LlmRouterService:
             response.cache_info = {
                 "matched": True,
                 "score": 1.0,
-                "rerank_score": 1.0,
-                "source": "qdrant",
+                "rerank_score": 0.0,
+                "source": "qdrant_exact_path",
                 "cache_hit": True,
                 "point_id": point_id,
                 "intent": intent,
@@ -812,7 +882,8 @@ class LlmRouterService:
         api_key: str | None = None,
     ) -> None:
         try:
-            latency_ms = int((time.time() - start_time) * 1000)
+            end_time = time.perf_counter()
+            latency_ms = int((end_time - start_time) * 1000)
             is_cache_hit = (
                 response.cache_info.get("cache_hit", False)
                 if hasattr(response, "cache_info")
@@ -888,11 +959,74 @@ class LlmRouterService:
         except Exception:
             logger.exception("Failed to log LLM usage")
 
+    def _log_gateway_request(
+        self,
+        request: ChatCompletionRequest,
+        response: ChatCompletionResponse,
+        service_name: str,
+        start_time: float,
+        exact_hash: str,
+    ) -> None:
+        if not self.gateway_requests_service:
+            return
+
+        try:
+            end_time = time.perf_counter()
+            latency_ms = int((end_time - start_time) * 1000)
+            prompt_text, _, _ = self._prepare_prompts(request)
+
+            source = (
+                response.cache_info.get("source", "llm")
+                if hasattr(response, "cache_info")
+                else "llm"
+            )
+            routing_decision = RoutingDecision.LLM
+            if source == "redis":
+                routing_decision = RoutingDecision.REDIS_EXACT
+            elif source == "qdrant_exact_path":
+                routing_decision = RoutingDecision.QDRANT_EXACT
+            elif source == "qdrant_semantic_path":
+                routing_decision = RoutingDecision.QDRANT_SEMANTIC
+            elif source == "qdrant_fast_path":
+                routing_decision = RoutingDecision.QDRANT_FAST
+
+            cache_info = response.cache_info if hasattr(response, "cache_info") else {}
+
+            output_text = (
+                response.choices[0].message.content if response.choices else ""
+            )
+
+            log_data = GatewayRequestLogCreate(
+                query_text=prompt_text,
+                response_text=output_text,
+                routing_decision=routing_decision,
+                provider=service_name if source == "llm" else "cache",
+                model=request.model,
+                point_id=cache_info.get("point_id"),
+                exact_hash=exact_hash,
+                intent=cache_info.get("intent"),
+                core_operation=cache_info.get("core_operation"),
+                core_subject=cache_info.get("core_subject"),
+                subject_modifier=cache_info.get("subject_modifier"),
+                action_modifier=cache_info.get("action_modifier"),
+                rerank_score=cache_info.get("rerank_score")
+                if source == "semantic"
+                else None,
+                latency_ms=latency_ms,
+                user_id=request.user_id,
+                tenant_id=request.tenant_id,
+                session_id=request.session_id,
+                conversation_id=request.conversation_id,
+            )
+            self.gateway_requests_service.log_request(log_data)
+        except Exception:
+            logger.exception("Failed to log gateway request")
+
     @log_latency()
     async def generate_completion(
         self, request: ChatCompletionRequest, api_key: str | None = None
     ) -> ChatCompletionResponse:
-        start_time = time.time()
+        start_time = time.perf_counter()
         service_name = request.service_name or config.DEFAULT_LLM_SERVICE
         logger.warning(f"Generating completion for service {service_name}")
 
@@ -940,8 +1074,8 @@ class LlmRouterService:
                 service_name=service_name,
                 max_retries=config.LLM_MAX_RETRIES,
                 timeout_seconds=config.LLM_PROVIDER_TIMEOUT_SECONDS,
-                fallback_service=config.USE_FALLBACK_LLM_SERVICE,
-                fallback_model=config.USE_FALLBACK_LLM_MODEL,
+                fallback_service=config.FALLBACK_LLM_SERVICE,
+                fallback_model=config.FALLBACK_LLM_MODEL,
             )
 
             if response and response.choices:
@@ -991,4 +1125,11 @@ class LlmRouterService:
                     start_time=start_time,
                     exact_hash=exact_hash,
                     api_key=api_key,
+                )
+                self._log_gateway_request(
+                    request=request,
+                    response=response,
+                    service_name=service_name,
+                    start_time=start_time,
+                    exact_hash=exact_hash,
                 )

@@ -809,6 +809,21 @@ standard = ["email-validator (>=2.0.0)", "fastapi-cli[standard] (>=0.0.32)", "fa
 standard-no-fastapi-cloud-cli = ["email-validator (>=2.0.0)", "fastapi-cli[standard-no-fastapi-cloud-cli] (>=0.0.32)", "httpx (>=0.23.0,<1.0.0)", "jinja2 (>=3.1.5)", "pydantic-extra-types (>=2.0.0)", "pydantic-settings (>=2.0.0)", "python-multipart (>=0.0.18)", "uvicorn[standard] (>=0.12.0)"]
 
 [[package]]
+name = "fastapi-health"
+version = "0.4.0"
+description = "Heath check on FastAPI applications."
+optional = false
+python-versions = ">=3.6.1,<4.0.0"
+groups = ["main"]
+files = [
+    {file = "fastapi-health-0.4.0.tar.gz", hash = "sha256:a0781b2359732d50cddda1195784f78950265c6b3689d7a1e6e65a21aed4d6a5"},
+    {file = "fastapi_health-0.4.0-py3-none-any.whl", hash = "sha256:d6c1795f7596009cffa7a84d5a67a6b66bbf9d6ce79b040fd50601ed5392089f"},
+]
+
+[package.dependencies]
+fastapi = ">=0.63.0"
+
+[[package]]
 name = "fastembed"
 version = "0.8.1"
 description = "Fast, light, accurate library built for retrieval embedding generation"
@@ -4228,4 +4243,4 @@ dev = ["black (>=19.3b0) ; python_version >= \"3.6\"", "pytest (>=4.6.2)"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "9d7f6ffb6327bd952e39a0832b6cd3bf4945e6fd32d288e63c305a1376d2186c"
+content-hash = "d43770e66d85d594f761113cc7dcbdbeeac058a05c6d2280270e47cd67502ea7"

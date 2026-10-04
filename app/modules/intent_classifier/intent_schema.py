@@ -40,14 +40,6 @@ class IntentClassificationResult(BaseModel):
         "",
         description="The primary noun or subject being acted upon, e.g. 'flight ticket', 'docker container', 'apple stock', 'chocolate cake'. Max 4 words.",
     )
-    negative_operation: str | None = Field(
-        None,
-        description="The exact opposite action of the core_operation if it makes sense, e.g., if core_operation is 'start', negative_operation could be 'stop'. If none applies, return null.",
-    )
-    contrasting_subject: str | None = Field(
-        None,
-        description="A contrasting or commonly confused subject that would make the query irrelevant, e.g., if core_subject is 'Kyoto', contrasting_subject could be 'Tokyo'. If none applies, return null.",
-    )
     subject_modifier: str | None = Field(
         None,
         description="The specific attribute, quality, or constraint applied to the subject, e.g. 'cheapest' for flights, 'latest' for news, 'secure' for connection. If none applies, return null.",

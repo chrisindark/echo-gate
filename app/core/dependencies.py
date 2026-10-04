@@ -1,6 +1,7 @@
 from app.core.config import config
 from app.core.database import get_db, get_db_read
 from app.modules.embedding.embedding_service import EmbeddingService
+from app.modules.gateway_requests.gateway_requests_service import GatewayRequestsService
 from app.modules.intent_classifier.entity_extractor_service import (
     EntityExtractorService,
 )
@@ -14,9 +15,9 @@ from app.modules.llm_usage.llm_usage_service import LlmUsageService
 from app.modules.qdrant.qdrant_service import QdrantService
 from app.modules.redis.redis_service import RedisService
 from app.modules.reranking.reranker_service import RerankerService
-from app.modules.verifiers.cross_encoder_verifier_service import (
-    CrossEncoderVerifierService,
-)
+from app.modules.verifiers.cross_encoder_service import CrossEncoderService
+from app.modules.verifiers.instruction_service import InstructionVerifier
+from app.modules.verifiers.judge_service import JudgeService
 
 
 class DependencyContainer:
@@ -30,7 +31,10 @@ class DependencyContainer:
     _entity_extractor_service: EntityExtractorService | None = None
     _llm_usage_service: LlmUsageService | None = None
     _llm_quota_service: LlmQuotaService | None = None
-    _cross_encoder_verifier_service: CrossEncoderVerifierService | None = None
+    _cross_encoder_service: CrossEncoderService | None = None
+    _judge_service: JudgeService | None = None
+    _instruction_service: InstructionVerifier | None = None
+    _gateway_requests_service: GatewayRequestsService | None = None
 
     @classmethod
     async def initialize(cls) -> None:
@@ -43,7 +47,10 @@ class DependencyContainer:
         await cls.get_llm_router_service()
         cls.get_llm_usage_service()
         cls.get_llm_quota_service()
-        cls.get_cross_encoder_verifier_service()
+        cls.get_cross_encoder_service()
+        cls.get_instruction_service()
+        cls.get_judge_service()
+        cls.get_gateway_requests_service()
 
     @classmethod
     async def shutdown(cls) -> None:
@@ -61,7 +68,10 @@ class DependencyContainer:
             cls._reranker_service = None
             cls._intent_classifier_service = None
             cls._entity_extractor_service = None
-            cls._cross_encoder_verifier_service = None
+            cls._cross_encoder_service = None
+            cls._judge_service = None
+            cls._instruction_service = None
+            cls._gateway_requests_service = None
 
     @classmethod
     def get_embedding_service(cls) -> EmbeddingService:
@@ -92,7 +102,10 @@ class DependencyContainer:
     @classmethod
     def get_reranker_service(cls) -> RerankerService:
         if cls._reranker_service is None:
-            cls._reranker_service = RerankerService()
+            cls._reranker_service = RerankerService(
+                cross_encoder_service=cls.get_cross_encoder_service(),
+                instruction_service=cls.get_instruction_service(),
+            )
         return cls._reranker_service
 
     @classmethod
@@ -128,6 +141,7 @@ class DependencyContainer:
                 entity_extractor_service=cls.get_entity_extractor_service(),
                 llm_usage_service=cls.get_llm_usage_service(),
                 llm_quota_service=cls.get_llm_quota_service(),
+                gateway_requests_service=cls.get_gateway_requests_service(),
             )
         return cls._llm_router_service
 
@@ -155,10 +169,34 @@ class DependencyContainer:
         return cls._llm_quota_service
 
     @classmethod
-    def get_cross_encoder_verifier_service(cls) -> CrossEncoderVerifierService:
-        if cls._cross_encoder_verifier_service is None:
-            cls._cross_encoder_verifier_service = CrossEncoderVerifierService()
-        return cls._cross_encoder_verifier_service
+    def get_cross_encoder_service(cls) -> CrossEncoderService:
+        if cls._cross_encoder_service is None:
+            cls._cross_encoder_service = CrossEncoderService()
+        return cls._cross_encoder_service
+
+    @classmethod
+    def get_instruction_service(cls) -> InstructionVerifier:
+        if cls._instruction_service is None:
+            cls._instruction_service = InstructionVerifier()
+        return cls._instruction_service
+
+    @classmethod
+    def get_judge_service(cls) -> JudgeService:
+        if cls._judge_service is None:
+            cls._judge_service = JudgeService(
+                llm_provider_service=cls.get_llm_provider_service(),
+                cross_encoder_service=cls.get_cross_encoder_service(),
+                instruction_service=cls.get_instruction_service(),
+            )
+        return cls._judge_service
+
+    @classmethod
+    def get_gateway_requests_service(cls) -> GatewayRequestsService:
+        if cls._gateway_requests_service is None:
+            cls._gateway_requests_service = GatewayRequestsService(
+                db_session=next(get_db()), db_session_read=next(get_db_read())
+            )
+        return cls._gateway_requests_service
 
 
 # FastAPI Depends compatible functions
@@ -202,5 +240,13 @@ def get_llm_quota_service() -> LlmQuotaService:
     return DependencyContainer.get_llm_quota_service()
 
 
-def get_cross_encoder_verifier_service() -> CrossEncoderVerifierService:
-    return DependencyContainer.get_cross_encoder_verifier_service()
+def get_cross_encoder_service() -> CrossEncoderService:
+    return DependencyContainer.get_cross_encoder_service()
+
+
+def get_gateway_requests_service() -> GatewayRequestsService:
+    return DependencyContainer.get_gateway_requests_service()
+
+
+def get_judge_service() -> JudgeService:
+    return DependencyContainer.get_judge_service()

@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from app.core.dependencies import get_llm_router_service
 from app.core.guard import llm_quota_guard
+from app.core.responses import BaseAPIResponse
 from app.modules.chat.chat_schema import ChatCompletionRequest, ChatCompletionResponse
 from app.modules.llm.llm_router_service import LlmRouterService
 
@@ -54,7 +55,7 @@ async def create_chat_completion(
 
 @api_v1_router.post(
     "/completions/semantic-search",
-    response_model=dict,
+    response_model=BaseAPIResponse[dict],
 )
 async def semantic_search(
     http_request: Request,
@@ -78,12 +79,12 @@ async def semantic_search(
     if result.get("intent"):
         result["intent"] = result["intent"].value
 
-    return result
+    return BaseAPIResponse.success_response(result)
 
 
 @api_v1_router.post(
     "/completions/exact-search",
-    response_model=dict,
+    response_model=BaseAPIResponse[dict],
 )
 async def exact_search(
     http_request: Request,
@@ -103,12 +104,12 @@ async def exact_search(
     )
 
     payload, point_id = await llmService.get_exact_match(request)
-    return {"payload": payload, "point_id": point_id}
+    return BaseAPIResponse.success_response({"payload": payload, "point_id": point_id})
 
 
 @api_v1_router.post(
     "/completions/cache-save",
-    response_model=dict,
+    response_model=BaseAPIResponse[dict],
 )
 async def cache_save(
     http_request: Request,
@@ -131,4 +132,4 @@ async def cache_save(
     )
 
     point_id = await llmService.save_to_cache(request=request, response=response)
-    return {"point_id": point_id}
+    return BaseAPIResponse.success_response({"point_id": point_id})

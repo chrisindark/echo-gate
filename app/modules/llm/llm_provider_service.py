@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from google import genai
 from google.genai import errors, types
 
+from app.core.config import config
 from app.core.logger import log_latency
 from app.modules.chat.chat_schema import (
     ChatCompletionRequest,
@@ -23,14 +24,14 @@ logger = logging.getLogger(__name__)
 class LlmProviderService:
     def __init__(self) -> None:
         self.openai_api_key: str | None = os.getenv("OPENAI_API_KEY")
-        self.openai_base_url: str = "https://api.openai.com/v1/chat/completions"
+        self.openai_base_url: str = config.OPENAI_BASE_URL
         self.gemini_api_key: str | None = os.getenv("GEMINI_API_KEY")
-        self.ollama_base_url: str = os.getenv("OLLAMA_URL", "http://localhost:11434")
+        self.ollama_base_url: str = config.OLLAMA_URL
 
         self.groq_api_key: str | None = os.getenv("GROQ_API_KEY")
-        self.groq_base_url: str = "https://api.groq.com/openai/v1/chat/completions"
+        self.groq_base_url: str = config.GROQ_BASE_URL
         self.openrouter_api_key: str | None = os.getenv("OPENROUTER_API_KEY")
-        self.openrouter_base_url: str = "https://openrouter.ai/api/v1/chat/completions"
+        self.openrouter_base_url: str = config.OPENROUTER_BASE_URL
 
         self.gemini_client = None
         if genai and self.gemini_api_key:
@@ -51,7 +52,7 @@ class LlmProviderService:
             async with httpx.AsyncClient() as client:
                 logger.info(f"Forwarding request to local Ollama ({request.model})...")
                 response = await client.post(
-                    url, json=payload_data, headers=headers, timeout=120.0
+                    url, json=payload_data, headers=headers, timeout=config.HTTP_CLIENT_TIMEOUT_SECONDS
                 )
                 response.raise_for_status()
                 data = response.json()
@@ -190,7 +191,7 @@ class LlmProviderService:
                     self.openai_base_url,
                     json=payload_data,
                     headers=headers,
-                    timeout=60.0,
+                    timeout=config.HTTP_CLIENT_TIMEOUT_SECONDS,
                 )
                 response.raise_for_status()
                 data = response.json()
@@ -231,7 +232,7 @@ class LlmProviderService:
                     self.groq_base_url,
                     json=payload_data,
                     headers=headers,
-                    timeout=60.0,
+                    timeout=config.HTTP_CLIENT_TIMEOUT_SECONDS,
                 )
                 response.raise_for_status()
                 data = response.json()
@@ -276,7 +277,7 @@ class LlmProviderService:
                     self.openrouter_base_url,
                     json=payload_data,
                     headers=headers,
-                    timeout=60.0,
+                    timeout=config.HTTP_CLIENT_TIMEOUT_SECONDS,
                 )
                 response.raise_for_status()
                 data = response.json()

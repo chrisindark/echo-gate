@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db, get_db_read
+from app.core.responses import BaseAPIResponse
 from app.modules.llm_usage.llm_usage_schema import (
     LlmUsageLogCreate,
     LlmUsageLogResponse,
@@ -17,7 +18,7 @@ logger = logging.getLogger(__name__)
 api_v1_router = APIRouter(prefix="/api/v1/llm-usage", tags=["Llm-usage"])
 
 
-@api_v1_router.get("/", response_model=list[LlmUsageLogResponse])
+@api_v1_router.get("/", response_model=BaseAPIResponse[list[LlmUsageLogResponse]])
 def list_llm_usage_logs(
     start_time: datetime | None = None,
     end_time: datetime | None = None,
@@ -30,12 +31,13 @@ def list_llm_usage_logs(
     List LLM usage logs with optional time range filters and pagination.
     """
     llm_usage_service = LlmUsageService(db, db_read)
-    return llm_usage_service.get_llm_usage_logs(
+    result = llm_usage_service.get_llm_usage_logs(
         start_time=start_time, end_time=end_time, skip=skip, limit=limit
     )
+    return BaseAPIResponse.success_response(result)
 
 
-@api_v1_router.get("/{log_id}", response_model=LlmUsageLogResponse)
+@api_v1_router.get("/{log_id}", response_model=BaseAPIResponse[LlmUsageLogResponse])
 def get_llm_usage_log(
     log_id: int, db: Session = Depends(get_db), db_read: Session = Depends(get_db_read)
 ):
@@ -48,11 +50,13 @@ def get_llm_usage_log(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="LLM usage log not found"
         )
-    return log
+    return BaseAPIResponse.success_response(log)
 
 
 @api_v1_router.post(
-    "/", response_model=LlmUsageLogResponse, status_code=status.HTTP_201_CREATED
+    "/",
+    response_model=BaseAPIResponse[LlmUsageLogResponse],
+    status_code=status.HTTP_201_CREATED,
 )
 def create_llm_usage_log(
     log_data: LlmUsageLogCreate,
@@ -64,7 +68,10 @@ def create_llm_usage_log(
     """
     llm_usage_service = LlmUsageService(db, db_read)
     try:
-        return llm_usage_service.create_llm_usage_log(log_data)
+        result = llm_usage_service.create_llm_usage_log(log_data)
+        return BaseAPIResponse.success_response(
+            result, status_code=status.HTTP_201_CREATED
+        )
     except Exception as e:
         logger.error(f"Error creating LLM usage log: {e}")
         raise HTTPException(
@@ -73,7 +80,7 @@ def create_llm_usage_log(
         )
 
 
-@api_v1_router.put("/{log_id}", response_model=LlmUsageLogResponse)
+@api_v1_router.put("/{log_id}", response_model=BaseAPIResponse[LlmUsageLogResponse])
 def update_llm_usage_log(
     log_id: int,
     log_data: LlmUsageLogUpdate,
@@ -90,7 +97,7 @@ def update_llm_usage_log(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="LLM usage log not found"
             )
-        return updated_log
+        return BaseAPIResponse.success_response(updated_log)
     except HTTPException:
         raise
     except Exception as e:
@@ -101,7 +108,9 @@ def update_llm_usage_log(
         )
 
 
-@api_v1_router.delete("/{log_id}", status_code=status.HTTP_204_NO_CONTENT)
+@api_v1_router.delete(
+    "/{log_id}", response_model=BaseAPIResponse[None], status_code=status.HTTP_200_OK
+)
 def delete_llm_usage_log(
     log_id: int, db: Session = Depends(get_db), db_read: Session = Depends(get_db_read)
 ):
@@ -115,6 +124,7 @@ def delete_llm_usage_log(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="LLM usage log not found"
             )
+        return BaseAPIResponse.success_response(None)
     except HTTPException:
         raise
     except Exception as e:

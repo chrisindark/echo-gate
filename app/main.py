@@ -12,6 +12,9 @@ from app.core.dependencies import DependencyContainer
 from app.core.logger import setup_logger
 from app.core.middleware import CorrelationIdMiddleware, UserMiddleware
 from app.modules.chat.chat_controller import api_v1_router as chat_router
+from app.modules.gateway_requests.gateway_requests_controller import (
+    api_v1_router as gateway_requests_router,
+)
 from app.modules.llm_usage.llm_usage_controller import api_v1_router as llm_usage_router
 from app.modules.qdrant.qdrant_controller import api_v1_router as qdrant_router
 from app.modules.verifiers.verifier_controller import api_v1_router as verifier_router
@@ -41,6 +44,7 @@ load_dotenv()
 async def lifespan(app: FastAPI):
     config.load()
     await DependencyContainer.initialize()
+    logger.info("DependencyContainer initialized in FastAPI.")
     try:
         yield
     finally:
@@ -85,3 +89,4 @@ app.include_router(chat_router)
 app.include_router(qdrant_router)
 app.include_router(llm_usage_router)
 app.include_router(verifier_router)
+app.include_router(gateway_requests_router)

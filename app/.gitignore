@@ -27,4 +27,4 @@ sqlite3.db
 
 # Environment variables
 .env
-.env.*
+.env.local
