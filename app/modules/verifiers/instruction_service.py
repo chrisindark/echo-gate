@@ -14,18 +14,20 @@ class InstructionVerifier:
             r"\b(bullet points|bulleted list|bullet list|in a list|as a list|list format)\b",
             re.IGNORECASE,
         )
-        
+
         num_pattern = r"(\d+|one|two|three|four|five|six|seven|eight|nine|ten)"
-        
+
         self.re_word_limit = re.compile(
-            rf"(?:under|less than|max(?:imum)?|in)\s+{num_pattern}\s+words", re.IGNORECASE
+            rf"(?:under|less than|max(?:imum)?|in)\s+{num_pattern}\s+words",
+            re.IGNORECASE,
         )
         self.re_exact_count = re.compile(
             rf"\b(?:exactly|list|provide|give|write|generate)\s+(?:me\s+)?{num_pattern}\s+(?:bullet points|points|items|reasons|tips)\b",
             re.IGNORECASE,
         )
         self.re_sentence_limit = re.compile(
-            rf"(?:under|less than|max(?:imum)?|in)\s+{num_pattern}\s+sentences?", re.IGNORECASE
+            rf"(?:under|less than|max(?:imum)?|in)\s+{num_pattern}\s+sentences?",
+            re.IGNORECASE,
         )
         self.re_exact_sentence_count = re.compile(
             rf"\b(?:exactly|list|provide|give|write|generate)\s+(?:me\s+)?{num_pattern}\s+sentences?\b",
@@ -34,8 +36,16 @@ class InstructionVerifier:
 
     def _parse_number(self, val: str) -> int:
         words = {
-            "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, 
-            "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10
+            "one": 1,
+            "two": 2,
+            "three": 3,
+            "four": 4,
+            "five": 5,
+            "six": 6,
+            "seven": 7,
+            "eight": 8,
+            "nine": 9,
+            "ten": 10,
         }
         if val.isdigit():
             return int(val)

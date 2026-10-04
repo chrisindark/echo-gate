@@ -52,7 +52,10 @@ class LlmProviderService:
             async with httpx.AsyncClient() as client:
                 logger.info(f"Forwarding request to local Ollama ({request.model})...")
                 response = await client.post(
-                    url, json=payload_data, headers=headers, timeout=config.HTTP_CLIENT_TIMEOUT_SECONDS
+                    url,
+                    json=payload_data,
+                    headers=headers,
+                    timeout=config.HTTP_CLIENT_TIMEOUT_SECONDS,
                 )
                 response.raise_for_status()
                 data = response.json()

@@ -2,7 +2,6 @@ import logging
 import time
 from decimal import Decimal
 
-from sqlalchemy.orm import Session
 
 from app.core.celery_app import celery_app
 from app.core.database import SessionLocal
@@ -31,7 +30,9 @@ def process_uncalculated_costs(self):
                 db_session=db_session, db_session_read=db_session
             )
             # Fetch up to 1000 uncalculated rows to avoid long transactions
-            uncalculated_logs = llm_usage_service.get_pending_cost_calculations(limit=1000)
+            uncalculated_logs = llm_usage_service.get_pending_cost_calculations(
+                limit=1000
+            )
 
             if not uncalculated_logs:
                 end_time = time.time()

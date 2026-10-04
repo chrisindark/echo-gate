@@ -24,9 +24,7 @@ async def search_qdrant(
     """
     try:
         system_prompt_vector = None
-        system_prompt_sparse = None
         user_prompt_vector = None
-        user_prompt_sparse = None
 
         system_prompt = next(
             (m.content for m in request.messages if m.role == "system"), None
@@ -37,11 +35,9 @@ async def search_qdrant(
 
         if system_prompt:
             system_prompt_vector = await embedder.get_embedding_async(system_prompt)
-            system_prompt_sparse = embedder.get_sparse_embedding(system_prompt)
 
         if user_prompt:
             user_prompt_vector = await embedder.get_embedding_async(user_prompt)
-            user_prompt_sparse = embedder.get_sparse_embedding(user_prompt)
 
         # Prepare filter if provided
         filter_payload = None

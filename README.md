@@ -1,6 +1,6 @@
 # Echo Gate LLM Gateway
 
-**Echo Gate** is an asynchronous, high-performance LLM API gateway and proxy built with **FastAPI**. It intercepts standard OpenAI-compatible `chat/completions` requests and intelligently routes them to various LLM providers (Local Ollama, Google GenAI/Gemini, OpenAI, Groq, and OpenRouter). 
+**Echo Gate** is an asynchronous, high-performance LLM API gateway and proxy built with **FastAPI**. It intercepts standard OpenAI-compatible `chat/completions` requests and intelligently routes them to various LLM providers (Local Ollama, Google GenAI/Gemini, OpenAI, Groq, and OpenRouter).
 
 Its standout feature is **Multi-level Semantic Caching**: by converting incoming prompts into vector embeddings and storing them in a vector database, Echo Gate can serve identical or nearly-identical requests instantly from the cache. It combines exact matching with Redis and semantic matching with Qdrant, supplemented by a Cross-Encoder for reranking, dynamic cache confidence thresholds, and intent classification. This drastically reduces latency, compute costs, and API usage.
 
@@ -13,7 +13,7 @@ Echo Gate also includes a **Next.js Frontend** (in the `ui/` directory) for mana
   - **Google GenAI** (`gemini-1.5-pro`, `gemini-1.5-flash`)
   - **OpenAI** (`gpt-4o`, `gpt-4o-mini`)
   - **Groq** and **OpenRouter**
-- **Multi-Level Caching Pipeline:** 
+- **Multi-Level Caching Pipeline:**
   - **Redis:** Provides instantaneous responses for exact prompt matches.
   - **Qdrant (Semantic):** Uses local embeddings (e.g., `nomic-embed-text` or `SentenceTransformers`) to retrieve semantically similar prior requests.
 - **Advanced Request Processing:**

@@ -277,7 +277,7 @@ class LlmRouterService:
         embedding_version = EMBEDDING_VERSION
         # Set cache key version; this can be updated based on changes to cache key generation strategy
         cache_key_version = CACHE_KEY_VERSION
-        now = int(time.perf_counter())
+        now = int(time.time())
 
         result: dict[str, Any] = {
             "response": None,
@@ -389,7 +389,7 @@ class LlmRouterService:
                 must_conditions.append(
                     models.FieldCondition(
                         key="completion_tokens",
-                        range=models.Range(lte=request.max_tokens)
+                        range=models.Range(lte=request.max_tokens),
                     )
                 )
 
@@ -678,7 +678,7 @@ class LlmRouterService:
         cache_key_version = CACHE_KEY_VERSION
 
         # Set created_at and expires_at timestamps for the cache entry
-        now = int(time.perf_counter())
+        now = int(time.time())
         created_at = now
         # Set expiration to 1 day in the future (can be dynamic later based on intent/entities)
         expires_at = now + config.DEFAULT_CACHE_TTL_SECONDS
@@ -1028,7 +1028,7 @@ class LlmRouterService:
     ) -> ChatCompletionResponse:
         start_time = time.perf_counter()
         service_name = request.service_name or config.DEFAULT_LLM_SERVICE
-        logger.warning(f"Generating completion for service {service_name}")
+        logger.info(f"Generating completion for service {service_name}")
 
         prompt_text, _, _ = self._prepare_prompts(request)
         exact_hash = self._generate_cache_key(request)

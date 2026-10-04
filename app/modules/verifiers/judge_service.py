@@ -23,7 +23,7 @@ Instructions:
    - 1: Completely irrelevant.
    - 3: Partially answers the query but misses key components.
    - 5: Perfect response, addresses the exact intent.
-2. Contradiction (0 or 1): Does the cached response contain information that explicitly contradicts what the user asked for? 
+2. Contradiction (0 or 1): Does the cached response contain information that explicitly contradicts what the user asked for?
    - 0: No contradiction detected.
    - 1: Direct contradiction detected (e.g., user asked for 'start' but response says 'stop').
 3. Instruction Following (1 to 5): Does the cached response follow any formatting, length, or structural constraints requested in the user query?
