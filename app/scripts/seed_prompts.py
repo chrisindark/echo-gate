@@ -11,7 +11,6 @@ API_URL = os.getenv(
 )
 RESULTS_CSV = os.getenv("ECHO_GATE_RESULTS_CSV", "send_prompt_results.csv")
 API_KEY = "development"
-TENANT_ID = "74140c21-bf4b-4dec-84ac-98c1b573f764"
 
 THRESHOLD_TESTS = [
     {
@@ -553,7 +552,7 @@ def main() -> None:
                     response = client.post(
                         API_URL,
                         json=payload,
-                        headers={"x-api-key": API_KEY, "x-tenant-id": TENANT_ID},
+                        headers={"x-api-key": API_KEY},
                     )
                 except httpx.HTTPError as error:
                     row["error"] = str(error)

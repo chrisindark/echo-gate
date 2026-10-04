@@ -171,7 +171,7 @@ class QdrantService:
             return None, None
 
     @log_latency()
-    def query_points(
+    def query_points_rrf(
         self,
         system_prompt_vector: list[float] | None = None,
         system_prompt_sparse: dict[str, list] | None = None,
@@ -267,6 +267,58 @@ class QdrantService:
             return matches
         except Exception:
             logger.exception("Failed to search in Qdrant")
+            return []
+
+    @log_latency()
+    def query_points_dense(
+        self,
+        vector: list[float] | None = None,
+        using: str | None = None,
+        filter_payload: dict[str, Any] | None = None,
+        query_filter: models.Filter | None = None,
+        limit: int = 10,
+        score_threshold: float | None = None,
+    ) -> list[dict[str, Any]]:
+        try:
+            if filter_payload and not query_filter:
+                must_conditions = []
+                for k, v in filter_payload.items():
+                    if isinstance(v, dict):
+                        # Support range filters like {"gte": 123}
+                        must_conditions.append(
+                            models.FieldCondition(key=k, range=models.Range(**v))
+                        )
+                    else:
+                        must_conditions.append(
+                            models.FieldCondition(
+                                key=k, match=models.MatchValue(value=v)
+                            )
+                        )
+                query_filter = models.Filter(must=must_conditions)
+
+            results = self.client.query_points(
+                collection_name=self.collection_name,
+                query=vector,
+                using=using,
+                query_filter=query_filter,
+                limit=limit,
+                with_payload=True,
+                score_threshold=score_threshold,
+            )
+
+            matches = []
+            if results and results.points:
+                for point in results.points:
+                    matches.append(
+                        {
+                            "payload": point.payload,
+                            "score": point.score,
+                            "id": str(point.id),
+                        }
+                    )
+            return matches
+        except Exception:
+            logger.exception("Failed to search dense in Qdrant")
             return []
 
     @log_latency()

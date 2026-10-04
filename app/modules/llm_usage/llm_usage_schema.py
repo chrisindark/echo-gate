@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -38,12 +39,13 @@ class LlmUsageLogUpdate(BaseModel):
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     total_tokens: int | None = None
-    cost: float | None = None
+    cost: Decimal | None = None
     latency_ms: int | None = None
     status_code: int | None = None
     is_success: bool | None = None
     error_message: str | None = None
     finish_reason: str | None = None
+    cost_calculated: bool = False
     extra_metadata: dict | None = None
 
 

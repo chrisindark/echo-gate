@@ -55,7 +55,7 @@ The system is composed of several independent modules wired together via a Depen
 Make sure you have the required models pulled in Ollama:
 ```bash
 ollama run nomic-embed-text:latest
-ollama run deepseek-r1:14b
+ollama run qwen2.5-coder:1.5b
 # add any other models you plan to use
 ```
 

@@ -8,6 +8,7 @@ from sqlalchemy import engine_from_config, pool
 
 from alembic import context
 from app.core.database import SQLALCHEMY_DATABASE_URL, Base
+from app.modules.gateway_requests.gateway_requests_model import GatewayRequestLog
 from app.modules.llm_quota.llm_quota_model import LlmQuotaRule
 from app.modules.llm_usage.llm_usage_model import LlmUsageLog
 
@@ -38,7 +39,7 @@ if not ENV_FILE.exists():
 
 load_dotenv(ENV_FILE)
 
-models = [LlmUsageLog, LlmQuotaRule]
+models = [LlmUsageLog, LlmQuotaRule, GatewayRequestLog]
 # from app.modules.conversation.conversation_model import Conversation, Message
 config.set_main_option("sqlalchemy.url", SQLALCHEMY_DATABASE_URL)
 target_metadata = Base.metadata

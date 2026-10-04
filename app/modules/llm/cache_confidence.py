@@ -1,5 +1,7 @@
 import logging
 
+from app.core.config import config
+
 logger = logging.getLogger(__name__)
 
 
@@ -28,28 +30,11 @@ class CacheConfidenceEvaluator:
         # Factual/deterministic intents require HIGH thresholds because small prompt
         # changes (e.g., "before" vs "after") completely change the correct answer.
         # Subjective/casual intents can accept slightly lower scores.
-        intent_thresholds = {
-            "code_generation": {"high": 0.95, "moderate": 0.88},
-            "casual_chat": {"high": 0.85, "moderate": 0.75},
-            "general_query": {"high": 0.95, "moderate": 0.88},
-            "finance_market": {"high": 0.98, "moderate": 0.92},
-            "weather": {"high": 0.95, "moderate": 0.88},
-            "product_info": {"high": 0.95, "moderate": 0.88},
-            "debugging": {"high": 0.95, "moderate": 0.88},
-            "error_analysis": {"high": 0.95, "moderate": 0.88},
-            "code_explanation": {"high": 0.94, "moderate": 0.85},
-            "code_review": {"high": 0.94, "moderate": 0.85},
-            "data_extraction": {"high": 0.96, "moderate": 0.90},
-            "research": {"high": 0.95, "moderate": 0.88},
-            "refactoring": {"high": 0.94, "moderate": 0.85},
-            "optimization": {"high": 0.94, "moderate": 0.85},
-            "test_generation": {"high": 0.94, "moderate": 0.85},
-            "code_comparison": {"high": 0.95, "moderate": 0.88},
-        }
+        intent_thresholds = config.CACHE_CONFIDENCE_THRESHOLDS
 
         # Get thresholds for this intent, default to general if not found
         thresholds = intent_thresholds.get(
-            request_intent, intent_thresholds["general_query"]
+            request_intent, intent_thresholds.get("general_query", {"high": 0.95, "moderate": 0.88})
         )
         high_threshold = thresholds["high"]
         moderate_threshold = thresholds["moderate"]

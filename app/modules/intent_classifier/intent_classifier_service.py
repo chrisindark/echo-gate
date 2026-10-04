@@ -75,7 +75,7 @@ class IntentClassifierService:
                 ChatMessage(role="system", content=system_msg),
                 ChatMessage(role="user", content=prompt_text),
             ],
-            temperature=0.0,
+            temperature=config.INTENT_CLASSIFIER_TEMPERATURE,
             response_format={
                 "type": "json_schema",
                 "json_schema": {
@@ -148,22 +148,5 @@ class IntentClassifierService:
             # Don't cache live data (stocks, highly temporal queries)
             return None
 
-        if intent == IntentEnum.WEATHER:
-            return 5 * 60  # 5 minutes
-
-        if intent == IntentEnum.PRODUCT_INFO:
-            return 60 * 60  # 1 hour
-
-        if intent in [
-            IntentEnum.CODE_GENERATION,
-            IntentEnum.CODE_EXPLANATION,
-            IntentEnum.DEBUGGING,
-            IntentEnum.ERROR_ANALYSIS,
-            IntentEnum.REFACTORING,
-            IntentEnum.OPTIMIZATION,
-            IntentEnum.TEST_GENERATION,
-        ]:
-            return 24 * 60 * 60  # 1 day
-
-        # Static knowledge and default general queries
-        return 7 * 24 * 60 * 60  # 7 days
+        # Fetch TTL from config based on intent string value
+        return config.INTENT_TTL_SECONDS.get(intent.value, config.INTENT_TTL_SECONDS.get("general_query", 7 * 24 * 60 * 60))

@@ -16,7 +16,6 @@ TESTS = []
 TESTS.extend(TEST_DATASET)
 
 API_KEY = "development"
-TENANT_ID = "74140c21-bf4b-4dec-84ac-98c1b573f764"
 
 
 def main():
@@ -57,7 +56,7 @@ def main():
                         },
                         {"role": "user", "content": test["prompt"]},
                     ],
-                    "temperature": 0,
+                    "temperature": 1.0,
                 }
 
                 print(f"Testing: [{test['canonical_id']}] -> {test['prompt'][:50]}...")
@@ -65,7 +64,7 @@ def main():
                     response = client.post(
                         API_URL,
                         json=payload,
-                        headers={"x-api-key": API_KEY, "x-tenant-id": TENANT_ID},
+                        headers={"x-api-key": API_KEY},
                     )
                 except httpx.HTTPError as error:
                     print(f"Request failed: {error}")

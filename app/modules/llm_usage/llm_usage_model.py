@@ -31,6 +31,7 @@ class LlmUsageLog(Base):
     user_id = Column(String(100), index=True, nullable=True)
     tenant_id = Column(String(100), index=True, nullable=True)
     session_id = Column(String(100), index=True, nullable=True)
+    conversation_id = Column(String(100), index=True, nullable=True)
 
     prompt_tokens = Column(Integer, default=0)
     completion_tokens = Column(Integer, default=0)
