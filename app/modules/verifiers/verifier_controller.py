@@ -23,7 +23,8 @@ async def rerank_predict_candidates(
     request: VerificationRequest,
     verifier_service: CrossEncoderService = Depends(get_verifier_service),
 ):
-    scores = verifier_service.rerank_predict(request.query, request.candidates)
+    pairs = [(request.query, candidate) for candidate in request.candidates]
+    scores = verifier_service.rerank_predict(pairs)
     results = [
         CandidateScore(candidate=candidate, score=score)
         for candidate, score in zip(request.candidates, scores)

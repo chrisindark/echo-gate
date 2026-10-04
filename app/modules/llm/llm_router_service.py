@@ -114,7 +114,7 @@ class LlmRouterService:
             return True
 
         async def attempt_call(svc: str, req: ChatCompletionRequest):
-            llm_req = req.copy(deep=True)
+            llm_req = req.model_copy(deep=True)
             for key in ["user_id", "tenant_id", "session_id", "conversation_id"]:
                 if hasattr(llm_req, key):
                     delattr(llm_req, key)

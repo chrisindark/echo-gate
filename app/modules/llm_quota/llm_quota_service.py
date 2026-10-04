@@ -86,8 +86,8 @@ class LlmQuotaService:
             )
         except Exception as e:
             logger.error(f"Error in check_quota asyncio.gather: {e}")
-            # no budget, infinite RPM and TPM if redis is down
-            budget, rpm, tpm = "0", 0, "0"
+            # gracefully degrade: infinite budget, RPM and TPM if redis is down
+            budget, rpm, tpm = None, 0, "0"
 
         if rpm is None:
             rpm = 0
