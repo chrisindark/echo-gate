@@ -29,6 +29,17 @@ services:
       - qdrant
     restart: always
 
+  celery_worker:
+    build:
+      context: .
+    environment:
+      - QDRANT_URL=http://qdrant:6333
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
+    command: poetry run celery -A app.core.celery_app worker --loglevel=info
+    restart: always
+
 volumes:
   qdrant_data:
 
