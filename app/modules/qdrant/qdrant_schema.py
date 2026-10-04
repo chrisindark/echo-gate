@@ -3,6 +3,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.modules.chat.chat_schema import ChatMessage
+
 
 class CacheScope(str, Enum):
     GLOBAL = "GLOBAL"
@@ -10,9 +12,6 @@ class CacheScope(str, Enum):
     USER = "USER"
     SESSION = "SESSION"
     CONVERSATION = "CONVERSATION"
-
-
-from app.modules.chat.chat_schema import ChatMessage
 
 
 class QdrantSearchRequest(BaseModel):

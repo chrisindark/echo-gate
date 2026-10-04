@@ -18,7 +18,7 @@ class RerankerService:
         self.instruction_service = instruction_service
 
     def verify(
-        self, query: str, user_query: str | None, candidates: list[str]
+        self, query: str, user_query: str | None, candidates: list[dict[str, Any]]
     ) -> list[float]:
         pairs = []
         for candidate in candidates:

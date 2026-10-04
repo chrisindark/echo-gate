@@ -149,4 +149,7 @@ class IntentClassifierService:
             return None
 
         # Fetch TTL from config based on intent string value
-        return config.INTENT_TTL_SECONDS.get(intent.value, config.INTENT_TTL_SECONDS.get("general_query", 7 * 24 * 60 * 60))
+        return config.INTENT_TTL_SECONDS.get(
+            intent.value,
+            config.INTENT_TTL_SECONDS.get("general_query", 7 * 24 * 60 * 60),
+        )

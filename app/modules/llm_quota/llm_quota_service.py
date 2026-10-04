@@ -24,24 +24,27 @@ class LlmQuotaService:
         tenant_id: str | None = None,
     ):
         query = self.db_session.query(LlmQuotaRule).filter(
-            LlmQuotaRule.is_active == True
+            LlmQuotaRule.is_active.is_(True)
         )
 
         if provider:
             query = query.filter(
-                or_(LlmQuotaRule.provider == None, LlmQuotaRule.provider == provider)
+                or_(LlmQuotaRule.provider.is_(None), LlmQuotaRule.provider == provider)
             )
         if model:
             query = query.filter(
-                or_(LlmQuotaRule.model == None, LlmQuotaRule.model == model)
+                or_(LlmQuotaRule.model.is_(None), LlmQuotaRule.model == model)
             )
         if user:
             query = query.filter(
-                or_(LlmQuotaRule.user_id == None, LlmQuotaRule.user_id == user)
+                or_(LlmQuotaRule.user_id.is_(None), LlmQuotaRule.user_id == user)
             )
         if tenant_id:
             query = query.filter(
-                or_(LlmQuotaRule.tenant_id == None, LlmQuotaRule.tenant_id == tenant_id)
+                or_(
+                    LlmQuotaRule.tenant_id.is_(None),
+                    LlmQuotaRule.tenant_id == tenant_id,
+                )
             )
 
         rules = query.all()

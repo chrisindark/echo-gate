@@ -30,3 +30,9 @@ fastapi-health = "^0.4.0"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[dependency-groups]
+dev = [
+    "pre-commit (>=4.6.2,<5.0.0)",
+    "ruff (>=0.16.10,<0.17.0)"
+]

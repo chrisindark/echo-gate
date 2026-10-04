@@ -34,12 +34,13 @@ class CacheConfidenceEvaluator:
 
         # Get thresholds for this intent, default to general if not found
         thresholds = intent_thresholds.get(
-            request_intent, intent_thresholds.get("general_query", {"high": 0.95, "moderate": 0.88})
+            request_intent,
+            intent_thresholds.get("general_query", {"high": 0.95, "moderate": 0.88}),
         )
         high_threshold = thresholds["high"]
         moderate_threshold = thresholds["moderate"]
 
-        logger.info(
+        logger.debug(
             f"Intent: {request_intent}, High threshold: {high_threshold}, Moderate threshold: {moderate_threshold}, Request Temperature: {request_temperature}"
         )
 
@@ -51,7 +52,7 @@ class CacheConfidenceEvaluator:
         if moderate_threshold <= rerank_score < high_threshold:
             # High creativity requested -> Reject moderate cache match (user wants variety)
             if request_temperature > 0.8:
-                return True
+                return False
 
             # Highly factual or deterministic request -> Reject moderate match
             # Factual queries require extreme precision. A moderate match might represent
