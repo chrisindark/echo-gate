@@ -113,6 +113,16 @@ class QdrantService:
                 )
                 self.client.create_payload_index(
                     collection_name=self.collection_name,
+                    field_name="stop_hash",
+                    field_schema=models.PayloadSchemaType.KEYWORD,
+                )
+                self.client.create_payload_index(
+                    collection_name=self.collection_name,
+                    field_name="completion_tokens",
+                    field_schema=models.PayloadSchemaType.INTEGER,
+                )
+                self.client.create_payload_index(
+                    collection_name=self.collection_name,
                     field_name="intent",
                     field_schema=models.PayloadSchemaType.KEYWORD,
                 )

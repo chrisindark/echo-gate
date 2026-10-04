@@ -203,6 +203,12 @@ class LlmRouterService:
             "session_id": request.session_id,
             "conversation_id": request.conversation_id,
             "response_format": request.response_format,
+            "max_tokens": request.max_tokens,
+            "stop": request.stop,
+            "top_p": request.top_p,
+            "presence_penalty": request.presence_penalty,
+            "frequency_penalty": request.frequency_penalty,
+            "logit_bias": request.logit_bias,
             "messages": [
                 {"role": msg.role, "content": msg.content} for msg in request.messages
             ],
@@ -360,6 +366,30 @@ class LlmRouterService:
                 must_conditions.append(
                     models.IsEmptyCondition(
                         is_empty=models.PayloadField(key="response_format_hash")
+                    )
+                )
+
+            if request.stop:
+                stop_str = json.dumps(request.stop, sort_keys=True)
+                stop_hash = hashlib.sha256(stop_str.encode()).hexdigest()
+                must_conditions.append(
+                    models.FieldCondition(
+                        key="stop_hash",
+                        match=models.MatchValue(value=stop_hash),
+                    )
+                )
+            else:
+                must_conditions.append(
+                    models.IsEmptyCondition(
+                        is_empty=models.PayloadField(key="stop_hash")
+                    )
+                )
+
+            if request.max_tokens is not None:
+                must_conditions.append(
+                    models.FieldCondition(
+                        key="completion_tokens",
+                        range=models.Range(lte=request.max_tokens)
                     )
                 )
 
@@ -723,6 +753,13 @@ class LlmRouterService:
                 metadata["response_format_hash"] = hashlib.sha256(
                     rf_str.encode()
                 ).hexdigest()
+
+            if request.stop:
+                stop_str = json.dumps(request.stop, sort_keys=True)
+                metadata["stop_hash"] = hashlib.sha256(stop_str.encode()).hexdigest()
+
+            if response.usage and response.usage.completion_tokens:
+                metadata["completion_tokens"] = response.usage.completion_tokens
 
             logger.info("Saving generated embedding in Qdrant...")
 
