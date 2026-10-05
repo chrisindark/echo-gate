@@ -1,0 +1,6 @@
+# Run Python pre-commit hooks (this automatically runs on staged files)
+poetry run pre-commit run
+
+# Run UI pre-commit hooks
+cd ui
+npx lint-staged
