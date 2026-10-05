@@ -30,11 +30,11 @@ class AnalyticsService:
         end_time: datetime | None = None,
         tenant_id: str | None = None,
     ) -> AnalyticsDashboardResponse:
-        # Default to last 30 days if no time provided
+        # Default to last 7 days if no time provided
         if not end_time:
             end_time = datetime.now(timezone.utc)
         if not start_time:
-            start_time = end_time - timedelta(days=30)
+            start_time = end_time - timedelta(days=7)
 
         # Ensure timezone-awareness for comparisons if start_time/end_time are naive
         if start_time.tzinfo is None:

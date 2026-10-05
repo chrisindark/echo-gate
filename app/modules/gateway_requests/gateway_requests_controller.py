@@ -157,6 +157,37 @@ def get_gateway_request_log(
         ) from e
 
 
+@api_v1_router.get(
+    "/by-hash/{exact_hash}",
+    response_model=BaseAPIResponse[GatewayRequestLogResponse],
+)
+def get_gateway_request_log_by_hash(
+    exact_hash: str,
+    gateway_requests_service: GatewayRequestsService = Depends(
+        get_gateway_requests_service
+    ),
+) -> dict:
+    """Fetch a specific gateway request log by exact hash."""
+    try:
+        log = gateway_requests_service.get_request_log_by_hash(exact_hash)
+        if not log:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Gateway request log with hash {exact_hash} not found.",
+            )
+        return BaseAPIResponse.success_response(
+            GatewayRequestLogResponse.model_validate(log)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Failed to fetch gateway request log with hash {exact_hash}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while fetching the gateway request log.",
+        ) from e
+
+
 @api_v1_router.delete(
     "/{log_id}",
     response_model=BaseAPIResponse[None],

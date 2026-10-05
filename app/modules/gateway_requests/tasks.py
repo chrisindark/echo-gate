@@ -22,24 +22,30 @@ logger = logging.getLogger(__name__)
 def _prepare_prompts(request: GatewayRequestLog) -> tuple[str, str]:
     prompt_text = request.query_text
 
-    prompts = prompt_text.split("|")
+    if "|" in prompt_text:
+        # The first part is usually "model:<model_name>|"
+        # We split by the first "|" to get the messages part.
+        _, messages_part = prompt_text.split("|", 1)
+    else:
+        messages_part = prompt_text
 
-    system_prompt = prompts[1]
-    user_prompt = prompts[2]
+    messages_raw = messages_part.split("|\n")
 
-    system_prompt_split = system_prompt.split(":", 1)
-    system_raw_prompt = (
-        system_prompt_split[1].strip()
-        if len(system_prompt_split) > 1
-        else system_prompt.strip()
-    )
+    system_messages = []
+    user_messages = []
 
-    user_prompt_split = user_prompt.split(":", 1)
-    user_raw_prompt = (
-        user_prompt_split[1].strip()
-        if len(user_prompt_split) > 1
-        else user_prompt.strip()
-    )
+    for msg in messages_raw:
+        if msg.startswith("system:"):
+            system_messages.append(msg.split(":", 1)[1].strip())
+        elif msg.startswith("user:"):
+            user_messages.append(msg.split(":", 1)[1].strip())
+
+    system_raw_prompt = "\n".join(system_messages)
+    user_raw_prompt = "\n".join(user_messages)
+
+    # Fallback if no user messages found, just use the entire raw string
+    if not user_raw_prompt:
+        user_raw_prompt = messages_part.strip()
 
     return system_raw_prompt, user_raw_prompt
 

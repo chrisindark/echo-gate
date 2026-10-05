@@ -152,11 +152,22 @@ class QdrantService:
         self, exact_hash: str, tenant_id: str | None = None
     ) -> tuple[dict[str, Any] | None, str | None]:
         try:
+            import time
+
+            now = int(time.time())
             must_conditions = [
                 models.FieldCondition(
                     key="exact_hash",
                     match=models.MatchValue(value=exact_hash),
-                )
+                ),
+                models.FieldCondition(
+                    key="cacheable",
+                    match=models.MatchValue(value=True),
+                ),
+                models.FieldCondition(
+                    key="expires_at",
+                    range=models.Range(gte=now),
+                ),
             ]
             if tenant_id:
                 must_conditions.append(

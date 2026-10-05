@@ -629,10 +629,14 @@ class LlmRouterService:
                         response.cache_info = cache_info
 
                         # Cache semantic match (even without a hit, to avoid future full re-reranks)
+                        ttl = self.intent_classifier_service.calculate_ttl(
+                            intent, time_sensitivity
+                        )
                         await self._save_to_redis_cache(
                             exact_hash,
                             response,
                             "Saving Qdrant semantic search query matched response in Redis",
+                            ttl=ttl,
                         )
 
                         result["response"] = response
@@ -656,12 +660,12 @@ class LlmRouterService:
         core_subject: str | None = None,
         subject_modifier: str | None = None,
         action_modifier: str | None = None,
-    ) -> str | None:
+    ) -> tuple[str | None, int | None]:
         if config.USE_QDRANT_SEMANTIC_MATCHING != "true":
-            return None
+            return None, None
 
         if not self.qdrant_service:
-            return None
+            return None, None
 
         prompt_text, system_prompt, user_prompt = self._prepare_prompts(request)
         exact_hash = self._generate_cache_key(request)
@@ -736,10 +740,12 @@ class LlmRouterService:
             entities = self.entity_extractor_service.get_qdrant_entity_tags(prompt_text)
 
             ttl = self.intent_classifier_service.calculate_ttl(intent, time_sensitivity)
+            cacheable = True
             if ttl is not None:
                 expires_at = now + ttl
             else:
                 expires_at = now + CACHE_NEGATIVE_TTL_OFFSET
+                cacheable = False
 
             metadata = {
                 "prompt_version": PROMPT_VERSION,
@@ -789,7 +795,7 @@ class LlmRouterService:
                 core_subject=core_subject,
                 embedding_model=embedding_model_name,
                 embedding_version=embedding_version,
-                cacheable=True,
+                cacheable=cacheable,
                 cache_key_version=cache_key_version,
                 created_at=created_at,
                 expires_at=expires_at,
@@ -799,10 +805,10 @@ class LlmRouterService:
                 logger.info(
                     f"Generated embedding saved successfully in Qdrant for {exact_hash}"
                 )
-            return point_id
+            return point_id, ttl
         except Exception:
             logger.exception("Embedding creation error")
-            return None
+            return None, None
 
     async def _get_redis_exact_match(
         self, exact_hash: str, service_name: str
@@ -831,12 +837,12 @@ class LlmRouterService:
 
     async def _get_qdrant_exact_match(
         self, exact_hash: str, tenant_id: str | None, prompt_text: str
-    ) -> tuple[ChatCompletionResponse | None, str | None]:
+    ) -> tuple[ChatCompletionResponse | None, str | None, int | None]:
         if config.USE_QDRANT_SEMANTIC_MATCHING != "true":
-            return None, None
+            return None, None, None
 
         if not self.qdrant_service:
-            return None, None
+            return None, None, None
 
         cached_payload, point_id = self.qdrant_service.search_exact(
             exact_hash=exact_hash, tenant_id=tenant_id
@@ -858,19 +864,36 @@ class LlmRouterService:
                 "query": prompt_text,
                 "accepted": True,
             }
-            return response, point_id
-        return None, None
+            expires_at = cached_payload.get("expires_at")
+            remaining_ttl = (
+                max(0, expires_at - int(time.time())) if expires_at else None
+            )
+            return response, point_id, remaining_ttl
+        return None, None, None
 
     async def _save_to_redis_cache(
-        self, exact_hash: str, response: ChatCompletionResponse, log_message: str
+        self,
+        exact_hash: str,
+        response: ChatCompletionResponse,
+        log_message: str,
+        ttl: int | None = -1,
     ) -> None:
         if config.USE_REDIS_SEMANTIC_MATCHING != "true":
+            return
+
+        if ttl is None:
+            logger.info(
+                f"Skipping Redis cache for {exact_hash} due to time sensitivity (uncacheable)"
+            )
             return
 
         if self.redis_service:
             logger.info(log_message)
             response_dump = response.model_dump(exclude={"cache_info"})
-            await self.redis_service.set(exact_hash, json.dumps(response_dump))
+            pass_ttl = None if ttl == -1 else ttl
+            await self.redis_service.set(
+                exact_hash, json.dumps(response_dump), ttl=pass_ttl
+            )
 
     async def _log_usage(
         self,
@@ -1043,7 +1066,7 @@ class LlmRouterService:
                 return response
 
             # 2. Try Exact Match in Qdrant
-            response, _ = await self._get_qdrant_exact_match(
+            response, _, remaining_ttl = await self._get_qdrant_exact_match(
                 exact_hash, tenant_id, prompt_text
             )
             if response:
@@ -1051,6 +1074,7 @@ class LlmRouterService:
                     exact_hash,
                     response,
                     "Saving Qdrant exact search query matched response in Redis",
+                    ttl=remaining_ttl,
                 )
                 return response
 
@@ -1079,7 +1103,7 @@ class LlmRouterService:
             )
 
             if response and response.choices:
-                point_id = await self.save_to_cache(
+                point_id, ttl = await self.save_to_cache(
                     request=request,
                     response=response,
                     intent=intent,
@@ -1113,11 +1137,16 @@ class LlmRouterService:
                     exact_hash,
                     response,
                     "Saving LLM generated response in Redis",
+                    ttl=ttl,
                 )
 
             return response
         finally:
             if response:
+                if not hasattr(response, "cache_info") or response.cache_info is None:
+                    response.cache_info = {}
+                response.cache_info["exact_hash"] = exact_hash
+
                 await self._log_usage(
                     request=request,
                     response=response,
