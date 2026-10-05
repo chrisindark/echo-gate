@@ -37,6 +37,15 @@ class GatewayRequestsService:
             .first()
         )
 
+    def get_request_log_by_hash(self, exact_hash: str) -> GatewayRequestLog | None:
+        """Get a specific request log by exact hash."""
+        return (
+            self.db_session_read.query(GatewayRequestLog)
+            .filter(GatewayRequestLog.exact_hash == exact_hash)
+            .order_by(GatewayRequestLog.created_at.desc())
+            .first()
+        )
+
     def get_request_logs(
         self,
         skip: int = 0,
