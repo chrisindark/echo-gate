@@ -89,10 +89,10 @@ class RerankerService:
                 candidate_texts.append(c_text or "")
 
             # deterministically verify json output only and apply penalty if not json
-            instruction_scores = self.instruction_service.verify_instruction(
-                user_query or query, candidate_texts, json_only=True
-            )
-            print("instruction_scores: ", instruction_scores)
+            # instruction_scores = self.instruction_service.verify_instruction(
+            #     user_query or query, candidate_texts, json_only=True
+            # )
+            # print("instruction_scores: ", instruction_scores)
 
             reranked = []
 

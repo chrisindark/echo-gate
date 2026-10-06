@@ -87,7 +87,7 @@ class LlmRouterService:
         timeout_seconds: float | None = None,
         fallback_service: str | None = None,
         fallback_model: str | None = None,
-    ) -> ChatCompletionResponse | None:
+    ) -> tuple[ChatCompletionResponse | None, str, str]:
         max_retries = max_retries if max_retries is not None else config.LLM_MAX_RETRIES
         timeout_seconds = (
             timeout_seconds
@@ -156,10 +156,12 @@ class LlmRouterService:
         try:
             async for attempt in retryer:
                 with attempt:
-                    return await asyncio.wait_for(
+                    resp = await asyncio.wait_for(
                         attempt_call(service_name, request), timeout=timeout_seconds
                     )
-            return None  # Should not be reached
+                    used_model = resp.model if (resp and resp.model) else request.model
+                    return resp, service_name, used_model
+            return None, service_name, request.model  # Should not be reached
         except Exception as e:
             if isinstance(e, HTTPException) and e.status_code in (400, 401, 403, 500):
                 logger.error(
@@ -176,10 +178,16 @@ class LlmRouterService:
                     fallback_req.model = fallback_model
 
                 try:
-                    return await asyncio.wait_for(
+                    resp = await asyncio.wait_for(
                         attempt_call(fallback_service, fallback_req),
                         timeout=timeout_seconds,
                     )
+                    used_model = (
+                        resp.model
+                        if (resp and resp.model)
+                        else (fallback_model or request.model)
+                    )
+                    return resp, fallback_service, used_model
                 except Exception as fallback_e:
                     logger.error(
                         f"Fallback service {fallback_service} failed: {fallback_e}"
@@ -194,6 +202,7 @@ class LlmRouterService:
                 raise HTTPException(status_code=503, detail="Service Unavailable")
 
     def _generate_cache_key(self, request: ChatCompletionRequest) -> str:
+        # use the version keys in the cache key to invalidate older cache keys
         key_dict = {
             "service_name": request.service_name,
             "model": request.model,
@@ -468,9 +477,6 @@ class LlmRouterService:
                 should=should_conditions,
             )
 
-            # Lowered threshold to retrieve a wider pool of candidates for the Reranker
-            threshold = config.QDRANT_SEARCH_THRESHOLD
-
             if prompt_vector:
                 dense_matches = self.qdrant_service.query_points_dense(
                     vector=prompt_vector,
@@ -487,7 +493,10 @@ class LlmRouterService:
                             f"Semantic match ID: {match['id']}, Score: {match['score']}, Prompt: {match['payload'].get('prompt', '')}"
                         )
                     top_dense_match = dense_matches[0]
-                    if top_dense_match["score"] >= config.QDRANT_SEARCH_HIGH_THRESHOLD:
+                    if (
+                        top_dense_match["score"]
+                        >= config.QDRANT_DENSE_SEARCH_HIGH_THRESHOLD
+                    ):
                         logger.info(
                             f"Fast path bypass triggered with dense score {top_dense_match['score']}"
                         )
@@ -528,6 +537,7 @@ class LlmRouterService:
                 limit=config.QDRANT_SEARCH_LIMIT,
             )
 
+            # Lowered threshold to retrieve a wider pool of candidates for the Reranker
             if matches:
                 logger.info(
                     f"Found semantic rrf matches for prompt {exact_hash}: {len(matches)}"
@@ -538,7 +548,9 @@ class LlmRouterService:
                         f"Semantic match ID: {match['id']}, Score: {match['score']}, Prompt: {match['payload'].get('prompt', '')}"
                     )
                 eligible_matches = [
-                    match for match in matches if match["score"] >= threshold
+                    match
+                    for match in matches
+                    if match["score"] >= config.QDRANT_SPARSE_SEARCH_HIGH_THRESHOLD
                 ]
                 result["eligible_matches"] = eligible_matches
 
@@ -564,6 +576,12 @@ class LlmRouterService:
                         user_query=user_prompt,
                         system_query=system_prompt,
                     )
+
+                    if not matches_reranked:
+                        logger.info(
+                            "No matches found after reranking. Skipping cache storage."
+                        )
+                        return result
 
                     top_match = matches_reranked[0]
                     matched_score = top_match["score"]
@@ -610,7 +628,7 @@ class LlmRouterService:
 
                     if is_accepted and "response" in top_match["payload"]:
                         logger.info(
-                            f"Serving response from Qdrant semantic search query with threshold {threshold}, score {matched_score}, rerank_score {rerank_score}."
+                            f"Serving response from Qdrant semantic search query with threshold {config.QDRANT_SPARSE_SEARCH_HIGH_THRESHOLD}, score {matched_score}, rerank_score {rerank_score}."
                         )
                         response = ChatCompletionResponse(
                             **top_match["payload"]["response"]
@@ -660,6 +678,8 @@ class LlmRouterService:
         core_subject: str | None = None,
         subject_modifier: str | None = None,
         action_modifier: str | None = None,
+        service_name: str | None = None,
+        model: str | None = None,
     ) -> tuple[str | None, int | None]:
         if config.USE_QDRANT_SEMANTIC_MATCHING != "true":
             return None, None
@@ -673,7 +693,12 @@ class LlmRouterService:
         user_id = request.user_id
         session_id = request.session_id
         conversation_id = request.conversation_id
-        service_name = request.service_name or config.DEFAULT_LLM_SERVICE
+        effective_service_name = (
+            service_name or request.service_name or config.DEFAULT_LLM_SERVICE
+        )
+        effective_model = model or (
+            response.model if response and response.model else request.model
+        )
 
         embedding_model_name = (
             self.embedding_service.model_name if self.embedding_service else "unknown"
@@ -785,8 +810,8 @@ class LlmRouterService:
                 user_id=user_id,
                 session_id=session_id,
                 conversation_id=conversation_id,
-                model=request.model,
-                service_name=service_name,
+                model=effective_model,
+                service_name=effective_service_name,
                 scope=actual_scope,
                 entities=entities,
                 time_sensitivity=time_sensitivity,
@@ -903,6 +928,7 @@ class LlmRouterService:
         start_time: float,
         exact_hash: str,
         api_key: str | None = None,
+        model: str | None = None,
     ) -> None:
         try:
             end_time = time.perf_counter()
@@ -942,9 +968,13 @@ class LlmRouterService:
             if response.choices and len(response.choices) > 0:
                 finish_reason = response.choices[0].finish_reason
 
+            effective_model = model or (
+                response.model if response and response.model else request.model
+            )
+
             log_data = LlmUsageLogCreate(
                 service_name=service_name,
-                model=request.model,
+                model=effective_model,
                 caller_service_name=CALLER_SERVICE_NAME,
                 input_text=input_text,
                 output_text=output_text,
@@ -974,7 +1004,7 @@ class LlmRouterService:
                         api_key=api_key,
                         total_tokens=total_tokens,
                         provider=service_name,
-                        model=request.model,
+                        model=effective_model,
                         user_id=request.user_id,
                     )
                 except Exception:
@@ -982,13 +1012,14 @@ class LlmRouterService:
         except Exception:
             logger.exception("Failed to log LLM usage")
 
-    def _log_gateway_request(
+    async def _log_gateway_request(
         self,
         request: ChatCompletionRequest,
         response: ChatCompletionResponse,
         service_name: str,
         start_time: float,
         exact_hash: str,
+        model: str | None = None,
     ) -> None:
         if not self.gateway_requests_service:
             return
@@ -1019,12 +1050,16 @@ class LlmRouterService:
                 response.choices[0].message.content if response.choices else ""
             )
 
+            effective_model = model or (
+                response.model if response and response.model else request.model
+            )
+
             log_data = GatewayRequestLogCreate(
                 query_text=prompt_text,
                 response_text=output_text,
                 routing_decision=routing_decision,
-                provider=service_name if source == "llm" else "cache",
-                model=request.model,
+                provider=service_name,
+                model=effective_model,
                 point_id=cache_info.get("point_id"),
                 exact_hash=exact_hash,
                 intent=cache_info.get("intent"),
@@ -1032,9 +1067,7 @@ class LlmRouterService:
                 core_subject=cache_info.get("core_subject"),
                 subject_modifier=cache_info.get("subject_modifier"),
                 action_modifier=cache_info.get("action_modifier"),
-                rerank_score=cache_info.get("rerank_score")
-                if source == "semantic"
-                else None,
+                rerank_score=cache_info.get("rerank_score", None),
                 latency_ms=latency_ms,
                 user_id=request.user_id,
                 tenant_id=request.tenant_id,
@@ -1056,6 +1089,9 @@ class LlmRouterService:
         prompt_text, _, _ = self._prepare_prompts(request)
         exact_hash = self._generate_cache_key(request)
         tenant_id = request.tenant_id
+
+        actual_service = service_name
+        actual_model = request.model
 
         response: ChatCompletionResponse | None = None
 
@@ -1093,7 +1129,11 @@ class LlmRouterService:
             action_modifier = semantic_result.get("action_modifier", None)
             miss_cache_info = semantic_result.get("miss_cache_info")
 
-            response = await self._call_provider_with_retry(
+            (
+                response,
+                actual_service,
+                actual_model,
+            ) = await self._call_provider_with_retry(
                 request=request,
                 service_name=service_name,
                 max_retries=config.LLM_MAX_RETRIES,
@@ -1112,6 +1152,8 @@ class LlmRouterService:
                     core_subject=core_subject,
                     subject_modifier=subject_modifier,
                     action_modifier=action_modifier,
+                    service_name=actual_service,
+                    model=actual_model,
                 )
 
                 cache_info = {
@@ -1150,15 +1192,17 @@ class LlmRouterService:
                 await self._log_usage(
                     request=request,
                     response=response,
-                    service_name=service_name,
+                    service_name=actual_service,
                     start_time=start_time,
                     exact_hash=exact_hash,
                     api_key=api_key,
+                    model=actual_model,
                 )
-                self._log_gateway_request(
+                await self._log_gateway_request(
                     request=request,
                     response=response,
-                    service_name=service_name,
+                    service_name=actual_service,
                     start_time=start_time,
                     exact_hash=exact_hash,
+                    model=actual_model,
                 )

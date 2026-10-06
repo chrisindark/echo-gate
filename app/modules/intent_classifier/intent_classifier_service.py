@@ -1,4 +1,3 @@
-import hashlib
 import json
 import logging
 
@@ -25,22 +24,6 @@ class IntentClassifierService:
         self.model = model or config.INTENT_CLASSIFIER_MODEL
         self.llm_provider_service = llm_provider_service
 
-    def _generate_cache_key(self, request: ChatCompletionRequest) -> str:
-        key_dict = {
-            "service_name": request.service_name,
-            "model": request.model,
-            "temperature": request.temperature,
-            "user_id": request.user_id,
-            "tenant_id": request.tenant_id,
-            "session_id": request.session_id,
-            "conversation_id": request.conversation_id,
-            "messages": [
-                {"role": msg.role, "content": msg.content} for msg in request.messages
-            ],
-        }
-        key_str = json.dumps(key_dict, sort_keys=True)
-        return hashlib.sha256(key_str.encode()).hexdigest()
-
     @log_latency()
     async def classify_intent(self, request: ChatCompletionRequest):
         prompt_text = "\n".join(
@@ -66,7 +49,6 @@ class IntentClassifierService:
             "'intent', 'time_sensitivity', 'core_operation', 'core_subject',"
             "'subject_modifier', 'action_modifier'"
         )
-        exact_hash = hashlib.sha256(prompt_text.encode()).hexdigest()
 
         request = ChatCompletionRequest(
             service_name=self.service_name,
@@ -87,8 +69,8 @@ class IntentClassifierService:
                             "time_sensitivity": {"type": "number"},
                             "core_operation": {"type": "string"},
                             "core_subject": {"type": "string"},
-                            "subject_modifier": {"type": "string"},
-                            "action_modifier": {"type": "string"},
+                            "subject_modifier": {"type": ["string", "null"]},
+                            "action_modifier": {"type": ["string", "null"]},
                         },
                         "required": [
                             "intent",
@@ -107,9 +89,7 @@ class IntentClassifierService:
             response = await self.llm_provider_service.generate_ollama_completion(
                 request
             )
-            logger.info(
-                f"LLM classifier service generated response successfully for {exact_hash}"
-            )
+            logger.info("LLM classifier service generated response successfully")
             content = response.choices[0].message.content if response.choices else ""
             data = json.loads(content)
 
