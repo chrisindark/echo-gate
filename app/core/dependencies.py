@@ -12,7 +12,8 @@ from app.modules.llm.llm_provider_service import LlmProviderService
 from app.modules.llm.llm_router_service import LlmRouterService
 from app.modules.llm_quota.llm_quota_service import LlmQuotaService
 from app.modules.llm_usage.llm_usage_service import LlmUsageService
-from app.modules.qdrant.qdrant_service import QdrantService
+from app.modules.qdrant.llm_cache_collection_service import LlmCacheCollectionService
+from app.modules.qdrant.qdrant_client_service import QdrantClientService
 from app.modules.redis.redis_service import RedisService
 from app.modules.reranking.reranker_service import RerankerService
 from app.modules.verifiers.cross_encoder_service import CrossEncoderService
@@ -22,7 +23,8 @@ from app.modules.verifiers.judge_service import JudgeService
 
 class DependencyContainer:
     _embedding_service: EmbeddingService | None = None
-    _qdrant_service: QdrantService | None = None
+    _qdrant_client_service: QdrantClientService | None = None
+    _llm_cache_collection_service: LlmCacheCollectionService | None = None
     _llm_provider_service: LlmProviderService | None = None
     _llm_router_service: LlmRouterService | None = None
     _redis_service: RedisService | None = None
@@ -38,10 +40,12 @@ class DependencyContainer:
 
     @classmethod
     async def initialize(cls) -> None:
-        cls.get_embedding_service()
-        cls.get_qdrant_service()
         await cls.get_redis_service()
+        cls.get_embedding_service()
+        cls.get_qdrant_client_service()
+        cls.get_llm_cache_collection_service()
         cls.get_llm_provider_service()
+        cls.get_reranker_service()
         await cls.get_intent_classifier_service()
         cls.get_entity_extractor_service()
         await cls.get_llm_router_service()
@@ -58,10 +62,11 @@ class DependencyContainer:
             if cls._redis_service is not None:
                 await cls._redis_service.close()
         finally:
-            if cls._qdrant_service is not None:
-                cls._qdrant_service.close()
+            if cls._qdrant_client_service is not None:
+                cls._qdrant_client_service.close()
             cls._embedding_service = None
-            cls._qdrant_service = None
+            cls._qdrant_client_service = None
+            cls._llm_cache_collection_service = None
             cls._llm_provider_service = None
             cls._llm_router_service = None
             cls._redis_service = None
@@ -83,14 +88,21 @@ class DependencyContainer:
         return cls._embedding_service
 
     @classmethod
-    def get_qdrant_service(cls) -> QdrantService:
-        if cls._qdrant_service is None:
+    def get_qdrant_client_service(cls) -> QdrantClientService:
+        if cls._qdrant_client_service is None:
+            cls._qdrant_client_service = QdrantClientService(url=config.QDRANT_URL)
+        return cls._qdrant_client_service
+
+    @classmethod
+    def get_llm_cache_collection_service(cls) -> LlmCacheCollectionService:
+        if cls._llm_cache_collection_service is None:
             embedding_svc = cls.get_embedding_service()
-            cls._qdrant_service = QdrantService(
+            cls._llm_cache_collection_service = LlmCacheCollectionService(
+                client_service=cls.get_qdrant_client_service(),
                 collection_name="embeddings_multivector",
                 vector_size=embedding_svc.embedding_dimension,
             )
-        return cls._qdrant_service
+        return cls._llm_cache_collection_service
 
     @classmethod
     async def get_redis_service(cls) -> RedisService:
@@ -134,7 +146,7 @@ class DependencyContainer:
             cls._llm_router_service = LlmRouterService(
                 llm_provider_service=cls.get_llm_provider_service(),
                 embedding_service=cls.get_embedding_service(),
-                qdrant_service=cls.get_qdrant_service(),
+                llm_cache_service=cls.get_llm_cache_collection_service(),
                 redis_service=await cls.get_redis_service(),
                 reranker_service=cls.get_reranker_service(),
                 intent_classifier_service=await cls.get_intent_classifier_service(),
@@ -204,8 +216,12 @@ def get_embedding_service() -> EmbeddingService:
     return DependencyContainer.get_embedding_service()
 
 
-def get_qdrant_service() -> QdrantService:
-    return DependencyContainer.get_qdrant_service()
+def get_qdrant_client_service() -> QdrantClientService:
+    return DependencyContainer.get_qdrant_client_service()
+
+
+def get_llm_cache_collection_service() -> LlmCacheCollectionService:
+    return DependencyContainer.get_llm_cache_collection_service()
 
 
 async def get_redis_service() -> RedisService:

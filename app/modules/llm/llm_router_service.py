@@ -46,8 +46,8 @@ from app.modules.llm.llm_provider_service import LlmProviderService
 from app.modules.llm_quota.llm_quota_service import LlmQuotaService
 from app.modules.llm_usage.llm_usage_schema import LlmUsageLogCreate
 from app.modules.llm_usage.llm_usage_service import LlmUsageService
+from app.modules.qdrant.llm_cache_collection_service import LlmCacheCollectionService
 from app.modules.qdrant.qdrant_schema import CacheScope
-from app.modules.qdrant.qdrant_service import QdrantService
 from app.modules.redis.redis_service import RedisService
 from app.modules.reranking.reranker_service import RerankerService
 
@@ -59,7 +59,7 @@ class LlmRouterService:
         self,
         llm_provider_service: LlmProviderService,
         embedding_service: EmbeddingService,
-        qdrant_service: QdrantService,
+        llm_cache_service: LlmCacheCollectionService,
         redis_service: RedisService,
         reranker_service: RerankerService,
         intent_classifier_service: IntentClassifierService,
@@ -70,7 +70,7 @@ class LlmRouterService:
     ) -> None:
         self.llm_provider_service = llm_provider_service
         self.embedding_service = embedding_service
-        self.qdrant_service = qdrant_service
+        self.llm_cache_service = llm_cache_service
         self.redis_service = redis_service
         self.reranker_service = reranker_service
         self.intent_classifier_service = intent_classifier_service
@@ -258,9 +258,9 @@ class LlmRouterService:
     ) -> tuple[dict | None, str | None]:
         exact_hash = self._generate_cache_key(request)
         tenant_id = request.tenant_id
-        if self.qdrant_service:
+        if self.llm_cache_service:
             try:
-                return self.qdrant_service.search_exact(
+                return self.llm_cache_service.search_exact(
                     exact_hash=exact_hash, tenant_id=tenant_id
                 )
             except Exception:
@@ -301,7 +301,7 @@ class LlmRouterService:
         if config.USE_QDRANT_SEMANTIC_MATCHING != "true":
             return result
 
-        if not self.qdrant_service:
+        if not self.llm_cache_service:
             return result
 
         try:
@@ -478,7 +478,7 @@ class LlmRouterService:
             )
 
             if prompt_vector:
-                dense_matches = self.qdrant_service.query_points_dense(
+                dense_matches = self.llm_cache_service.query_points_dense(
                     vector=prompt_vector,
                     using="prompt_embedding",
                     query_filter=query_filter,
@@ -527,7 +527,7 @@ class LlmRouterService:
                             result["cache_info"] = cache_info
                         return result
 
-            matches = self.qdrant_service.query_points_rrf(
+            matches = self.llm_cache_service.query_points_rrf(
                 system_prompt_vector=system_vector,
                 system_prompt_sparse=system_sparse,
                 user_prompt_vector=user_vector,
@@ -684,7 +684,7 @@ class LlmRouterService:
         if config.USE_QDRANT_SEMANTIC_MATCHING != "true":
             return None, None
 
-        if not self.qdrant_service:
+        if not self.llm_cache_service:
             return None, None
 
         prompt_text, system_prompt, user_prompt = self._prepare_prompts(request)
@@ -794,7 +794,7 @@ class LlmRouterService:
 
             logger.info("Saving generated embedding in Qdrant...")
 
-            point_id = self.qdrant_service.upsert(
+            point_id = self.llm_cache_service.upsert(
                 prompt=prompt_text,
                 response=response_dump,
                 system_prompt_vector=system_vec,
@@ -866,10 +866,10 @@ class LlmRouterService:
         if config.USE_QDRANT_SEMANTIC_MATCHING != "true":
             return None, None, None
 
-        if not self.qdrant_service:
+        if not self.llm_cache_service:
             return None, None, None
 
-        cached_payload, point_id = self.qdrant_service.search_exact(
+        cached_payload, point_id = self.llm_cache_service.search_exact(
             exact_hash=exact_hash, tenant_id=tenant_id
         )
         if cached_payload and "response" in cached_payload:

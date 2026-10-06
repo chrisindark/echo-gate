@@ -2,11 +2,14 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.core.dependencies import get_embedding_service, get_qdrant_service
+from app.core.dependencies import (
+    get_embedding_service,
+    get_llm_cache_collection_service,
+)
 from app.core.responses import BaseAPIResponse
 from app.modules.embedding.embedding_service import EmbeddingService
+from app.modules.qdrant.llm_cache_collection_service import LlmCacheCollectionService
 from app.modules.qdrant.qdrant_schema import QdrantSearchRequest, QdrantSearchResponse
-from app.modules.qdrant.qdrant_service import QdrantService
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +19,9 @@ api_v1_router = APIRouter(prefix="/api/v1/qdrant", tags=["Qdrant"])
 @api_v1_router.post("/search", response_model=BaseAPIResponse[QdrantSearchResponse])
 async def search_qdrant(
     request: QdrantSearchRequest,
-    qdrantService: QdrantService = Depends(get_qdrant_service),
+    llm_cache_service: LlmCacheCollectionService = Depends(
+        get_llm_cache_collection_service
+    ),
     embedder: EmbeddingService = Depends(get_embedding_service),
 ) -> QdrantSearchResponse:
     """
@@ -46,13 +51,13 @@ async def search_qdrant(
 
         # Search Qdrant
         if user_prompt_vector:
-            result_payload = qdrantService.query_points_dense(
+            result_payload = llm_cache_service.query_points_dense(
                 vector=user_prompt_vector,
                 using="user_prompt_embedding",
                 filter_payload=filter_payload,
             )
         elif system_prompt_vector:
-            result_payload = qdrantService.query_points_dense(
+            result_payload = llm_cache_service.query_points_dense(
                 vector=system_prompt_vector,
                 using="system_prompt_embedding",
                 filter_payload=filter_payload,
@@ -75,7 +80,9 @@ async def search_qdrant(
 @api_v1_router.post("/search/rrf", response_model=BaseAPIResponse[QdrantSearchResponse])
 async def search_qdrant_rrf(
     request: QdrantSearchRequest,
-    qdrantService: QdrantService = Depends(get_qdrant_service),
+    llm_cache_service: LlmCacheCollectionService = Depends(
+        get_llm_cache_collection_service
+    ),
     embedder: EmbeddingService = Depends(get_embedding_service),
 ) -> QdrantSearchResponse:
     """
@@ -108,7 +115,7 @@ async def search_qdrant_rrf(
             filter_payload = {"model": request.model_filter}
 
         # Search Qdrant
-        result_payload = qdrantService.query_points_rrf(
+        result_payload = llm_cache_service.query_points_rrf(
             system_prompt_vector=system_prompt_vector,
             system_prompt_sparse=system_prompt_sparse,
             user_prompt_vector=user_prompt_vector,
