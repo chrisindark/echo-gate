@@ -1,5 +1,4 @@
 import logging
-import os
 import uuid
 from typing import Any
 
@@ -7,25 +6,40 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models
 
 from app.core.logger import log_latency
+from app.modules.qdrant.qdrant_client_service import QdrantClientService
 from app.modules.qdrant.qdrant_schema import QdrantPayload
 
 logger = logging.getLogger(__name__)
 
 
-class QdrantService:
+class LlmCacheCollectionService:
+    """
+    Dedicated Qdrant collection service for LLM prompt and response caching.
+    Manages the 'embeddings_multivector' collection schema, hybrid dense/sparse search,
+    exact hash lookups, and TTL-based vector expirations.
+    """
+
     def __init__(
-        self, collection_name: str = "collection", vector_size: int = 384
+        self,
+        client_service: QdrantClientService | None = None,
+        collection_name: str = "embeddings_multivector",
+        vector_size: int = 384,
     ) -> None:
-        qdrant_url: str = os.getenv("QDRANT_URL", "http://localhost:6333")
-        logger.info(f"Connecting to Qdrant at {qdrant_url}")
-        self.client: QdrantClient = QdrantClient(url=qdrant_url)
+        self.client_service: QdrantClientService = (
+            client_service if client_service is not None else QdrantClientService()
+        )
         self.collection_name: str = collection_name
         self.vector_size: int = vector_size
         self._init_collection()
 
+    @property
+    def client(self) -> QdrantClient:
+        """Access underlying QdrantClient for backward compatibility."""
+        return self.client_service.client
+
     def _create_collection(self) -> None:
-        logger.info(f"Creating Qdrant collection: {self.collection_name}")
-        self.client.create_collection(
+        logger.info(f"Creating LLM Cache Qdrant collection: {self.collection_name}")
+        self.client_service.create_collection(
             collection_name=self.collection_name,
             vectors_config={
                 "prompt_embedding": models.VectorParams(
@@ -37,12 +51,6 @@ class QdrantService:
                 "user_prompt_embedding": models.VectorParams(
                     size=self.vector_size, distance=models.Distance.COSINE, on_disk=True
                 ),
-                # "intent_embedding": models.VectorParams(
-                #     size=self.vector_size, distance=models.Distance.COSINE
-                # ),
-                # "response_embedding": models.VectorParams(
-                #     size=self.vector_size, distance=models.Distance.COSINE
-                # ),
             },
             sparse_vectors_config={
                 # "prompt_bm25": models.SparseVectorParams(
@@ -55,133 +63,58 @@ class QdrantService:
                     index=models.SparseIndexParams(on_disk=False)
                 ),
             },
-            on_disk_payload=True,  # <--- Large text payloads on SSD
+            on_disk_payload=True,  # Large text payloads on SSD
             quantization_config=models.ScalarQuantization(
                 scalar=models.ScalarQuantizationConfig(
                     type=models.ScalarType.INT8,
                     quantile=0.99,
-                    always_ram=True,  # <--- Quantized vectors in RAM
+                    always_ram=True,  # Quantized vectors in RAM
                 )
             ),
         )
 
         # Create payload indexes for faster filtering
-        logger.info("Creating payload indexes for 'exact_hash' and 'model'")
-        self.client.create_payload_index(
-            collection_name=self.collection_name,
-            field_name="exact_hash",
-            field_schema=models.PayloadSchemaType.KEYWORD,
-        )
-        self.client.create_payload_index(
-            collection_name=self.collection_name,
-            field_name="prompt_version",
-            field_schema=models.PayloadSchemaType.KEYWORD,
-        )
-        self.client.create_payload_index(
-            collection_name=self.collection_name,
-            field_name="model",
-            field_schema=models.PayloadSchemaType.KEYWORD,
-        )
-        self.client.create_payload_index(
-            collection_name=self.collection_name,
-            field_name="embedding_model",
-            field_schema=models.PayloadSchemaType.KEYWORD,
-        )
-        self.client.create_payload_index(
-            collection_name=self.collection_name,
-            field_name="embedding_version",
-            field_schema=models.PayloadSchemaType.KEYWORD,
-        )
-        self.client.create_payload_index(
-            collection_name=self.collection_name,
-            field_name="cacheable",
-            field_schema=models.PayloadSchemaType.BOOL,
-        )
-        self.client.create_payload_index(
-            collection_name=self.collection_name,
-            field_name="cache_key_version",
-            field_schema=models.PayloadSchemaType.KEYWORD,
-        )
-        self.client.create_payload_index(
-            collection_name=self.collection_name,
-            field_name="tenant_id",
-            field_schema=models.PayloadSchemaType.KEYWORD,
-        )
-        self.client.create_payload_index(
-            collection_name=self.collection_name,
-            field_name="user_id",
-            field_schema=models.PayloadSchemaType.KEYWORD,
-        )
-        self.client.create_payload_index(
-            collection_name=self.collection_name,
-            field_name="session_id",
-            field_schema=models.PayloadSchemaType.KEYWORD,
-        )
-        self.client.create_payload_index(
-            collection_name=self.collection_name,
-            field_name="conversation_id",
-            field_schema=models.PayloadSchemaType.KEYWORD,
-        )
-        self.client.create_payload_index(
-            collection_name=self.collection_name,
-            field_name="scope",
-            field_schema=models.PayloadSchemaType.KEYWORD,
-        )
-        self.client.create_payload_index(
-            collection_name=self.collection_name,
-            field_name="expires_at",
-            field_schema=models.PayloadSchemaType.INTEGER,
-        )
-        self.client.create_payload_index(
-            collection_name=self.collection_name,
-            field_name="response_format_hash",
-            field_schema=models.PayloadSchemaType.KEYWORD,
-        )
-        self.client.create_payload_index(
-            collection_name=self.collection_name,
-            field_name="stop_hash",
-            field_schema=models.PayloadSchemaType.KEYWORD,
-        )
-        self.client.create_payload_index(
-            collection_name=self.collection_name,
-            field_name="completion_tokens",
-            field_schema=models.PayloadSchemaType.INTEGER,
-        )
-        # self.client.create_payload_index(
-        #     collection_name=self.collection_name,
-        #     field_name="entities",
-        #     field_schema=models.PayloadSchemaType.KEYWORD,
-        # )
-        # self.client.create_payload_index(
-        #     collection_name=self.collection_name,
-        #     field_name="intent",
-        #     field_schema=models.PayloadSchemaType.KEYWORD,
-        # )
-        # self.client.create_payload_index(
-        #     collection_name=self.collection_name,
-        #     field_name="core_operation",
-        #     field_schema=models.PayloadSchemaType.KEYWORD,
-        # )
-        # self.client.create_payload_index(
-        #     collection_name=self.collection_name,
-        #     field_name="core_subject",
-        #     field_schema=models.PayloadSchemaType.KEYWORD,
-        # )
+        logger.info("Creating payload indexes for LLM cache fields")
+        indexes = [
+            ("exact_hash", models.PayloadSchemaType.KEYWORD),
+            ("prompt_version", models.PayloadSchemaType.KEYWORD),
+            ("model", models.PayloadSchemaType.KEYWORD),
+            ("embedding_model", models.PayloadSchemaType.KEYWORD),
+            ("embedding_version", models.PayloadSchemaType.KEYWORD),
+            ("cacheable", models.PayloadSchemaType.BOOL),
+            ("cache_key_version", models.PayloadSchemaType.KEYWORD),
+            ("tenant_id", models.PayloadSchemaType.KEYWORD),
+            ("user_id", models.PayloadSchemaType.KEYWORD),
+            ("session_id", models.PayloadSchemaType.KEYWORD),
+            ("conversation_id", models.PayloadSchemaType.KEYWORD),
+            ("scope", models.PayloadSchemaType.KEYWORD),
+            ("expires_at", models.PayloadSchemaType.INTEGER),
+            ("response_format_hash", models.PayloadSchemaType.KEYWORD),
+            ("stop_hash", models.PayloadSchemaType.KEYWORD),
+            ("completion_tokens", models.PayloadSchemaType.INTEGER),
+            ("entities", models.PayloadSchemaType.KEYWORD),
+            ("intent", models.PayloadSchemaType.KEYWORD),
+            ("core_operation", models.PayloadSchemaType.KEYWORD),
+            ("core_subject", models.PayloadSchemaType.KEYWORD),
+        ]
+        for field_name, field_schema in indexes:
+            self.client_service.create_payload_index(
+                collection_name=self.collection_name,
+                field_name=field_name,
+                field_schema=field_schema,
+            )
 
     def _init_collection(self) -> None:
         try:
-            collections_response = self.client.get_collections()
-            collection_names: list[str] = [
-                c.name for c in collections_response.collections
-            ]
-
-            if self.collection_name not in collection_names:
+            if not self.client_service.collection_exists(self.collection_name):
                 self._create_collection()
             else:
                 logger.info(
                     f"Qdrant collection '{self.collection_name}' already exists. Checking vector dimensions."
                 )
-                collection_info = self.client.get_collection(self.collection_name)
+                collection_info = self.client_service.get_collection(
+                    self.collection_name
+                )
                 vectors_config = collection_info.config.params.vectors
                 existing_size = None
 
@@ -198,14 +131,14 @@ class QdrantService:
                         f"Vector dimension mismatch! Existing collection has size {existing_size}, "
                         f"but current config expects {self.vector_size}. Recreating collection."
                     )
-                    self.client.delete_collection(self.collection_name)
+                    self.client_service.delete_collection(self.collection_name)
                     self._create_collection()
         except Exception:
             logger.exception("Failed to initialize Qdrant collection")
 
-    def close(self):
+    def close(self) -> None:
         """Close Qdrant connection."""
-        self.client.close()
+        self.client_service.close()
 
     @log_latency()
     def search_exact(
@@ -237,7 +170,7 @@ class QdrantService:
                     )
                 )
 
-            results, _ = self.client.scroll(
+            results, _ = self.client_service.scroll(
                 collection_name=self.collection_name,
                 scroll_filter=models.Filter(must=must_conditions),
                 limit=1,
@@ -325,7 +258,7 @@ class QdrantService:
             if not prefetch:
                 return []
 
-            results = self.client.query_points(
+            results = self.client_service.query_points(
                 collection_name=self.collection_name,
                 prefetch=prefetch,
                 query=models.FusionQuery(fusion=models.Fusion.RRF),
@@ -377,7 +310,7 @@ class QdrantService:
                         )
                 query_filter = models.Filter(must=must_conditions)
 
-            results = self.client.query_points(
+            results = self.client_service.query_points(
                 collection_name=self.collection_name,
                 query=vector,
                 using=using,
@@ -489,7 +422,7 @@ class QdrantService:
                     values=prompt_sparse["values"],
                 )
 
-            self.client.upsert(
+            self.client_service.upsert(
                 collection_name=self.collection_name,
                 points=[
                     models.PointStruct(
@@ -516,7 +449,7 @@ class QdrantService:
 
             logger.info(f"Deleting Qdrant points where expires_at < {now}")
 
-            self.client.delete(
+            self.client_service.delete(
                 collection_name=self.collection_name,
                 points_selector=models.Filter(
                     must=[
