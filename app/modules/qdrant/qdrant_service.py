@@ -23,6 +23,151 @@ class QdrantService:
         self.vector_size: int = vector_size
         self._init_collection()
 
+    def _create_collection(self) -> None:
+        logger.info(f"Creating Qdrant collection: {self.collection_name}")
+        self.client.create_collection(
+            collection_name=self.collection_name,
+            vectors_config={
+                "prompt_embedding": models.VectorParams(
+                    size=self.vector_size, distance=models.Distance.COSINE, on_disk=True
+                ),
+                "system_prompt_embedding": models.VectorParams(
+                    size=self.vector_size, distance=models.Distance.COSINE, on_disk=True
+                ),
+                "user_prompt_embedding": models.VectorParams(
+                    size=self.vector_size, distance=models.Distance.COSINE, on_disk=True
+                ),
+                # "intent_embedding": models.VectorParams(
+                #     size=self.vector_size, distance=models.Distance.COSINE
+                # ),
+                # "response_embedding": models.VectorParams(
+                #     size=self.vector_size, distance=models.Distance.COSINE
+                # ),
+            },
+            sparse_vectors_config={
+                # "prompt_bm25": models.SparseVectorParams(
+                #     index=models.SparseIndexParams(on_disk=False)
+                # ),
+                "system_prompt_bm25": models.SparseVectorParams(
+                    index=models.SparseIndexParams(on_disk=False)
+                ),
+                "user_prompt_bm25": models.SparseVectorParams(
+                    index=models.SparseIndexParams(on_disk=False)
+                ),
+            },
+            on_disk_payload=True,  # <--- Large text payloads on SSD
+            quantization_config=models.ScalarQuantization(
+                scalar=models.ScalarQuantizationConfig(
+                    type=models.ScalarType.INT8,
+                    quantile=0.99,
+                    always_ram=True,  # <--- Quantized vectors in RAM
+                )
+            ),
+        )
+
+        # Create payload indexes for faster filtering
+        logger.info("Creating payload indexes for 'exact_hash' and 'model'")
+        self.client.create_payload_index(
+            collection_name=self.collection_name,
+            field_name="exact_hash",
+            field_schema=models.PayloadSchemaType.KEYWORD,
+        )
+        self.client.create_payload_index(
+            collection_name=self.collection_name,
+            field_name="prompt_version",
+            field_schema=models.PayloadSchemaType.KEYWORD,
+        )
+        self.client.create_payload_index(
+            collection_name=self.collection_name,
+            field_name="model",
+            field_schema=models.PayloadSchemaType.KEYWORD,
+        )
+        self.client.create_payload_index(
+            collection_name=self.collection_name,
+            field_name="embedding_model",
+            field_schema=models.PayloadSchemaType.KEYWORD,
+        )
+        self.client.create_payload_index(
+            collection_name=self.collection_name,
+            field_name="embedding_version",
+            field_schema=models.PayloadSchemaType.KEYWORD,
+        )
+        self.client.create_payload_index(
+            collection_name=self.collection_name,
+            field_name="cacheable",
+            field_schema=models.PayloadSchemaType.BOOL,
+        )
+        self.client.create_payload_index(
+            collection_name=self.collection_name,
+            field_name="cache_key_version",
+            field_schema=models.PayloadSchemaType.KEYWORD,
+        )
+        self.client.create_payload_index(
+            collection_name=self.collection_name,
+            field_name="tenant_id",
+            field_schema=models.PayloadSchemaType.KEYWORD,
+        )
+        self.client.create_payload_index(
+            collection_name=self.collection_name,
+            field_name="user_id",
+            field_schema=models.PayloadSchemaType.KEYWORD,
+        )
+        self.client.create_payload_index(
+            collection_name=self.collection_name,
+            field_name="session_id",
+            field_schema=models.PayloadSchemaType.KEYWORD,
+        )
+        self.client.create_payload_index(
+            collection_name=self.collection_name,
+            field_name="conversation_id",
+            field_schema=models.PayloadSchemaType.KEYWORD,
+        )
+        self.client.create_payload_index(
+            collection_name=self.collection_name,
+            field_name="scope",
+            field_schema=models.PayloadSchemaType.KEYWORD,
+        )
+        self.client.create_payload_index(
+            collection_name=self.collection_name,
+            field_name="expires_at",
+            field_schema=models.PayloadSchemaType.INTEGER,
+        )
+        self.client.create_payload_index(
+            collection_name=self.collection_name,
+            field_name="response_format_hash",
+            field_schema=models.PayloadSchemaType.KEYWORD,
+        )
+        self.client.create_payload_index(
+            collection_name=self.collection_name,
+            field_name="stop_hash",
+            field_schema=models.PayloadSchemaType.KEYWORD,
+        )
+        self.client.create_payload_index(
+            collection_name=self.collection_name,
+            field_name="completion_tokens",
+            field_schema=models.PayloadSchemaType.INTEGER,
+        )
+        # self.client.create_payload_index(
+        #     collection_name=self.collection_name,
+        #     field_name="entities",
+        #     field_schema=models.PayloadSchemaType.KEYWORD,
+        # )
+        # self.client.create_payload_index(
+        #     collection_name=self.collection_name,
+        #     field_name="intent",
+        #     field_schema=models.PayloadSchemaType.KEYWORD,
+        # )
+        # self.client.create_payload_index(
+        #     collection_name=self.collection_name,
+        #     field_name="core_operation",
+        #     field_schema=models.PayloadSchemaType.KEYWORD,
+        # )
+        # self.client.create_payload_index(
+        #     collection_name=self.collection_name,
+        #     field_name="core_subject",
+        #     field_schema=models.PayloadSchemaType.KEYWORD,
+        # )
+
     def _init_collection(self) -> None:
         try:
             collections_response = self.client.get_collections()
@@ -31,115 +176,30 @@ class QdrantService:
             ]
 
             if self.collection_name not in collection_names:
-                logger.info(f"Creating Qdrant collection: {self.collection_name}")
-                self.client.create_collection(
-                    collection_name=self.collection_name,
-                    vectors_config={
-                        "prompt_embedding": models.VectorParams(
-                            size=self.vector_size, distance=models.Distance.COSINE
-                        ),
-                        "system_prompt_embedding": models.VectorParams(
-                            size=self.vector_size, distance=models.Distance.COSINE
-                        ),
-                        "user_prompt_embedding": models.VectorParams(
-                            size=self.vector_size, distance=models.Distance.COSINE
-                        ),
-                        "intent_embedding": models.VectorParams(
-                            size=self.vector_size, distance=models.Distance.COSINE
-                        ),
-                        "response_embedding": models.VectorParams(
-                            size=self.vector_size, distance=models.Distance.COSINE
-                        ),
-                    },
-                    sparse_vectors_config={
-                        "prompt_bm25": models.SparseVectorParams(
-                            index=models.SparseIndexParams(on_disk=False)
-                        ),
-                        "system_prompt_bm25": models.SparseVectorParams(
-                            index=models.SparseIndexParams(on_disk=False)
-                        ),
-                        "user_prompt_bm25": models.SparseVectorParams(
-                            index=models.SparseIndexParams(on_disk=False)
-                        ),
-                    },
-                )
-
-                # Create payload indexes for faster filtering
-                logger.info("Creating payload indexes for 'exact_hash' and 'model'")
-                self.client.create_payload_index(
-                    collection_name=self.collection_name,
-                    field_name="exact_hash",
-                    field_schema=models.PayloadSchemaType.KEYWORD,
-                )
-                self.client.create_payload_index(
-                    collection_name=self.collection_name,
-                    field_name="model",
-                    field_schema=models.PayloadSchemaType.KEYWORD,
-                )
-                self.client.create_payload_index(
-                    collection_name=self.collection_name,
-                    field_name="tenant_id",
-                    field_schema=models.PayloadSchemaType.KEYWORD,
-                )
-                self.client.create_payload_index(
-                    collection_name=self.collection_name,
-                    field_name="user_id",
-                    field_schema=models.PayloadSchemaType.KEYWORD,
-                )
-                self.client.create_payload_index(
-                    collection_name=self.collection_name,
-                    field_name="session_id",
-                    field_schema=models.PayloadSchemaType.KEYWORD,
-                )
-                self.client.create_payload_index(
-                    collection_name=self.collection_name,
-                    field_name="conversation_id",
-                    field_schema=models.PayloadSchemaType.KEYWORD,
-                )
-                self.client.create_payload_index(
-                    collection_name=self.collection_name,
-                    field_name="scope",
-                    field_schema=models.PayloadSchemaType.KEYWORD,
-                )
-                self.client.create_payload_index(
-                    collection_name=self.collection_name,
-                    field_name="entities",
-                    field_schema=models.PayloadSchemaType.KEYWORD,
-                )
-                self.client.create_payload_index(
-                    collection_name=self.collection_name,
-                    field_name="response_format_hash",
-                    field_schema=models.PayloadSchemaType.KEYWORD,
-                )
-                self.client.create_payload_index(
-                    collection_name=self.collection_name,
-                    field_name="stop_hash",
-                    field_schema=models.PayloadSchemaType.KEYWORD,
-                )
-                self.client.create_payload_index(
-                    collection_name=self.collection_name,
-                    field_name="completion_tokens",
-                    field_schema=models.PayloadSchemaType.INTEGER,
-                )
-                self.client.create_payload_index(
-                    collection_name=self.collection_name,
-                    field_name="intent",
-                    field_schema=models.PayloadSchemaType.KEYWORD,
-                )
-                self.client.create_payload_index(
-                    collection_name=self.collection_name,
-                    field_name="core_operation",
-                    field_schema=models.PayloadSchemaType.KEYWORD,
-                )
-                self.client.create_payload_index(
-                    collection_name=self.collection_name,
-                    field_name="core_subject",
-                    field_schema=models.PayloadSchemaType.KEYWORD,
-                )
+                self._create_collection()
             else:
                 logger.info(
-                    f"Qdrant collection '{self.collection_name}' already exists."
+                    f"Qdrant collection '{self.collection_name}' already exists. Checking vector dimensions."
                 )
+                collection_info = self.client.get_collection(self.collection_name)
+                vectors_config = collection_info.config.params.vectors
+                existing_size = None
+
+                if (
+                    isinstance(vectors_config, dict)
+                    and "prompt_embedding" in vectors_config
+                ):
+                    existing_size = vectors_config["prompt_embedding"].size
+                elif hasattr(vectors_config, "size"):
+                    existing_size = vectors_config.size
+
+                if existing_size is not None and existing_size != self.vector_size:
+                    logger.warning(
+                        f"Vector dimension mismatch! Existing collection has size {existing_size}, "
+                        f"but current config expects {self.vector_size}. Recreating collection."
+                    )
+                    self.client.delete_collection(self.collection_name)
+                    self._create_collection()
         except Exception:
             logger.exception("Failed to initialize Qdrant collection")
 
@@ -445,3 +505,28 @@ class QdrantService:
         except Exception:
             logger.exception("Failed to save to Qdrant")
             return None
+
+    @log_latency()
+    def delete_expired(self) -> None:
+        """Deletes vectors where expires_at is less than the current time."""
+        try:
+            import time
+
+            now = int(time.time())
+
+            logger.info(f"Deleting Qdrant points where expires_at < {now}")
+
+            self.client.delete(
+                collection_name=self.collection_name,
+                points_selector=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="expires_at",
+                            range=models.Range(lt=now),
+                        )
+                    ]
+                ),
+            )
+            logger.info("Successfully requested deletion of expired Qdrant points.")
+        except Exception:
+            logger.exception("Failed to delete expired vectors from Qdrant")

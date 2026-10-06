@@ -16,7 +16,7 @@ class CrossEncoderService:
         nli_model_name: str = config.CROSS_ENCODER_NLI_MODEL,
     ):
         self.hf_home = os.getenv("HF_HOME", "./.model_cache")
-        print("HF_HOME", self.hf_home)
+        logger.debug(f"HF_HOME: {self.hf_home}")
         self.reranker_model = None
         self.relevance_model = None
         self.nli_model = None

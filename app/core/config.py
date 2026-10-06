@@ -58,11 +58,11 @@ class Config:
         )
 
         # Semantic Search & Cache Tuning
-        self.QDRANT_SEARCH_THRESHOLD = float(
-            os.getenv("QDRANT_SEARCH_THRESHOLD", "0.70")
+        self.QDRANT_DENSE_SEARCH_HIGH_THRESHOLD = float(
+            os.getenv("QDRANT_DENSE_SEARCH_HIGH_THRESHOLD", "0.98")
         )
-        self.QDRANT_SEARCH_HIGH_THRESHOLD = float(
-            os.getenv("QDRANT_SEARCH_HIGH_THRESHOLD", "0.98")
+        self.QDRANT_SPARSE_SEARCH_HIGH_THRESHOLD = float(
+            os.getenv("QDRANT_SPARSE_SEARCH_HIGH_THRESHOLD", "0.70")
         )
         self.QDRANT_SEARCH_LIMIT = int(os.getenv("QDRANT_SEARCH_LIMIT", "10"))
         self.DEFAULT_CACHE_TTL_SECONDS = int(

@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import re
 
@@ -18,7 +19,7 @@ class EntityExtractorService:
         # Pre-compile regex patterns for performance
         self.patterns = {
             "URL": re.compile(r"https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+[^\s]*"),
-            "EMAIL": re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b"),
+            "EMAIL": re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"),
             "UUID": re.compile(
                 r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b"
             ),
@@ -30,7 +31,8 @@ class EntityExtractorService:
             "DATE_ISO": re.compile(r"\b\d{4}-\d{2}-\d{2}\b"),
             "DATE_COMMON": re.compile(r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b"),
             "ACCOUNT_ID": re.compile(
-                r"\b(?:acc|account|id)[\s_:-]*[A-Z0-9]{8,15}\b", re.IGNORECASE
+                r"\b(?:acc|account|id)[\s_:-]*(?=[A-Z0-9]*\d)[A-Z0-9]{8,15}\b",
+                re.IGNORECASE,
             ),
             "IPV4": re.compile(r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b"),
             "IPV6": re.compile(r"\b(?:[A-Fa-f0-9]{1,4}:){7}[A-Fa-f0-9]{1,4}\b"),
@@ -63,7 +65,9 @@ class EntityExtractorService:
     def get_qdrant_entity_tags(self, text: str) -> list[str]:
         """
         Extracts entities and formats them as flat string tags for Qdrant payload.
-        Format: "TYPE:value" (e.g., "VERSION:3.11", "URL:https://google.com")
+        Format: "TYPE:value" (e.g., "VERSION:3.11", "URL:https://google.com").
+        Sensitive entities (e.g. EMAIL, API_KEY, ACCOUNT_ID, UUID) are hashed with SHA-256
+        to avoid storing raw secrets and PII in Qdrant payloads.
         """
         tags = []
         entities_dict = self.extract_entities(text)
@@ -72,7 +76,11 @@ class EntityExtractorService:
             for val in values:
                 # Clean up and normalize the tag
                 clean_val = val.strip().lower()
-                tags.append(f"{entity_type}:{clean_val}")
+                if entity_type in self.sensitive_entity_types:
+                    hashed_val = hashlib.sha256(clean_val.encode()).hexdigest()
+                    tags.append(f"{entity_type}:{hashed_val}")
+                else:
+                    tags.append(f"{entity_type}:{clean_val}")
 
         return tags
 

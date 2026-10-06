@@ -64,6 +64,7 @@ celery_app = Celery(
     include=[
         "app.modules.llm_usage.tasks",
         "app.modules.gateway_requests.tasks",
+        "app.modules.qdrant.tasks",
     ],
 )
 
@@ -75,6 +76,10 @@ beat_schedule = {
     "evaluate-pending-requests-every-1-minute": {
         "task": "app.modules.gateway_requests.tasks.evaluate_pending_requests",
         "schedule": 30.0,  # Runs every 1 minute
+    },
+    "delete-expired-vectors-every-5-minutes": {
+        "task": "delete_expired_vectors",
+        "schedule": 30.0,  # Runs every 5 minutes (was 30s)
     },
 }
 
