@@ -1,5 +1,4 @@
 import logging
-import os
 import time
 import uuid
 
@@ -9,6 +8,7 @@ from google import genai
 from google.genai import errors, types
 
 from app.core.config import config
+from app.core.constants import MOCK_RESPONSE_TEXT
 from app.core.logger import log_latency
 from app.modules.chat.chat_schema import (
     ChatCompletionRequest,
@@ -23,14 +23,16 @@ logger = logging.getLogger(__name__)
 
 class LlmProviderService:
     def __init__(self) -> None:
-        self.openai_api_key: str | None = os.getenv("OPENAI_API_KEY")
+        self.openai_api_key: str | None = config.OPENAI_API_KEY
         self.openai_base_url: str = config.OPENAI_BASE_URL
-        self.gemini_api_key: str | None = os.getenv("GEMINI_API_KEY")
+
+        self.gemini_api_key: str | None = config.GEMINI_API_KEY
         self.ollama_base_url: str = config.OLLAMA_URL
 
-        self.groq_api_key: str | None = os.getenv("GROQ_API_KEY")
+        self.groq_api_key: str | None = config.GROQ_API_KEY
         self.groq_base_url: str = config.GROQ_BASE_URL
-        self.openrouter_api_key: str | None = os.getenv("OPENROUTER_API_KEY")
+
+        self.openrouter_api_key: str | None = config.OPENROUTER_API_KEY
         self.openrouter_base_url: str = config.OPENROUTER_BASE_URL
 
         self.gemini_client = None
@@ -76,10 +78,10 @@ class LlmProviderService:
         self, request: ChatCompletionRequest
     ) -> ChatCompletionResponse:
         if not self.gemini_client:
-            logger.warning(
-                "No GEMINI_API_KEY or google-genai package not found. Returning mock response."
+            logger.error("Gemini API key is not configured.")
+            raise HTTPException(
+                status_code=503, detail="Gemini API key is not configured"
             )
-            return self.generate_mock_response(request)
 
         logger.info(f"Forwarding request to Gemini ({request.model})...")
 
@@ -172,8 +174,10 @@ class LlmProviderService:
         self, request: ChatCompletionRequest
     ) -> ChatCompletionResponse:
         if not self.openai_api_key:
-            logger.warning("No OPENAI_API_KEY set. Returning mock response.")
-            return self.generate_mock_response(request)
+            logger.error("OpenAI API key is not configured.")
+            raise HTTPException(
+                status_code=503, detail="OpenAI API key is not configured"
+            )
 
         headers: dict[str, str] = {
             "Authorization": f"Bearer {self.openai_api_key}",
@@ -215,8 +219,10 @@ class LlmProviderService:
         self, request: ChatCompletionRequest
     ) -> ChatCompletionResponse:
         if not self.groq_api_key:
-            logger.warning("No GROQ_API_KEY set. Returning mock response.")
-            return self.generate_mock_response(request)
+            logger.error("Groq API key is not configured.")
+            raise HTTPException(
+                status_code=503, detail="Groq API key is not configured"
+            )
 
         headers: dict[str, str] = {
             "Authorization": f"Bearer {self.groq_api_key}",
@@ -256,8 +262,10 @@ class LlmProviderService:
         self, request: ChatCompletionRequest
     ) -> ChatCompletionResponse:
         if not self.openrouter_api_key:
-            logger.warning("No OPENROUTER_API_KEY set. Returning mock response.")
-            return self.generate_mock_response(request)
+            logger.error("OpenRouter API key is not configured.")
+            raise HTTPException(
+                status_code=503, detail="OpenRouter API key is not configured"
+            )
 
         headers: dict[str, str] = {
             "Authorization": f"Bearer {self.openrouter_api_key}",
@@ -308,10 +316,11 @@ class LlmProviderService:
                     index=0,
                     message=ChatMessage(
                         role="assistant",
-                        content="This is a mock response from the LLM Gateway.",
+                        content=MOCK_RESPONSE_TEXT,
                     ),
                     finish_reason="stop",
                 )
             ],
             usage=Usage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
+            system_fingerprint="mock",
         )

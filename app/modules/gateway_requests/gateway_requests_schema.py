@@ -1,5 +1,6 @@
 from datetime import datetime
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
@@ -19,6 +20,20 @@ class EvaluationStatus(str, Enum):
     SKIPPED = "SKIPPED"
 
 
+class LatencyBreakdown(BaseModel):
+    redis_exact_ms: float | None = None
+    qdrant_exact_ms: float | None = None
+    intent_classify_ms: float | None = None
+    embedding_gen_ms: float | None = None
+    qdrant_dense_ms: float | None = None
+    qdrant_rrf_ms: float | None = None
+    rerank_ms: float | None = None
+    cache_lookup_total_ms: float | None = None
+    provider_ms: float | None = None
+    cache_write_ms: float | None = None
+    total_ms: float | None = None
+
+
 class GatewayRequestLogBase(BaseModel):
     query_text: str
     response_text: str | None = None
@@ -34,6 +49,9 @@ class GatewayRequestLogBase(BaseModel):
     action_modifier: str | None = None
     rerank_score: float | None = None
     latency_ms: int | None = None
+    provider_latency_ms: int | None = None
+    cache_lookup_latency_ms: int | None = None
+    latency_breakdown: LatencyBreakdown | dict[str, Any] | None = None
     user_id: str | None = None
     tenant_id: str | None = None
     session_id: str | None = None

@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, Integer, Numeric, String, Text
+from sqlalchemy import JSON, Boolean, Column, DateTime, Integer, Numeric, String, Text
 
 from app.core.database import Base
 
@@ -38,6 +38,9 @@ class GatewayRequestLog(Base):
 
     rerank_score = Column(Numeric(precision=5, scale=4), nullable=True)
     latency_ms = Column(Integer, nullable=True)
+    provider_latency_ms = Column(Integer, nullable=True, index=True)
+    cache_lookup_latency_ms = Column(Integer, nullable=True)
+    latency_breakdown = Column(JSON, nullable=True)
 
     user_id = Column(String(100), index=True, nullable=True)
     tenant_id = Column(String(100), index=True, nullable=True)

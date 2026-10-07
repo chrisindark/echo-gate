@@ -5,6 +5,7 @@ from app.modules.gateway_requests.gateway_requests_schema import (
     GatewayRequestLogCreate,
     GatewayRequestLogResponse,
     GatewayRequestLogUpdate,
+    LatencyBreakdown,
     RoutingDecision,
 )
 from app.modules.gateway_requests.gateway_requests_service import GatewayRequestsService
@@ -17,5 +18,6 @@ __all__ = [
     "GatewayRequestLogResponse",
     "GatewayRequestLogUpdate",
     "GatewayRequestsService",
+    "LatencyBreakdown",
     "RoutingDecision",
 ]

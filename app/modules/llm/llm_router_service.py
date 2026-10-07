@@ -23,6 +23,7 @@ from app.core.constants import (
     EMBEDDING_QUERY_PREFIX,
     EMBEDDING_VERSION,
     INTENT_PROMPT_VERSION,
+    MOCK_RESPONSE_TEXT,
     PROMPT_VERSION,
     SCOPE_HIERARCHY,
 )
@@ -52,6 +53,21 @@ from app.modules.redis.redis_service import RedisService
 from app.modules.reranking.reranker_service import RerankerService
 
 logger = logging.getLogger(__name__)
+
+
+def is_mock_response(response: ChatCompletionResponse | None) -> bool:
+    if not response or not response.choices:
+        return False
+    if response.system_fingerprint == "mock":
+        return True
+    first_choice = response.choices[0]
+    if (
+        first_choice.message
+        and first_choice.message.content
+        and first_choice.message.content.strip() == MOCK_RESPONSE_TEXT.strip()
+    ):
+        return True
+    return False
 
 
 class LlmRouterService:
@@ -138,8 +154,10 @@ class LlmRouterService:
                     llm_req
                 )
             else:
-                logger.warning(f"Unknown service {svc}. Returning mock response.")
-                return self.llm_provider_service.generate_mock_response(llm_req)
+                logger.error(f"Unsupported LLM service: {svc}")
+                raise HTTPException(
+                    status_code=400, detail=f"Unsupported LLM service: {svc}"
+                )
 
         retryer = AsyncRetrying(
             stop=stop_after_attempt(max_retries + 1)
@@ -288,6 +306,8 @@ class LlmRouterService:
         cache_key_version = CACHE_KEY_VERSION
         now = int(time.time())
 
+        semantic_start = time.perf_counter()
+        breakdown: dict[str, float] = {}
         result: dict[str, Any] = {
             "response": None,
             "cache_info": None,
@@ -296,6 +316,7 @@ class LlmRouterService:
             "time_sensitivity": 0.0,
             "matches": [],
             "eligible_matches": [],
+            "latency_breakdown": breakdown,
         }
 
         if config.USE_QDRANT_SEMANTIC_MATCHING != "true":
@@ -305,8 +326,13 @@ class LlmRouterService:
             return result
 
         try:
+            t_intent_start = time.perf_counter()
             intent_result = await self.intent_classifier_service.classify_intent(
                 request
+            )
+            t_intent_end = time.perf_counter()
+            breakdown["intent_classify_ms"] = round(
+                (t_intent_end - t_intent_start) * 1000, 2
             )
             intent = intent_result.intent
             time_sensitivity = intent_result.time_sensitivity
@@ -327,15 +353,18 @@ class LlmRouterService:
                 (Subject Modifier: {subject_modifier}) (Action Modifier: {action_modifier})"""
             )
 
+            t_emb_start = time.perf_counter()
             prompt_vector, _ = await self._get_embeddings(
                 prompt_text, False, EMBEDDING_QUERY_PREFIX
             )
             system_vector, system_sparse = await self._get_embeddings(
-                system_prompt, EMBEDDING_QUERY_PREFIX
+                system_prompt, True, EMBEDDING_QUERY_PREFIX
             )
             user_vector, user_sparse = await self._get_embeddings(
-                user_prompt, EMBEDDING_QUERY_PREFIX
+                user_prompt, True, EMBEDDING_QUERY_PREFIX
             )
+            t_emb_end = time.perf_counter()
+            breakdown["embedding_gen_ms"] = round((t_emb_end - t_emb_start) * 1000, 2)
 
             must_conditions = [
                 models.FieldCondition(
@@ -478,11 +507,16 @@ class LlmRouterService:
             )
 
             if prompt_vector:
+                t_dense_start = time.perf_counter()
                 dense_matches = self.llm_cache_service.query_points_dense(
                     vector=prompt_vector,
                     using="prompt_embedding",
                     query_filter=query_filter,
                     limit=1,
+                )
+                t_dense_end = time.perf_counter()
+                breakdown["qdrant_dense_ms"] = round(
+                    (t_dense_end - t_dense_start) * 1000, 2
                 )
                 if dense_matches:
                     logger.info(
@@ -527,6 +561,7 @@ class LlmRouterService:
                             result["cache_info"] = cache_info
                         return result
 
+            t_rrf_start = time.perf_counter()
             matches = self.llm_cache_service.query_points_rrf(
                 system_prompt_vector=system_vector,
                 system_prompt_sparse=system_sparse,
@@ -536,6 +571,8 @@ class LlmRouterService:
                 query_filter=query_filter,
                 limit=config.QDRANT_SEARCH_LIMIT,
             )
+            t_rrf_end = time.perf_counter()
+            breakdown["qdrant_rrf_ms"] = round((t_rrf_end - t_rrf_start) * 1000, 2)
 
             # Lowered threshold to retrieve a wider pool of candidates for the Reranker
             if matches:
@@ -557,10 +594,11 @@ class LlmRouterService:
                 if eligible_matches:
                     request_entities = (
                         self.entity_extractor_service.get_qdrant_entity_tags(
-                            prompt_text
+                            user_prompt
                         )
                     )
 
+                    t_rerank_start = time.perf_counter()
                     matches_reranked = self.reranker_service.rerank(
                         query=prompt_text,
                         candidates=eligible_matches,
@@ -575,6 +613,10 @@ class LlmRouterService:
                         request_action_modifier=action_modifier,
                         user_query=user_prompt,
                         system_query=system_prompt,
+                    )
+                    t_rerank_end = time.perf_counter()
+                    breakdown["rerank_ms"] = round(
+                        (t_rerank_end - t_rerank_start) * 1000, 2
                     )
 
                     if not matches_reranked:
@@ -627,38 +669,43 @@ class LlmRouterService:
                         ].get("prompt", "")
 
                     if is_accepted and "response" in top_match["payload"]:
-                        logger.info(
-                            f"Serving response from Qdrant semantic search query with threshold {config.QDRANT_SPARSE_SEARCH_HIGH_THRESHOLD}, score {matched_score}, rerank_score {rerank_score}."
-                        )
                         response = ChatCompletionResponse(
                             **top_match["payload"]["response"]
                         )
+                        if is_mock_response(response):
+                            logger.warning(
+                                "Stale mock response found in Qdrant semantic search candidate. Treating as cache miss."
+                            )
+                            result["miss_cache_info"] = base_cache_info
+                        else:
+                            logger.info(
+                                f"Serving response from Qdrant semantic search query with threshold {config.QDRANT_SPARSE_SEARCH_HIGH_THRESHOLD}, score {matched_score}, rerank_score {rerank_score}."
+                            )
+                            cache_info = {
+                                "matched": True,
+                                "score": matched_score,
+                                "rerank_score": rerank_score,
+                                "source": "qdrant_semantic_path",
+                                "cache_hit": is_accepted,
+                                "point_id": top_match["id"],
+                                "intent": intent.value,
+                                **base_cache_info,
+                            }
+                            response.cache_info = cache_info
 
-                        cache_info = {
-                            "matched": True,
-                            "score": matched_score,
-                            "rerank_score": rerank_score,
-                            "source": "qdrant_semantic_path",
-                            "cache_hit": is_accepted,
-                            "point_id": top_match["id"],
-                            "intent": intent.value,
-                            **base_cache_info,
-                        }
-                        response.cache_info = cache_info
+                            # Cache semantic match (even without a hit, to avoid future full re-reranks)
+                            ttl = self.intent_classifier_service.calculate_ttl(
+                                intent, time_sensitivity
+                            )
+                            await self._save_to_redis_cache(
+                                exact_hash,
+                                response,
+                                "Saving Qdrant semantic search query matched response in Redis",
+                                ttl=ttl,
+                            )
 
-                        # Cache semantic match (even without a hit, to avoid future full re-reranks)
-                        ttl = self.intent_classifier_service.calculate_ttl(
-                            intent, time_sensitivity
-                        )
-                        await self._save_to_redis_cache(
-                            exact_hash,
-                            response,
-                            "Saving Qdrant semantic search query matched response in Redis",
-                            ttl=ttl,
-                        )
-
-                        result["response"] = response
-                        result["cache_info"] = cache_info
+                            result["response"] = response
+                            result["cache_info"] = cache_info
                     else:
                         result["miss_cache_info"] = base_cache_info
 
@@ -667,6 +714,11 @@ class LlmRouterService:
         except Exception:
             logger.exception("Qdrant Database read error")
             return result
+        finally:
+            semantic_end = time.perf_counter()
+            breakdown["cache_lookup_total_ms"] = round(
+                (semantic_end - semantic_start) * 1000, 2
+            )
 
     async def save_to_cache(
         self,
@@ -685,6 +737,10 @@ class LlmRouterService:
             return None, None
 
         if not self.llm_cache_service:
+            return None, None
+
+        if is_mock_response(response):
+            logger.warning("Skipping Qdrant cache save for mock response")
             return None, None
 
         prompt_text, system_prompt, user_prompt = self._prepare_prompts(request)
@@ -724,7 +780,7 @@ class LlmRouterService:
                 user_prompt, True, EMBEDDING_DOCUMENT_PREFIX
             )
             prompt_vec, prompt_sparse = await self._get_embeddings(
-                prompt_text, True, EMBEDDING_DOCUMENT_PREFIX
+                prompt_text, False, EMBEDDING_DOCUMENT_PREFIX
             )
             logger.info("Embeddings generated successfully")
 
@@ -762,7 +818,7 @@ class LlmRouterService:
             if SCOPE_HIERARCHY[actual_scope] > SCOPE_HIERARCHY[max_scope]:
                 actual_scope = max_scope
 
-            entities = self.entity_extractor_service.get_qdrant_entity_tags(prompt_text)
+            entities = self.entity_extractor_service.get_qdrant_entity_tags(user_prompt)
 
             ttl = self.intent_classifier_service.calculate_ttl(intent, time_sensitivity)
             cacheable = True
@@ -846,10 +902,17 @@ class LlmRouterService:
 
         cached_data = await self.redis_service.get(exact_hash)
         if cached_data:
+            response = ChatCompletionResponse(**json.loads(cached_data))
+            if is_mock_response(response):
+                logger.warning(
+                    f"Found cached mock response in Redis for {exact_hash}. Purging and ignoring."
+                )
+                await self.redis_service.delete(exact_hash)
+                return None
+
             logger.info(
                 f"Serving response from Redis Cache for {exact_hash} using {service_name}"
             )
-            response = ChatCompletionResponse(**json.loads(cached_data))
             response.cache_info = {
                 "matched": True,
                 "score": 1.0,
@@ -873,10 +936,16 @@ class LlmRouterService:
             exact_hash=exact_hash, tenant_id=tenant_id
         )
         if cached_payload and "response" in cached_payload:
+            response = ChatCompletionResponse(**cached_payload["response"])
+            if is_mock_response(response):
+                logger.warning(
+                    f"Found cached mock response in Qdrant exact search for {exact_hash}. Ignoring."
+                )
+                return None, None, None
+
             logger.info(
                 f"Serving response from Qdrant exact search query for {exact_hash}"
             )
-            response = ChatCompletionResponse(**cached_payload["response"])
             intent = cached_payload.get("intent", IntentEnum.EMPTY.value)
             response.cache_info = {
                 "matched": True,
@@ -904,6 +973,12 @@ class LlmRouterService:
         ttl: int | None = -1,
     ) -> None:
         if config.USE_REDIS_SEMANTIC_MATCHING != "true":
+            return
+
+        if is_mock_response(response):
+            logger.warning(
+                f"Skipping Redis cache save for mock response for {exact_hash}"
+            )
             return
 
         if ttl is None:
@@ -1020,6 +1095,7 @@ class LlmRouterService:
         start_time: float,
         exact_hash: str,
         model: str | None = None,
+        latency_breakdown: dict[str, Any] | None = None,
     ) -> None:
         if not self.gateway_requests_service:
             return
@@ -1054,6 +1130,19 @@ class LlmRouterService:
                 response.model if response and response.model else request.model
             )
 
+            provider_latency_ms = (
+                int(latency_breakdown["provider_ms"])
+                if latency_breakdown
+                and latency_breakdown.get("provider_ms") is not None
+                else None
+            )
+            cache_lookup_latency_ms = (
+                int(latency_breakdown["cache_lookup_total_ms"])
+                if latency_breakdown
+                and latency_breakdown.get("cache_lookup_total_ms") is not None
+                else None
+            )
+
             log_data = GatewayRequestLogCreate(
                 query_text=prompt_text,
                 response_text=output_text,
@@ -1069,6 +1158,9 @@ class LlmRouterService:
                 action_modifier=cache_info.get("action_modifier"),
                 rerank_score=cache_info.get("rerank_score", None),
                 latency_ms=latency_ms,
+                provider_latency_ms=provider_latency_ms,
+                cache_lookup_latency_ms=cache_lookup_latency_ms,
+                latency_breakdown=latency_breakdown,
                 user_id=request.user_id,
                 tenant_id=request.tenant_id,
                 session_id=request.session_id,
@@ -1083,6 +1175,7 @@ class LlmRouterService:
         self, request: ChatCompletionRequest, api_key: str | None = None
     ) -> ChatCompletionResponse:
         start_time = time.perf_counter()
+        breakdown: dict[str, Any] = {}
         service_name = request.service_name or config.DEFAULT_LLM_SERVICE
         logger.info(f"Generating completion for service {service_name}")
 
@@ -1097,13 +1190,21 @@ class LlmRouterService:
 
         try:
             # 1. Try exact match from Redis first
+            t_redis_start = time.perf_counter()
             response = await self._get_redis_exact_match(exact_hash, service_name)
+            t_redis_end = time.perf_counter()
+            breakdown["redis_exact_ms"] = round((t_redis_end - t_redis_start) * 1000, 2)
             if response:
                 return response
 
             # 2. Try Exact Match in Qdrant
+            t_qdrant_exact_start = time.perf_counter()
             response, _, remaining_ttl = await self._get_qdrant_exact_match(
                 exact_hash, tenant_id, prompt_text
+            )
+            t_qdrant_exact_end = time.perf_counter()
+            breakdown["qdrant_exact_ms"] = round(
+                (t_qdrant_exact_end - t_qdrant_exact_start) * 1000, 2
             )
             if response:
                 await self._save_to_redis_cache(
@@ -1116,6 +1217,9 @@ class LlmRouterService:
 
             # 3. Try Semantic Match if Exact misses
             semantic_result = await self.evaluate_semantic_cache(request)
+            if "latency_breakdown" in semantic_result:
+                breakdown.update(semantic_result["latency_breakdown"])
+
             if semantic_result.get("response"):
                 response = semantic_result["response"]
                 return response
@@ -1129,6 +1233,7 @@ class LlmRouterService:
             action_modifier = semantic_result.get("action_modifier", None)
             miss_cache_info = semantic_result.get("miss_cache_info")
 
+            t_provider_start = time.perf_counter()
             (
                 response,
                 actual_service,
@@ -1141,8 +1246,13 @@ class LlmRouterService:
                 fallback_service=config.FALLBACK_LLM_SERVICE,
                 fallback_model=config.FALLBACK_LLM_MODEL,
             )
+            t_provider_end = time.perf_counter()
+            breakdown["provider_ms"] = round(
+                (t_provider_end - t_provider_start) * 1000, 2
+            )
 
-            if response and response.choices:
+            if response and response.choices and not is_mock_response(response):
+                t_write_start = time.perf_counter()
                 point_id, ttl = await self.save_to_cache(
                     request=request,
                     response=response,
@@ -1181,13 +1291,46 @@ class LlmRouterService:
                     "Saving LLM generated response in Redis",
                     ttl=ttl,
                 )
+                t_write_end = time.perf_counter()
+                breakdown["cache_write_ms"] = round(
+                    (t_write_end - t_write_start) * 1000, 2
+                )
+            elif response and is_mock_response(response):
+                logger.warning(
+                    f"Mock response generated for {exact_hash}. Skipping cache writes."
+                )
+                cache_info = {
+                    "matched": False,
+                    "score": 0.0,
+                    "source": "mock",
+                    "cache_hit": False,
+                    "point_id": None,
+                    "intent": intent.value if intent else IntentEnum.EMPTY.value,
+                    "query": prompt_text,
+                    "accepted": False,
+                }
+                if miss_cache_info:
+                    cache_info.update(miss_cache_info)
+                response.cache_info = cache_info
 
             return response
         finally:
             if response:
+                end_time = time.perf_counter()
+                total_duration = round((end_time - start_time) * 1000, 2)
+                breakdown["total_ms"] = total_duration
+
+                cache_lookup_total = (
+                    breakdown.get("redis_exact_ms", 0.0)
+                    + breakdown.get("qdrant_exact_ms", 0.0)
+                    + breakdown.get("cache_lookup_total_ms", 0.0)
+                )
+                breakdown["cache_lookup_total_ms"] = round(cache_lookup_total, 2)
+
                 if not hasattr(response, "cache_info") or response.cache_info is None:
                     response.cache_info = {}
                 response.cache_info["exact_hash"] = exact_hash
+                response.cache_info["latency_breakdown"] = breakdown
 
                 await self._log_usage(
                     request=request,
@@ -1205,4 +1348,5 @@ class LlmRouterService:
                     start_time=start_time,
                     exact_hash=exact_hash,
                     model=actual_model,
+                    latency_breakdown=breakdown,
                 )
