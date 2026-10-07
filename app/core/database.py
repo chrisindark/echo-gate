@@ -1,27 +1,60 @@
 import logging
-import os
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
+from app.core.config import config
+
 logger = logging.getLogger(__name__)
 
-SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///sqlite3.db")
-SQLALCHEMY_DATABASE_URL_READ = os.getenv("DATABASE_URL_READ", "sqlite:///sqlite3.db")
+SQLALCHEMY_DATABASE_URL = config.DATABASE_URL
+SQLALCHEMY_DATABASE_URL_READ = config.DATABASE_URL_READ
 
-connect_args = {}
-if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
-    connect_args["check_same_thread"] = False
+DB_POOL_SIZE = config.DB_POOL_SIZE
+DB_MAX_OVERFLOW = config.DB_MAX_OVERFLOW
+DB_POOL_TIMEOUT = config.DB_POOL_TIMEOUT
+DB_POOL_RECYCLE = config.DB_POOL_RECYCLE
+DB_POOL_PRE_PING = config.DB_POOL_PRE_PING
 
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL,
-    connect_args=connect_args,
+
+def _create_db_engine(url: str):
+    connect_args = {}
+    engine_kwargs = {
+        "pool_pre_ping": DB_POOL_PRE_PING,
+    }
+    if url.startswith("sqlite"):
+        connect_args["check_same_thread"] = False
+        if not url.endswith(":memory:") and url != "sqlite://":
+            engine_kwargs.update(
+                {
+                    "pool_size": DB_POOL_SIZE,
+                    "max_overflow": DB_MAX_OVERFLOW,
+                    "pool_timeout": DB_POOL_TIMEOUT,
+                    "pool_recycle": DB_POOL_RECYCLE,
+                }
+            )
+    else:
+        engine_kwargs.update(
+            {
+                "pool_size": DB_POOL_SIZE,
+                "max_overflow": DB_MAX_OVERFLOW,
+                "pool_timeout": DB_POOL_TIMEOUT,
+                "pool_recycle": DB_POOL_RECYCLE,
+            }
+        )
+    return create_engine(url, connect_args=connect_args, **engine_kwargs)
+
+
+engine = _create_db_engine(SQLALCHEMY_DATABASE_URL)
+engine_read = _create_db_engine(SQLALCHEMY_DATABASE_URL_READ)
+
+SessionLocal = sessionmaker(
+    autocommit=False, autoflush=False, bind=engine, expire_on_commit=False
 )
-engine_read = create_engine(SQLALCHEMY_DATABASE_URL_READ, connect_args=connect_args)
-
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-SessionLocalRead = sessionmaker(autocommit=False, autoflush=False, bind=engine_read)
+SessionLocalRead = sessionmaker(
+    autocommit=False, autoflush=False, bind=engine_read, expire_on_commit=False
+)
 
 Base = declarative_base()
 
@@ -64,16 +97,10 @@ def init_db():
 
 
 def get_db():
-    db = SessionLocal()
-    try:
+    with SessionLocal() as db:
         yield db
-    finally:
-        db.close()
 
 
 def get_db_read():
-    db = SessionLocalRead()
-    try:
+    with SessionLocalRead() as db:
         yield db
-    finally:
-        db.close()

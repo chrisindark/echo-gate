@@ -15,6 +15,10 @@ PRICING_CONFIG = {
             "prompt": 1.25 / 1_000_000,
             "completion": 5.00 / 1_000_000,
         },
+        "gemini-3.8-flash": {
+            "prompt": 0.075 / 1_000_000,
+            "completion": 0.300 / 1_000_000,
+        },
     },
     "ollama": {
         # Local models are free

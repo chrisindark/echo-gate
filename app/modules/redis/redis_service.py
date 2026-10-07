@@ -49,6 +49,15 @@ class RedisService:
 
         return None
 
+    @log_latency()
+    async def delete(self, key: str) -> None:
+        """Delete a key from Redis cache."""
+        try:
+            return await self.redis.delete(key)
+        except Exception as e:
+            logger.error(f"Failed to delete key from Redis: {e}")
+            return None
+
     async def close(self):
         """Close Redis connection."""
         await self.redis.close()

@@ -20,6 +20,7 @@ class EntityExtractorService:
         self.patterns = {
             "URL": re.compile(r"https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+[^\s]*"),
             "EMAIL": re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"),
+            "NUMBER": re.compile(r"\b\d+(?:[.,]\d+)*%?"),
             "UUID": re.compile(
                 r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b"
             ),
@@ -49,6 +50,19 @@ class EntityExtractorService:
         # (e.g. finding an email or account ID implies the cache shouldn't be GLOBAL)
         self.sensitive_entity_types = {"EMAIL", "ACCOUNT_ID", "UUID", "API_KEY"}
 
+    @staticmethod
+    def _clean_url(url: str) -> str:
+        """
+        Strips trailing punctuation, quotes, delimiters, and unbalanced brackets/parentheses.
+        """
+        trailing_punct = ".,;:!?<>\"'}"
+        url = url.rstrip(trailing_punct)
+        while url.endswith(")") and url.count(")") > url.count("("):
+            url = url[:-1].rstrip(trailing_punct)
+        while url.endswith("]") and url.count("]") > url.count("["):
+            url = url[:-1].rstrip(trailing_punct)
+        return url
+
     def extract_entities(self, text: str) -> dict[str, list[str]]:
         """
         Extracts entities from text, categorized by type.
@@ -57,8 +71,12 @@ class EntityExtractorService:
         for entity_type, pattern in self.patterns.items():
             matches = pattern.findall(text)
             if matches:
-                # Deduplicate while preserving order
-                extracted[entity_type] = list(dict.fromkeys(matches))
+                if entity_type == "URL":
+                    cleaned_urls = [self._clean_url(m) for m in matches]
+                    matches = [u for u in cleaned_urls if u]
+                if matches:
+                    # Deduplicate while preserving order
+                    extracted[entity_type] = list(dict.fromkeys(matches))
 
         return extracted
 

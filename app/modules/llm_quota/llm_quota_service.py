@@ -1,10 +1,13 @@
 import asyncio
 import logging
+from collections.abc import Callable
+from contextlib import contextmanager
 
 from fastapi import HTTPException, status
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+from app.core.database import SessionLocal
 from app.modules.llm_quota.llm_quota_model import LlmQuotaRule
 from app.modules.redis.redis_service import RedisService
 
@@ -12,9 +15,30 @@ logger = logging.getLogger(__name__)
 
 
 class LlmQuotaService:
-    def __init__(self, redis_service: RedisService, db_session: Session):
+    def __init__(
+        self,
+        redis_service: RedisService,
+        session_factory: Callable[[], Session] | Session | None = None,
+        db_session: Session | None = None,
+    ):
         self.redis_service = redis_service
-        self.db_session = db_session
+        if isinstance(session_factory, Session):
+            db_session = session_factory
+            session_factory = None
+
+        if session_factory is None and db_session is None:
+            session_factory = SessionLocal
+
+        self._session_factory = session_factory
+        self._db_session = db_session
+
+    @contextmanager
+    def _get_session(self):
+        if self._db_session is not None:
+            yield self._db_session
+        else:
+            with self._session_factory() as s:
+                yield s
 
     async def get_applicable_limits(
         self,
@@ -23,42 +47,48 @@ class LlmQuotaService:
         user: str | None = None,
         tenant_id: str | None = None,
     ):
-        query = self.db_session.query(LlmQuotaRule).filter(
-            LlmQuotaRule.is_active.is_(True)
-        )
+        with self._get_session() as session:
+            query = session.query(LlmQuotaRule).filter(LlmQuotaRule.is_active.is_(True))
 
-        if provider:
-            query = query.filter(
-                or_(LlmQuotaRule.provider.is_(None), LlmQuotaRule.provider == provider)
-            )
-        if model:
-            query = query.filter(
-                or_(LlmQuotaRule.model.is_(None), LlmQuotaRule.model == model)
-            )
-        if user:
-            query = query.filter(
-                or_(LlmQuotaRule.user_id.is_(None), LlmQuotaRule.user_id == user)
-            )
-        if tenant_id:
-            query = query.filter(
-                or_(
-                    LlmQuotaRule.tenant_id.is_(None),
-                    LlmQuotaRule.tenant_id == tenant_id,
+            if provider:
+                query = query.filter(
+                    or_(
+                        LlmQuotaRule.provider.is_(None),
+                        LlmQuotaRule.provider == provider,
+                    )
                 )
-            )
+            if model:
+                query = query.filter(
+                    or_(LlmQuotaRule.model.is_(None), LlmQuotaRule.model == model)
+                )
+            if user:
+                query = query.filter(
+                    or_(LlmQuotaRule.user_id.is_(None), LlmQuotaRule.user_id == user)
+                )
+            if tenant_id:
+                query = query.filter(
+                    or_(
+                        LlmQuotaRule.tenant_id.is_(None),
+                        LlmQuotaRule.tenant_id == tenant_id,
+                    )
+                )
 
-        rules = query.all()
+            rules = query.all()
 
-        max_rpm = None
-        max_tpm = None
+            max_rpm = None
+            max_tpm = None
 
-        for rule in rules:
-            if rule.max_rpm is not None and (max_rpm is None or rule.max_rpm < max_rpm):
-                max_rpm = rule.max_rpm
-            if rule.max_tpm is not None and (max_tpm is None or rule.max_tpm < max_tpm):
-                max_tpm = rule.max_tpm
+            for rule in rules:
+                if rule.max_rpm is not None and (
+                    max_rpm is None or rule.max_rpm < max_rpm
+                ):
+                    max_rpm = rule.max_rpm
+                if rule.max_tpm is not None and (
+                    max_tpm is None or rule.max_tpm < max_tpm
+                ):
+                    max_tpm = rule.max_tpm
 
-        return max_rpm, max_tpm
+            return max_rpm, max_tpm
 
     async def check_quota(
         self,

@@ -11,13 +11,8 @@ class Config:
         self.OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
         self.REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
         self.QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
-        self.DATABASE_URL = os.getenv(
-            "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/echo_gate"
-        )
-        self.DATABASE_URL_READ = os.getenv(
-            "DATABASE_URL_READ",
-            "postgresql://postgres:postgres@localhost:5432/echo_gate_read",
-        )
+        self.DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///sqlite3.db")
+        self.DATABASE_URL_READ = os.getenv("DATABASE_URL_READ", self.DATABASE_URL)
         self.CELERY_REDIS_URL = os.getenv(
             "CELERY_REDIS_URL", "redis://localhost:6379/1"
         )
@@ -31,8 +26,33 @@ class Config:
             "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1/chat/completions"
         )
 
+        # Database Connection Pool
+        self.DB_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "20"))
+        self.DB_MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "10"))
+        self.DB_POOL_TIMEOUT = int(os.getenv("DB_POOL_TIMEOUT", "30"))
+        self.DB_POOL_RECYCLE = int(os.getenv("DB_POOL_RECYCLE", "1800"))
+        self.DB_POOL_PRE_PING = os.getenv("DB_POOL_PRE_PING", "true").lower() == "true"
+
+        # Provider API Keys
+        openai_key = os.getenv("OPENAI_API_KEY")
+        self.OPENAI_API_KEY = (
+            openai_key.strip() if openai_key and openai_key.strip() else None
+        )
+        gemini_key = os.getenv("GEMINI_API_KEY")
+        self.GEMINI_API_KEY = (
+            gemini_key.strip() if gemini_key and gemini_key.strip() else None
+        )
+        groq_key = os.getenv("GROQ_API_KEY")
+        self.GROQ_API_KEY = groq_key.strip() if groq_key and groq_key.strip() else None
+        openrouter_key = os.getenv("OPENROUTER_API_KEY")
+        self.OPENROUTER_API_KEY = (
+            openrouter_key.strip()
+            if openrouter_key and openrouter_key.strip()
+            else None
+        )
+
         # Redis
-        self.REDIS_TTL = int(os.getenv("REDIS_TTL", 3600))  # Default 1 hour TTL
+        self.REDIS_TTL = int(os.getenv("REDIS_TTL", "3600"))  # Default 1 hour TTL
 
         # Provider & Fallback Defaults
         self.USE_FALLBACK_LLM = os.getenv("USE_FALLBACK_LLM", "true")
@@ -78,27 +98,27 @@ class Config:
         # Cache Confidence Thresholds
         default_thresholds = {
             "code_generation": {"high": 0.95, "moderate": 0.88},
-            "casual_chat": {"high": 0.85, "moderate": 0.75},
+            "data_extraction": {"high": 0.96, "moderate": 0.90},
+            "summarization": {"high": 0.95, "moderate": 0.88},
             "general_query": {"high": 0.95, "moderate": 0.88},
-            "finance_market": {"high": 0.98, "moderate": 0.92},
-            "weather": {"high": 0.95, "moderate": 0.88},
-            "product_info": {"high": 0.95, "moderate": 0.88},
+            "code_explanation": {"high": 0.94, "moderate": 0.85},
             "debugging": {"high": 0.95, "moderate": 0.88},
             "error_analysis": {"high": 0.95, "moderate": 0.88},
-            "code_explanation": {"high": 0.94, "moderate": 0.85},
-            "code_review": {"high": 0.94, "moderate": 0.85},
-            "data_extraction": {"high": 0.96, "moderate": 0.90},
-            "research": {"high": 0.95, "moderate": 0.88},
             "refactoring": {"high": 0.94, "moderate": 0.85},
             "optimization": {"high": 0.94, "moderate": 0.85},
             "test_generation": {"high": 0.94, "moderate": 0.85},
-            "code_comparison": {"high": 0.95, "moderate": 0.88},
+            "chitchat": {"high": 0.85, "moderate": 0.75},
+            "greeting": {"high": 0.85, "moderate": 0.75},
+            "weather": {"high": 0.95, "moderate": 0.88},
+            "finance_market": {"high": 0.98, "moderate": 0.92},
+            "product_info": {"high": 0.95, "moderate": 0.88},
+            "factual_static": {"high": 0.95, "moderate": 0.88},
         }
         thresholds_env = os.getenv("CACHE_CONFIDENCE_THRESHOLDS")
         if thresholds_env:
             try:
                 self.CACHE_CONFIDENCE_THRESHOLDS = json.loads(thresholds_env)
-            except Exception:
+            except (json.JSONDecodeError, TypeError):
                 self.CACHE_CONFIDENCE_THRESHOLDS = default_thresholds
         else:
             self.CACHE_CONFIDENCE_THRESHOLDS = default_thresholds
@@ -114,13 +134,18 @@ class Config:
             "refactoring": 24 * 60 * 60,
             "optimization": 24 * 60 * 60,
             "test_generation": 24 * 60 * 60,
+            "data_extraction": 24 * 60 * 60,
+            "summarization": 24 * 60 * 60,
+            "chitchat": 24 * 60 * 60,
+            "greeting": 7 * 24 * 60 * 60,
+            "factual_static": 30 * 24 * 60 * 60,
             "general_query": 7 * 24 * 60 * 60,
         }
         ttls_env = os.getenv("INTENT_TTL_SECONDS")
         if ttls_env:
             try:
                 self.INTENT_TTL_SECONDS = json.loads(ttls_env)
-            except Exception:
+            except (json.JSONDecodeError, TypeError):
                 self.INTENT_TTL_SECONDS = default_intent_ttls
         else:
             self.INTENT_TTL_SECONDS = default_intent_ttls

@@ -1,6 +1,7 @@
 import logging
 
 from app.core.config import config
+from app.modules.intent_classifier.intent_schema import IntentEnum
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +14,9 @@ class CacheConfidenceEvaluator:
 
     @staticmethod
     def evaluate(
-        rerank_score: float, request_temperature: float, request_intent: str
+        rerank_score: float,
+        request_temperature: float,
+        request_intent: str | IntentEnum,
     ) -> bool:
         """
         Evaluate cache acceptance dynamically.
@@ -26,6 +29,12 @@ class CacheConfidenceEvaluator:
         Returns:
             True if the cache match is confident enough to be served.
         """
+        intent_str = (
+            request_intent.value
+            if isinstance(request_intent, IntentEnum)
+            else str(request_intent)
+        )
+
         # Define confidence thresholds based on intent.
         # Factual/deterministic intents require HIGH thresholds because small prompt
         # changes (e.g., "before" vs "after") completely change the correct answer.
@@ -34,14 +43,14 @@ class CacheConfidenceEvaluator:
 
         # Get thresholds for this intent, default to general if not found
         thresholds = intent_thresholds.get(
-            request_intent,
+            intent_str,
             intent_thresholds.get("general_query", {"high": 0.95, "moderate": 0.88}),
         )
         high_threshold = thresholds["high"]
         moderate_threshold = thresholds["moderate"]
 
         logger.debug(
-            f"Intent: {request_intent}, High threshold: {high_threshold}, Moderate threshold: {moderate_threshold}, Request Temperature: {request_temperature}"
+            f"Intent: {intent_str}, High threshold: {high_threshold}, Moderate threshold: {moderate_threshold}, Request Temperature: {request_temperature}"
         )
 
         # 1. Absolute High Confidence Match
@@ -63,11 +72,10 @@ class CacheConfidenceEvaluator:
             # Middle-ground temperature.
             # Only allow moderate matches for intents where slight divergence is acceptable.
             subjective_intents = {
-                "casual_chat",
-                "brainstorming",
-                "creative_writing",
+                IntentEnum.CHITCHAT.value,
+                IntentEnum.GREETING.value,
             }
-            return request_intent in subjective_intents
+            return intent_str in subjective_intents
 
         # 3. Low Confidence Match -> Always reject
         return False

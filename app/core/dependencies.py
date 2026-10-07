@@ -1,5 +1,5 @@
 from app.core.config import config
-from app.core.database import get_db, get_db_read
+from app.core.database import SessionLocal, SessionLocalRead
 from app.modules.embedding.embedding_service import EmbeddingService
 from app.modules.gateway_requests.gateway_requests_service import GatewayRequestsService
 from app.modules.intent_classifier.entity_extractor_service import (
@@ -161,7 +161,7 @@ class DependencyContainer:
     def get_llm_usage_service(cls) -> LlmUsageService:
         if cls._llm_usage_service is None:
             cls._llm_usage_service = LlmUsageService(
-                db_session=next(get_db()), db_session_read=next(get_db_read())
+                session_factory=SessionLocal, session_factory_read=SessionLocalRead
             )
         return cls._llm_usage_service
 
@@ -176,7 +176,7 @@ class DependencyContainer:
                 else cls._redis_service
             )
             cls._llm_quota_service = LlmQuotaService(
-                redis_service=redis, db_session=next(get_db())
+                redis_service=redis, session_factory=SessionLocal
             )
         return cls._llm_quota_service
 
@@ -206,7 +206,7 @@ class DependencyContainer:
     def get_gateway_requests_service(cls) -> GatewayRequestsService:
         if cls._gateway_requests_service is None:
             cls._gateway_requests_service = GatewayRequestsService(
-                db_session=next(get_db()), db_session_read=next(get_db_read())
+                session_factory=SessionLocal, session_factory_read=SessionLocalRead
             )
         return cls._gateway_requests_service
 

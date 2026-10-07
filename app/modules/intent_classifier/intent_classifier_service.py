@@ -30,7 +30,7 @@ class IntentClassifierService:
             [f"{msg.role}: {msg.content}" for msg in request.messages]
         )
         prompt_text = f"model:{request.model}|{prompt_text}"
-        enums_list = [e.value for e in IntentEnum]
+        enums_list = [e.value for e in IntentEnum if e != IntentEnum.EMPTY and e.value]
 
         system_msg = (
             "You are an expert intent classifier and semantic analyzer. "
@@ -100,8 +100,15 @@ class IntentClassifierService:
             subject_modifier = data.get("subject_modifier", None)
             action_modifier = data.get("action_modifier", None)
 
+            try:
+                parsed_intent = IntentEnum(intent_value)
+                if parsed_intent == IntentEnum.EMPTY:
+                    parsed_intent = IntentEnum.GENERAL_QUERY
+            except ValueError:
+                parsed_intent = IntentEnum.GENERAL_QUERY
+
             return IntentClassificationResult(
-                intent=IntentEnum(intent_value),
+                intent=parsed_intent,
                 time_sensitivity=time_sensitivity,
                 core_operation=core_operation,
                 core_subject=core_subject,
