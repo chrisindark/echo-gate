@@ -66,7 +66,7 @@ class GatewayRequestLogUpdate(BaseModel):
     evaluation_status: EvaluationStatus | None = None
     llm_relevance_score: float | None = None
     llm_contradiction_score: float | None = None
-    llm_instruction_score: float | None = None
+    llm_entailment_score: float | None = None
     is_false_positive: bool | None = None
     error_message: str | None = None
 
@@ -78,8 +78,15 @@ class GatewayRequestLogResponse(GatewayRequestLogBase):
     evaluation_status: str
     llm_relevance_score: float | None = None
     llm_contradiction_score: float | None = None
-    llm_instruction_score: float | None = None
+    llm_entailment_score: float | None = None
     is_false_positive: bool | None = None
     error_message: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class GatewayRequestLogsPaginatedResponse(BaseModel):
+    items: list[GatewayRequestLogResponse]
+    total: int
+    skip: int
+    limit: int

@@ -1,9 +1,15 @@
 import json
 import logging
 
+from fastapi import HTTPException
+
 from app.core.config import config
 from app.core.logger import log_latency
-from app.modules.chat.chat_schema import ChatCompletionRequest, ChatMessage
+from app.modules.chat.chat_schema import (
+    ChatCompletionRequest,
+    ChatCompletionResponse,
+    ChatMessage,
+)
 from app.modules.intent_classifier.intent_schema import (
     IntentClassificationResult,
     IntentEnum,
@@ -23,6 +29,53 @@ class IntentClassifierService:
         self.service_name = service or config.INTENT_CLASSIFIER_SERVICE
         self.model = model or config.INTENT_CLASSIFIER_MODEL
         self.llm_provider_service = llm_provider_service
+
+    @staticmethod
+    def _clean_and_parse_json(content: str) -> dict:
+        if not content:
+            return {}
+        clean_text = content.strip()
+        if clean_text.startswith("```json"):
+            clean_text = clean_text[7:].strip()
+        elif clean_text.startswith("```"):
+            clean_text = clean_text[3:].strip()
+        if clean_text.endswith("```"):
+            clean_text = clean_text[:-3].strip()
+
+        try:
+            return json.loads(clean_text)
+        except json.JSONDecodeError:
+            start = clean_text.find("{")
+            end = clean_text.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                return json.loads(clean_text[start : end + 1])
+            raise
+
+    async def _execute_llm_request(
+        self, classification_request: ChatCompletionRequest
+    ) -> ChatCompletionResponse:
+        try:
+            return await self.llm_provider_service.generate_completion(
+                classification_request, service_name=self.service_name
+            )
+        except HTTPException as e:
+            # If the provider rejected json_schema, fallback to json_object mode
+            if (
+                e.status_code == 400
+                and classification_request.response_format
+                and classification_request.response_format.get("type") == "json_schema"
+            ):
+                logger.warning(
+                    f"Intent classifier call with json_schema failed for {self.service_name} ({e.detail}). "
+                    f"Retrying with json_object format..."
+                )
+                retry_request = classification_request.model_copy(
+                    update={"response_format": {"type": "json_object"}}
+                )
+                return await self.llm_provider_service.generate_completion(
+                    retry_request, service_name=self.service_name
+                )
+            raise
 
     @log_latency()
     async def classify_intent(self, request: ChatCompletionRequest):
@@ -50,7 +103,7 @@ class IntentClassifierService:
             "'subject_modifier', 'action_modifier'"
         )
 
-        request = ChatCompletionRequest(
+        classification_request = ChatCompletionRequest(
             service_name=self.service_name,
             model=self.model,
             messages=[
@@ -86,25 +139,37 @@ class IntentClassifierService:
         )
 
         try:
-            response = await self.llm_provider_service.generate_ollama_completion(
-                request
+            response = await self._execute_llm_request(classification_request)
+
+            logger.info(
+                f"LLM classifier service ({self.service_name}) generated response successfully"
             )
-            logger.info("LLM classifier service generated response successfully")
             content = response.choices[0].message.content if response.choices else ""
-            data = json.loads(content)
+            data = self._clean_and_parse_json(content)
 
             intent_value = data.get("intent", IntentEnum.GENERAL_QUERY.value)
-            time_sensitivity = float(data.get("time_sensitivity", 0.0))
-            core_operation = data.get("core_operation", "")
-            core_subject = data.get("core_subject", "")
-            subject_modifier = data.get("subject_modifier", None)
-            action_modifier = data.get("action_modifier", None)
+            try:
+                time_sensitivity = float(data.get("time_sensitivity", 0.0))
+            except (ValueError, TypeError):
+                time_sensitivity = 0.0
+            time_sensitivity = max(0.0, min(1.0, time_sensitivity))
+
+            core_operation = str(data.get("core_operation") or "")
+            core_subject = str(data.get("core_subject") or "")
+            subject_modifier = data.get("subject_modifier")
+            if subject_modifier is not None:
+                subject_modifier = str(subject_modifier)
+            action_modifier = data.get("action_modifier")
+            if action_modifier is not None:
+                action_modifier = str(action_modifier)
 
             try:
+                if isinstance(intent_value, str):
+                    intent_value = intent_value.strip().lower()
                 parsed_intent = IntentEnum(intent_value)
                 if parsed_intent == IntentEnum.EMPTY:
                     parsed_intent = IntentEnum.GENERAL_QUERY
-            except ValueError:
+            except (ValueError, KeyError):
                 parsed_intent = IntentEnum.GENERAL_QUERY
 
             return IntentClassificationResult(

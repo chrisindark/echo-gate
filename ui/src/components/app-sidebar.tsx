@@ -3,11 +3,12 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  MessageSquare,
+  Activity,
   BarChart3,
-  Settings,
   Database,
   Menu,
+  MessageSquare,
+  Settings,
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -16,11 +17,12 @@ import { useState } from 'react';
 
 export function AppSidebar() {
   const pathname = usePathname();
-  const [isOpen, setIsOpen] = useState(false); // Default to closed on mobile, or we could detect screen size, but let's default to false and let the user open it. Actually, for a desktop-first app, maybe true is better. Let's use false so they don't overlap by default if we don't have hydration checks. Let's just use true for now, but hidden behind a toggle.
+  const [isOpen, setIsOpen] = useState(false);
 
   const routes = [
     { name: 'Chat', path: '/', icon: MessageSquare },
     { name: 'Analytics', path: '/analytics', icon: BarChart3 },
+    { name: 'Traces', path: '/traces', icon: Activity },
     { name: 'Cache DB', path: '/cache', icon: Database },
     { name: 'Settings', path: '/settings', icon: Settings },
   ];
@@ -50,7 +52,9 @@ export function AppSidebar() {
 
             <nav className="flex-1 py-6 px-4 space-y-2 overflow-y-auto w-64">
               {routes.map((route) => {
-                const isActive = pathname === route.path;
+                const isActive =
+                  pathname === route.path ||
+                  (route.path !== '/' && pathname.startsWith(route.path));
                 return (
                   <Link
                     key={route.path}

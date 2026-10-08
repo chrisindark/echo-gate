@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel
 
 
@@ -36,7 +38,7 @@ class ModelBreakdownItem(BaseModel):
 class EvaluationSummaryResponse(BaseModel):
     avg_relevance_score: float | None
     avg_contradiction_score: float | None
-    avg_instruction_score: float | None
+    avg_entailment_score: float | None = None
     false_positive_rate: float | None
     evaluated_count: int
 
@@ -46,6 +48,56 @@ class TopIntentItem(BaseModel):
     count: int
 
 
+class LatencyComponentBreakdown(BaseModel):
+    redis_exact_ms: float | None = None
+    qdrant_exact_ms: float | None = None
+    intent_classify_ms: float | None = None
+    embedding_gen_ms: float | None = None
+    qdrant_dense_ms: float | None = None
+    qdrant_rrf_ms: float | None = None
+    rerank_ms: float | None = None
+    cache_lookup_total_ms: float | None = None
+    provider_ms: float | None = None
+    cache_write_ms: float | None = None
+    total_ms: float | None = None
+
+
+class LatencyPercentiles(BaseModel):
+    p50: float | None = None
+    p90: float | None = None
+    p95: float | None = None
+    p99: float | None = None
+
+
+class LatencyByRoutingDecision(BaseModel):
+    routing_decision: str
+    count: int
+    avg_latency_ms: float
+    p50_latency_ms: float | None = None
+    p95_latency_ms: float | None = None
+
+
+class LatencyTimeSeriesPoint(BaseModel):
+    time_label: str
+    timestamp: datetime
+    avg_total_latency_ms: float
+    avg_provider_latency_ms: float | None = None
+    avg_cache_lookup_latency_ms: float | None = None
+    requests: int
+
+
+class LatencyMetricsResponse(BaseModel):
+    time_range: str | None = None
+    total_requests: int
+    avg_latency_ms: float
+    avg_provider_latency_ms: float | None = None
+    avg_cache_lookup_latency_ms: float | None = None
+    percentiles: LatencyPercentiles
+    component_breakdown: LatencyComponentBreakdown
+    by_routing_decision: list[LatencyByRoutingDecision]
+    time_series: list[LatencyTimeSeriesPoint]
+
+
 class AnalyticsDashboardResponse(BaseModel):
     kpis: KpiSummaryResponse
     time_series: list[TimeSeriesDataPoint]
@@ -53,3 +105,4 @@ class AnalyticsDashboardResponse(BaseModel):
     model_breakdown: list[ModelBreakdownItem]
     evaluations: EvaluationSummaryResponse
     top_intents: list[TopIntentItem]
+    latency_metrics: LatencyMetricsResponse | None = None
