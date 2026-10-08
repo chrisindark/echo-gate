@@ -114,8 +114,13 @@ class LlmProviderService:
                 config_kwargs["response_mime_type"] = "application/json"
             elif response_format_type == "json_schema":
                 config_kwargs["response_mime_type"] = "application/json"
-                schema = request.response_format.get("json_schema", {}).get("schema")
-                if schema:
+                json_schema_obj = request.response_format.get("json_schema")
+                schema = None
+                if isinstance(json_schema_obj, dict):
+                    schema = json_schema_obj.get("schema") or json_schema_obj
+                elif "schema" in request.response_format:
+                    schema = request.response_format.get("schema")
+                if schema and isinstance(schema, dict):
                     config_kwargs["response_json_schema"] = schema
 
         config = types.GenerateContentConfig(**config_kwargs)
@@ -229,10 +234,17 @@ class LlmProviderService:
             "Content-Type": "application/json",
         }
 
-        # Remove service_name before sending
+        # Remove service_name and metadata fields before sending
         payload_data = request.model_dump(exclude_unset=True)
-        if "service_name" in payload_data:
-            del payload_data["service_name"]
+        for key in [
+            "service_name",
+            "user_id",
+            "tenant_id",
+            "session_id",
+            "conversation_id",
+            "cache_info",
+        ]:
+            payload_data.pop(key, None)
 
         try:
             async with httpx.AsyncClient() as client:
@@ -324,3 +336,26 @@ class LlmProviderService:
             usage=Usage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
             system_fingerprint="mock",
         )
+
+    @log_latency()
+    async def generate_completion(
+        self, request: ChatCompletionRequest, service_name: str | None = None
+    ) -> ChatCompletionResponse:
+        service = (
+            service_name or request.service_name or config.DEFAULT_LLM_SERVICE
+        ).lower()
+        if service in ["gemini", "google-genai"]:
+            return await self.generate_gemini_completion(request)
+        elif service == "openai":
+            return await self.generate_openai_completion(request)
+        elif service == "groq":
+            return await self.generate_groq_completion(request)
+        elif service == "openrouter":
+            return await self.generate_openrouter_completion(request)
+        elif service == "ollama":
+            return await self.generate_ollama_completion(request)
+        else:
+            logger.error(f"Unsupported LLM service: {service}")
+            raise HTTPException(
+                status_code=400, detail=f"Unsupported LLM service: {service}"
+            )

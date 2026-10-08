@@ -73,14 +73,16 @@ async def _evaluate_single_request(
 
     rel_score = llm_scores.get("llm_relevance_score")
     con_score = llm_scores.get("llm_contradiction_score")
-    ins_score = llm_scores.get("llm_instruction_score")
+    ent_score = llm_scores.get("llm_entailment_score")
 
     # Determine false positive
-    # High contradiction or low relevance means it's a false positive
+    # High contradiction, low relevance, or very low entailment means it's a false positive
     is_false_positive = False
     if rel_score is not None and rel_score < 3:
         is_false_positive = True
     if con_score is not None and con_score > 0:
+        is_false_positive = True
+    if ent_score is not None and ent_score < 2:
         is_false_positive = True
 
     # Update Database
@@ -88,7 +90,7 @@ async def _evaluate_single_request(
         evaluation_status=EvaluationStatus.EVALUATED,
         llm_relevance_score=float(rel_score) if rel_score is not None else None,
         llm_contradiction_score=float(con_score) if con_score is not None else None,
-        llm_instruction_score=float(ins_score) if ins_score is not None else None,
+        llm_entailment_score=float(ent_score) if ent_score is not None else None,
         is_false_positive=is_false_positive,
     )
 

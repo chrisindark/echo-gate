@@ -53,7 +53,7 @@ class GatewayRequestLog(Base):
     )  # 'PENDING', 'IN_PROGRESS', 'EVALUATED', 'SKIPPED'
     llm_relevance_score = Column(Numeric(precision=5, scale=4), nullable=True)
     llm_contradiction_score = Column(Numeric(precision=5, scale=4), nullable=True)
-    llm_instruction_score = Column(Numeric(precision=5, scale=4), nullable=True)
+    llm_entailment_score = Column(Numeric(precision=5, scale=4), nullable=True)
     is_false_positive = Column(Boolean, nullable=True, index=True)
 
     error_message = Column(Text, nullable=True)

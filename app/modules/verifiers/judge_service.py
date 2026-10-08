@@ -1,5 +1,6 @@
 import json
 import logging
+import math
 
 from app.core.config import config
 from app.modules.chat.chat_schema import ChatCompletionRequest, ChatMessage
@@ -26,16 +27,16 @@ Instructions:
 2. Contradiction (0 or 1): Does the cached response contain information that explicitly contradicts what the user asked for?
    - 0: No contradiction detected.
    - 1: Direct contradiction detected (e.g., user asked for 'start' but response says 'stop').
-3. Instruction Following (1 to 5): Does the cached response follow any formatting, length, or structural constraints requested in the user query?
-   - 1: Ignores all structural constraints.
-   - 3: Follows some constraints but misses others.
-   - 5: Strictly follows all constraints (if none were requested, default to 5).
+3. Entailment (1 to 5): Does the cached response logically follow from and faithfully address the user query?
+   - 1: Completely ungrounded, off-topic, or contradictory.
+   - 3: Partially supported or neutral.
+   - 5: Strictly supported, faithful, and entails the query.
 
 Return ONLY valid JSON in the following format (use integer values):
 {{
     "llm_relevance_score": 5,
     "llm_contradiction_score": 0,
-    "llm_instruction_score": 5
+    "llm_entailment_score": 5
 }}
 """
 
@@ -45,7 +46,7 @@ class JudgeService:
         self,
         llm_provider_service: LlmProviderService,
         cross_encoder_service: CrossEncoderService,
-        instruction_service: InstructionVerifier,
+        instruction_service: InstructionVerifier | None = None,
     ):
         self.llm_provider_service = llm_provider_service
         self.cross_encoder_service = cross_encoder_service
@@ -170,9 +171,8 @@ class JudgeService:
             relevance = max(1, min(5, int((rel_score_raw + 10) / 4)))
             logger.debug(f"relevance: {relevance}")
 
-            # 2. Contradiction Score (0 or 1)
-            # NLI models output probabilities for [Contradiction, Entailment, Neutral]
-            # DeBERTa v3 NLI index 0 is typically contradiction.
+            # 2. Contradiction & Entailment Score from DeBERTa-v3 NLI
+            # NLI models output logits for [Contradiction, Entailment, Neutral]
             nli_scores = self.cross_encoder_service.nli_predict(
                 semantic_query_text, [semantic_response_text]
             )
@@ -180,41 +180,43 @@ class JudgeService:
             nli_score_raw = nli_scores[0] if nli_scores else [0.0, 0.0, 0.0]
             logger.debug(f"nli_score_raw: {nli_score_raw}")
 
-            # If the contradiction probability is higher than entailment/neutral, mark as 1
+            contradiction = 0
+            entailment = 3.0
+
             if isinstance(nli_score_raw, list) and len(nli_score_raw) >= 3:
+                # Softmax probabilities over [contradiction, entailment, neutral]
+                exp_logits = [
+                    math.exp(min(max(float(s), -50.0), 50.0)) for s in nli_score_raw[:3]
+                ]
+                sum_exp = sum(exp_logits)
+                probs = (
+                    [e / sum_exp for e in exp_logits]
+                    if sum_exp > 0
+                    else [0.0, 0.0, 0.0]
+                )
+                _, p_entailment, p_neutral = probs[0], probs[1], probs[2]
+
+                # Contradiction flag (0 or 1)
                 contradiction = (
                     1
                     if nli_score_raw[0] > max(nli_score_raw[1], nli_score_raw[2])
                     else 0
                 )
-            else:
-                contradiction = 0
+
+                # Entailment score (1 to 5 scale)
+                # High entailment -> near 5.0; Neutral/low entailment -> ~3.0; Contradiction -> near 1.0
+                entailment_val = 1.0 + 4.0 * (p_entailment + 0.5 * p_neutral)
+                if contradiction == 1:
+                    entailment_val = min(entailment_val, 2.0)
+                entailment = round(max(1.0, min(5.0, entailment_val)), 2)
+
             logger.debug(f"contradiction: {contradiction}")
-
-            # 3. Instruction Following (1 to 5)
-            instruction_scores = self.instruction_service.verify_instruction(
-                query_text, [response_text]
-            )
-            logger.debug(f"instruction_scores: {instruction_scores}")
-            pass_ratio = instruction_scores[0] if instruction_scores else 1.0
-            logger.debug(f"pass_ratio: {pass_ratio}")
-
-            if pass_ratio == 1.0:
-                instruction = 5
-            elif pass_ratio >= 0.75:
-                instruction = 4
-            elif pass_ratio >= 0.50:
-                instruction = 3
-            elif pass_ratio >= 0.25:
-                instruction = 2
-            else:
-                instruction = 1
-            logger.debug(f"instruction: {instruction}")
+            logger.debug(f"entailment: {entailment}")
 
             return {
                 "llm_relevance_score": relevance,
                 "llm_contradiction_score": contradiction,
-                "llm_instruction_score": instruction,
+                "llm_entailment_score": entailment,
             }
         except Exception as e:
             logger.error(f"Failed to run local judge: {e}")

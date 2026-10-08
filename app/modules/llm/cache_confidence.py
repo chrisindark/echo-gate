@@ -60,13 +60,13 @@ class CacheConfidenceEvaluator:
         # 2. Moderate Confidence Match (Requires Risk Evaluation)
         if moderate_threshold <= rerank_score < high_threshold:
             # High creativity requested -> Reject moderate cache match (user wants variety)
-            if request_temperature > 0.8:
+            if request_temperature > 1.6:
                 return False
 
             # Highly factual or deterministic request -> Reject moderate match
             # Factual queries require extreme precision. A moderate match might represent
             # a changed number, negation, or specific entity. We must demand a HIGH match.
-            if request_temperature < 0.3:
+            if request_temperature < 0.6:
                 return False
 
             # Middle-ground temperature.

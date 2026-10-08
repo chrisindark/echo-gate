@@ -1,18 +1,95 @@
 'use client';
 
-import {
-  TextField,
-  Text,
-  Select,
-  Flex,
-  Box,
-  Slider,
-  IconButton,
-} from '@radix-ui/themes';
 import { cn } from '@/lib/utils';
+import {
+  Box,
+  Checkbox,
+  Flex,
+  IconButton,
+  Select,
+  Slider,
+  Text,
+  TextArea,
+  TextField,
+} from '@radix-ui/themes';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Clock, Database, Send, Settings2, Sparkles, Tag } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import {
+  Braces,
+  Check,
+  Clock,
+  Code2,
+  Copy,
+  Database,
+  Send,
+  Settings2,
+  Sparkles,
+  Tag,
+} from 'lucide-react';
+import { useEffect, useState } from 'react';
+
+const SCHEMA_PRESETS = [
+  {
+    name: 'Summary & Key Points',
+    schemaName: 'summary_response',
+    schema: {
+      type: 'object',
+      properties: {
+        summary: {
+          type: 'string',
+          description: 'Concise summary of the response',
+        },
+        key_points: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Key bullet points or takeaways',
+        },
+      },
+      required: ['summary', 'key_points'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'Entity Extraction',
+    schemaName: 'entity_extraction',
+    schema: {
+      type: 'object',
+      properties: {
+        entities: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              category: { type: 'string' },
+              confidence: { type: 'number' },
+            },
+            required: ['name', 'category'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['entities'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'Sentiment Analysis',
+    schemaName: 'sentiment_analysis',
+    schema: {
+      type: 'object',
+      properties: {
+        sentiment: {
+          type: 'string',
+          enum: ['positive', 'neutral', 'negative'],
+        },
+        confidence: { type: 'number' },
+        reasoning: { type: 'string' },
+      },
+      required: ['sentiment', 'confidence', 'reasoning'],
+      additionalProperties: false,
+    },
+  },
+];
 
 const PROVIDERS = {
   ollama: [
@@ -64,10 +141,43 @@ export default function Home() {
   const [provider, setProvider] =
     useState<keyof typeof PROVIDERS>('google-genai');
   const [model, setModel] = useState(PROVIDERS['google-genai'][0]);
-  const [temperature, setTemperature] = useState<number>(1.0);
+  const [temperature, setTemperature] = useState<number>(0.7);
   const [maxTokens, setMaxTokens] = useState<number>(8192);
   const [userId, setUserId] = useState('');
   const [tenantId, setTenantId] = useState('');
+
+  // Structured Output state
+  const [responseFormatType, setResponseFormatType] = useState<
+    'text' | 'json_object' | 'json_schema'
+  >('text');
+  const [schemaName, setSchemaName] = useState('summary_response');
+  const [strictSchema, setStrictSchema] = useState(true);
+  const [schemaContent, setSchemaContent] = useState(() =>
+    JSON.stringify(SCHEMA_PRESETS[0].schema, null, 2)
+  );
+  const [schemaError, setSchemaError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [rawView, setRawView] = useState(false);
+
+  const handleSchemaChange = (value: string) => {
+    setSchemaContent(value);
+    try {
+      JSON.parse(value);
+      setSchemaError(null);
+    } catch (err: unknown) {
+      setSchemaError(err instanceof Error ? err.message : 'Invalid JSON');
+    }
+  };
+
+  const formatSchema = () => {
+    try {
+      const parsed = JSON.parse(schemaContent);
+      setSchemaContent(JSON.stringify(parsed, null, 2));
+      setSchemaError(null);
+    } catch (err: unknown) {
+      setSchemaError(err instanceof Error ? err.message : 'Invalid JSON');
+    }
+  };
 
   const loadHash = async (hash: string) => {
     setLoading(true);
@@ -145,16 +255,41 @@ export default function Home() {
       if (userId) headers['x-user-id'] = userId;
       if (tenantId) headers['x-tenant-id'] = tenantId;
 
+      const bodyPayload: Record<string, unknown> = {
+        service_name: provider,
+        model: model,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: temperature,
+        max_tokens: maxTokens,
+      };
+
+      if (responseFormatType === 'json_object') {
+        bodyPayload.response_format = { type: 'json_object' };
+      } else if (responseFormatType === 'json_schema') {
+        let parsedSchema: Record<string, unknown>;
+        try {
+          parsedSchema = JSON.parse(schemaContent);
+        } catch {
+          setResponse(
+            'Error: Invalid JSON Schema syntax. Please correct the schema in Settings before sending.'
+          );
+          setLoading(false);
+          return;
+        }
+        bodyPayload.response_format = {
+          type: 'json_schema',
+          json_schema: {
+            name: schemaName.trim() || 'structured_response',
+            strict: strictSchema,
+            schema: parsedSchema,
+          },
+        };
+      }
+
       const res = await fetch('http://localhost:8000/api/v1/chat/completions', {
         method: 'POST',
         headers,
-        body: JSON.stringify({
-          service_name: provider,
-          model: model,
-          messages: [{ role: 'user', content: prompt }],
-          temperature: temperature,
-          max_tokens: maxTokens,
-        }),
+        body: JSON.stringify(bodyPayload),
       });
 
       const endTime = performance.now();
@@ -200,6 +335,32 @@ export default function Home() {
       setLoading(false);
     }
   };
+
+  const isJsonResponse = (() => {
+    if (!response) return false;
+    const trimmed = response.trim();
+    if (!(
+      (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+      (trimmed.startsWith('[') && trimmed.endsWith(']'))
+    )) {
+      return false;
+    }
+    try {
+      JSON.parse(trimmed);
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+
+  const formattedJson = (() => {
+    if (!isJsonResponse) return null;
+    try {
+      return JSON.stringify(JSON.parse(response.trim()), null, 2);
+    } catch {
+      return null;
+    }
+  })();
 
   return (
     <div className="flex-1 relative flex flex-col md:flex-row h-full overflow-hidden">
@@ -286,6 +447,137 @@ export default function Home() {
                       onChange={(e) => setMaxTokens(parseInt(e.target.value))}
                     />
                   </Flex>
+                </div>
+              </div>
+
+              <div className="pt-6 border-t border-border">
+                <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2 mb-4">
+                  <Braces className="w-4 h-4" /> Structured Output
+                </h2>
+
+                <div className="space-y-4">
+                  <Flex direction="column" gap="1">
+                    <Text as="label" size="2" weight="bold">
+                      Format Mode
+                    </Text>
+                    <Select.Root
+                      value={responseFormatType}
+                      onValueChange={(val) =>
+                        setResponseFormatType(
+                          val as 'text' | 'json_object' | 'json_schema'
+                        )
+                      }
+                    >
+                      <Select.Trigger className="w-full" />
+                      <Select.Content>
+                        <Select.Item value="text">
+                          Plain Text (Default)
+                        </Select.Item>
+                        <Select.Item value="json_object">
+                          JSON Mode (Valid Syntax)
+                        </Select.Item>
+                        <Select.Item value="json_schema">
+                          Strict JSON Schema
+                        </Select.Item>
+                      </Select.Content>
+                    </Select.Root>
+                  </Flex>
+
+                  {responseFormatType === 'json_object' && (
+                    <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-xs text-blue-300 leading-relaxed">
+                      Constrains the model to return syntactically valid JSON.
+                      Ensure your prompt asks for a JSON format output.
+                    </div>
+                  )}
+
+                  {responseFormatType === 'json_schema' && (
+                    <div className="space-y-3 pt-1">
+                      <Flex direction="column" gap="1">
+                        <Text as="label" size="2" weight="bold">
+                          Presets
+                        </Text>
+                        <div className="flex flex-wrap gap-1.5">
+                          {SCHEMA_PRESETS.map((preset) => (
+                            <button
+                              key={preset.name}
+                              type="button"
+                              onClick={() => {
+                                setSchemaName(preset.schemaName);
+                                setSchemaContent(
+                                  JSON.stringify(preset.schema, null, 2)
+                                );
+                                setSchemaError(null);
+                              }}
+                              className="text-[11px] px-2 py-1 bg-muted/60 hover:bg-muted border border-border/80 rounded transition-colors text-foreground cursor-pointer"
+                            >
+                              {preset.name}
+                            </button>
+                          ))}
+                        </div>
+                      </Flex>
+
+                      <Flex direction="column" gap="1">
+                        <Text as="label" size="2" weight="bold">
+                          Schema Name
+                        </Text>
+                        <TextField.Root
+                          type="text"
+                          value={schemaName}
+                          onChange={(e) => setSchemaName(e.target.value)}
+                          placeholder="e.g. user_details"
+                        />
+                      </Flex>
+
+                      <Flex align="center" gap="2">
+                        <Checkbox
+                          checked={strictSchema}
+                          onCheckedChange={(val) =>
+                            setStrictSchema(Boolean(val))
+                          }
+                          id="strict-schema-check"
+                        />
+                        <Text
+                          as="label"
+                          size="2"
+                          htmlFor="strict-schema-check"
+                          className="cursor-pointer select-none"
+                        >
+                          Strict Schema Enforcement
+                        </Text>
+                      </Flex>
+
+                      <Flex direction="column" gap="1">
+                        <Flex justify="between" align="center">
+                          <Text as="label" size="2" weight="bold">
+                            JSON Schema
+                          </Text>
+                          <button
+                            type="button"
+                            onClick={formatSchema}
+                            className="text-[11px] text-primary hover:underline cursor-pointer"
+                          >
+                            Prettify
+                          </button>
+                        </Flex>
+                        <TextArea
+                          value={schemaContent}
+                          onChange={(e) => handleSchemaChange(e.target.value)}
+                          rows={8}
+                          className="font-mono text-xs"
+                          placeholder="Enter valid JSON Schema..."
+                        />
+                        {schemaError ? (
+                          <span className="text-[11px] text-red-400">
+                            ⚠ {schemaError}
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-emerald-400 flex items-center gap-1">
+                            ✓ Valid JSON Schema
+                          </span>
+                        )}
+                      </Flex>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -420,6 +712,15 @@ export default function Home() {
                             {cacheInfo.source}
                           </div>
                         )}
+
+                        {responseFormatType !== 'text' && (
+                          <div className="px-2 py-1 rounded-md bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 flex items-center gap-1.5">
+                            <Braces className="w-3.5 h-3.5" />
+                            {responseFormatType === 'json_object'
+                              ? 'JSON MODE'
+                              : `SCHEMA: ${schemaName}`}
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -456,6 +757,43 @@ export default function Home() {
                         </div>
                       )}
 
+                    {!loading && isJsonResponse && (
+                      <div className="flex items-center justify-between mb-3 pb-2 border-b border-border/60 text-xs">
+                        <span className="text-muted-foreground flex items-center gap-1.5 font-medium">
+                          <Braces className="w-3.5 h-3.5 text-primary" /> Valid
+                          JSON Output
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setRawView(!rawView)}
+                            className="px-2 py-1 rounded bg-muted/60 hover:bg-muted border border-border text-foreground flex items-center gap-1 cursor-pointer transition-colors"
+                          >
+                            <Code2 className="w-3 h-3" />
+                            {rawView ? 'Formatted' : 'Raw'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(
+                                formattedJson || response
+                              );
+                              setCopied(true);
+                              setTimeout(() => setCopied(false), 2000);
+                            }}
+                            className="px-2 py-1 rounded bg-muted/60 hover:bg-muted border border-border text-foreground flex items-center gap-1 cursor-pointer transition-colors"
+                          >
+                            {copied ? (
+                              <Check className="w-3 h-3 text-emerald-400" />
+                            ) : (
+                              <Copy className="w-3 h-3" />
+                            )}
+                            {copied ? 'Copied' : 'Copy'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
                     {loading ? (
                       <div className="flex gap-1.5 items-center text-muted-foreground py-2">
                         <motion.div
@@ -482,6 +820,10 @@ export default function Home() {
                           className="w-2 h-2 rounded-full bg-primary/60"
                         />
                       </div>
+                    ) : isJsonResponse && !rawView && formattedJson ? (
+                      <pre className="p-4 rounded-xl bg-muted/40 border border-border/60 font-mono text-sm overflow-x-auto leading-relaxed text-emerald-300 whitespace-pre">
+                        <code>{formattedJson}</code>
+                      </pre>
                     ) : (
                       <div className="leading-relaxed whitespace-pre-wrap text-lg">
                         {response}
@@ -525,11 +867,23 @@ export default function Home() {
                 </IconButton>
               </div>
             </form>
-            <div className="text-center mt-2">
+            <div className="flex items-center justify-between mt-2 px-1">
               <span className="text-[10px] text-muted-foreground">
                 Echo Gate may produce inaccurate information about people,
                 places, or facts.
               </span>
+              {responseFormatType !== 'text' && (
+                <button
+                  type="button"
+                  onClick={() => setIsSettingsOpen(true)}
+                  className="text-[10px] flex items-center gap-1 text-primary hover:underline cursor-pointer"
+                >
+                  <Braces className="w-3 h-3" />
+                  {responseFormatType === 'json_object'
+                    ? 'JSON Mode Active'
+                    : `Strict Schema: ${schemaName}`}
+                </button>
+              )}
             </div>
           </div>
         </div>

@@ -325,33 +325,15 @@ class LlmRouterService:
         if not self.llm_cache_service:
             return result
 
-        try:
-            t_intent_start = time.perf_counter()
-            intent_result = await self.intent_classifier_service.classify_intent(
-                request
-            )
-            t_intent_end = time.perf_counter()
-            breakdown["intent_classify_ms"] = round(
-                (t_intent_end - t_intent_start) * 1000, 2
-            )
-            intent = intent_result.intent
-            time_sensitivity = intent_result.time_sensitivity
-            core_operation = intent_result.core_operation
-            core_subject = intent_result.core_subject
-            subject_modifier = intent_result.subject_modifier
-            action_modifier = intent_result.action_modifier
-            result["intent"] = intent
-            result["time_sensitivity"] = time_sensitivity
-            result["core_operation"] = core_operation
-            result["core_subject"] = core_subject
-            result["subject_modifier"] = subject_modifier
-            result["action_modifier"] = action_modifier
+        intent = None
+        time_sensitivity = 0.0
+        core_operation = None
+        core_subject = None
+        subject_modifier = None
+        action_modifier = None
 
-            logger.info(
-                f"""Classified intent for prompt {exact_hash}: {intent.value} (Time Sensitivity: {time_sensitivity})
-                (Core Operation: {core_operation}) (Core Subject: {core_subject})
-                (Subject Modifier: {subject_modifier}) (Action Modifier: {action_modifier})"""
-            )
+        try:
+            breakdown["intent_classify_ms"] = 0.0
 
             t_emb_start = time.perf_counter()
             prompt_vector, _ = await self._get_embeddings(
@@ -537,6 +519,15 @@ class LlmRouterService:
                         matched_score = top_dense_match["score"]
                         top_prompt = top_dense_match["payload"].get("prompt", "")
 
+                        dense_intent = (
+                            intent.value
+                            if intent
+                            else (
+                                top_dense_match["payload"].get("intent")
+                                or IntentEnum.GENERAL_QUERY.value
+                            )
+                        )
+
                         cache_info = {
                             "matched": True,
                             "score": matched_score,
@@ -544,7 +535,7 @@ class LlmRouterService:
                             "source": "qdrant_fast_path",
                             "cache_hit": True,
                             "point_id": top_dense_match["id"],
-                            "intent": intent.value,
+                            "intent": dense_intent,
                             "query": prompt_text,
                             "top_1_score": matched_score,
                             "top_1_rerank_score": matched_score,
@@ -592,6 +583,33 @@ class LlmRouterService:
                 result["eligible_matches"] = eligible_matches
 
                 if eligible_matches:
+                    t_intent_start = time.perf_counter()
+                    intent_result = (
+                        await self.intent_classifier_service.classify_intent(request)
+                    )
+                    t_intent_end = time.perf_counter()
+                    breakdown["intent_classify_ms"] = round(
+                        (t_intent_end - t_intent_start) * 1000, 2
+                    )
+                    intent = intent_result.intent
+                    time_sensitivity = intent_result.time_sensitivity
+                    core_operation = intent_result.core_operation
+                    core_subject = intent_result.core_subject
+                    subject_modifier = intent_result.subject_modifier
+                    action_modifier = intent_result.action_modifier
+                    result["intent"] = intent
+                    result["time_sensitivity"] = time_sensitivity
+                    result["core_operation"] = core_operation
+                    result["core_subject"] = core_subject
+                    result["subject_modifier"] = subject_modifier
+                    result["action_modifier"] = action_modifier
+
+                    logger.info(
+                        f"""Classified intent for prompt {exact_hash}: {intent.value} (Time Sensitivity: {time_sensitivity})
+                        (Core Operation: {core_operation}) (Core Subject: {core_subject})
+                        (Subject Modifier: {subject_modifier}) (Action Modifier: {action_modifier})"""
+                    )
+
                     request_entities = (
                         self.entity_extractor_service.get_qdrant_entity_tags(
                             user_prompt
@@ -995,6 +1013,45 @@ class LlmRouterService:
                 exact_hash, json.dumps(response_dump), ttl=pass_ttl
             )
 
+    async def _background_save_cache(
+        self,
+        request: ChatCompletionRequest,
+        response: ChatCompletionResponse,
+        exact_hash: str,
+        service_name: str,
+        model: str,
+        intent: IntentEnum | None = None,
+        time_sensitivity: float = 0.0,
+        core_operation: str | None = None,
+        core_subject: str | None = None,
+        subject_modifier: str | None = None,
+        action_modifier: str | None = None,
+    ) -> None:
+        try:
+            point_id, ttl = await self.save_to_cache(
+                request=request,
+                response=response,
+                intent=intent,
+                time_sensitivity=time_sensitivity,
+                core_operation=core_operation,
+                core_subject=core_subject,
+                subject_modifier=subject_modifier,
+                action_modifier=action_modifier,
+                service_name=service_name,
+                model=model,
+            )
+            await self._save_to_redis_cache(
+                exact_hash,
+                response,
+                "Saving LLM generated response in Redis",
+                ttl=ttl,
+            )
+            logger.info(
+                f"Background cache write completed successfully for {exact_hash} (point_id: {point_id})"
+            )
+        except Exception:
+            logger.exception(f"Background cache write failed for {exact_hash}")
+
     async def _log_usage(
         self,
         request: ChatCompletionRequest,
@@ -1252,26 +1309,12 @@ class LlmRouterService:
             )
 
             if response and response.choices and not is_mock_response(response):
-                t_write_start = time.perf_counter()
-                point_id, ttl = await self.save_to_cache(
-                    request=request,
-                    response=response,
-                    intent=intent,
-                    time_sensitivity=time_sensitivity,
-                    core_operation=core_operation,
-                    core_subject=core_subject,
-                    subject_modifier=subject_modifier,
-                    action_modifier=action_modifier,
-                    service_name=actual_service,
-                    model=actual_model,
-                )
-
                 cache_info = {
                     "matched": False,
                     "score": 0.0,
                     "source": "llm",
                     "cache_hit": False,
-                    "point_id": point_id,
+                    "point_id": None,
                     "intent": intent.value if intent else IntentEnum.EMPTY.value,
                     "query": prompt_text,
                     "accepted": False,
@@ -1284,16 +1327,23 @@ class LlmRouterService:
                     cache_info.update(miss_cache_info)
 
                 response.cache_info = cache_info
+                breakdown["cache_write_ms"] = 0.0
 
-                await self._save_to_redis_cache(
-                    exact_hash,
-                    response,
-                    "Saving LLM generated response in Redis",
-                    ttl=ttl,
-                )
-                t_write_end = time.perf_counter()
-                breakdown["cache_write_ms"] = round(
-                    (t_write_end - t_write_start) * 1000, 2
+                # Offload cache persistence to background task so client latency is unaffected
+                asyncio.create_task(
+                    self._background_save_cache(
+                        request=request,
+                        response=response.model_copy(deep=True),
+                        exact_hash=exact_hash,
+                        service_name=actual_service,
+                        model=actual_model,
+                        intent=intent,
+                        time_sensitivity=time_sensitivity,
+                        core_operation=core_operation,
+                        core_subject=core_subject,
+                        subject_modifier=subject_modifier,
+                        action_modifier=action_modifier,
+                    )
                 )
             elif response and is_mock_response(response):
                 logger.warning(

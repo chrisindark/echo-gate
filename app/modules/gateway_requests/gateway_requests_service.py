@@ -1,7 +1,9 @@
 import logging
 from collections.abc import Callable
 from contextlib import contextmanager
+from datetime import datetime
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal, SessionLocalRead
@@ -76,7 +78,7 @@ class GatewayRequestsService:
 
     def get_request_log(self, log_id: int) -> GatewayRequestLog | None:
         """Get a specific request log by ID."""
-        with self._get_session() as s:
+        with self._get_read_session() as s:
             return (
                 s.query(GatewayRequestLog)
                 .filter(GatewayRequestLog.id == log_id)
@@ -99,8 +101,19 @@ class GatewayRequestsService:
         limit: int = 100,
         tenant_id: str | None = None,
         user_id: str | None = None,
-    ) -> list[GatewayRequestLog]:
-        """Fetch a paginated list of request logs."""
+        routing_decision: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        search: str | None = None,
+        min_latency_ms: int | None = None,
+        max_latency_ms: int | None = None,
+        evaluation_status: str | None = None,
+        is_false_positive: bool | None = None,
+        has_error: bool | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+    ) -> tuple[list[GatewayRequestLog], int]:
+        """Fetch a filtered, paginated list of request logs with total count."""
         try:
             with self._get_read_session() as s:
                 query = s.query(GatewayRequestLog)
@@ -109,13 +122,54 @@ class GatewayRequestsService:
                     query = query.filter(GatewayRequestLog.tenant_id == tenant_id)
                 if user_id:
                     query = query.filter(GatewayRequestLog.user_id == user_id)
+                if routing_decision:
+                    query = query.filter(
+                        GatewayRequestLog.routing_decision == routing_decision
+                    )
+                if provider:
+                    query = query.filter(GatewayRequestLog.provider == provider)
+                if model:
+                    query = query.filter(GatewayRequestLog.model == model)
+                if evaluation_status:
+                    query = query.filter(
+                        GatewayRequestLog.evaluation_status == evaluation_status
+                    )
+                if is_false_positive is not None:
+                    query = query.filter(
+                        GatewayRequestLog.is_false_positive == is_false_positive
+                    )
+                if has_error is True:
+                    query = query.filter(GatewayRequestLog.error_message.isnot(None))
+                elif has_error is False:
+                    query = query.filter(GatewayRequestLog.error_message.is_(None))
+                if min_latency_ms is not None:
+                    query = query.filter(GatewayRequestLog.latency_ms >= min_latency_ms)
+                if max_latency_ms is not None:
+                    query = query.filter(GatewayRequestLog.latency_ms <= max_latency_ms)
+                if start_time:
+                    query = query.filter(GatewayRequestLog.created_at >= start_time)
+                if end_time:
+                    query = query.filter(GatewayRequestLog.created_at <= end_time)
+                if search:
+                    pattern = f"%{search}%"
+                    query = query.filter(
+                        or_(
+                            GatewayRequestLog.query_text.ilike(pattern),
+                            GatewayRequestLog.response_text.ilike(pattern),
+                            GatewayRequestLog.exact_hash.ilike(pattern),
+                            GatewayRequestLog.model.ilike(pattern),
+                            GatewayRequestLog.intent.ilike(pattern),
+                        )
+                    )
 
-                return (
+                total = query.count()
+                items = (
                     query.order_by(GatewayRequestLog.created_at.desc())
                     .offset(skip)
                     .limit(limit)
                     .all()
                 )
+                return items, total
         except Exception:
             logger.exception("Failed to get gateway request logs")
             raise

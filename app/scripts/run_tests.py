@@ -56,7 +56,7 @@ def main():
                         },
                         {"role": "user", "content": test["prompt"]},
                     ],
-                    "temperature": 1.0,
+                    "temperature": 0.7,
                 }
 
                 print(f"Testing: [{test['canonical_id']}] -> {test['prompt'][:50]}...")

@@ -41,7 +41,7 @@ class ChatCompletionRequest(BaseModel):
     service_name: str | None = "ollama"
     model: str
     messages: list[ChatMessage]
-    temperature: float = 1.0
+    temperature: float = 0.7
     top_p: float | None = 1.0
     n: int | None = 1
     stream: bool | None = False
