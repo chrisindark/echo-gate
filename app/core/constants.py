@@ -7,8 +7,8 @@ PROMPT_VERSION = "1.0"
 INTENT_PROMPT_VERSION = "1.0"
 
 # String Prefixes & Identifiers
-EMBEDDING_QUERY_PREFIX = "search_query: "
-EMBEDDING_DOCUMENT_PREFIX = "search_document: "
+EMBEDDING_QUERY_PREFIX = ""
+EMBEDDING_DOCUMENT_PREFIX = ""
 CALLER_SERVICE_NAME = "echo-gate-api"
 MOCK_RESPONSE_TEXT = "This is a mock response from the LLM Gateway."
 

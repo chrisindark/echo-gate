@@ -3,16 +3,12 @@ import hashlib
 import json
 import logging
 import time
+from collections import OrderedDict
+from collections.abc import Coroutine
 from typing import Any
 
 from fastapi import HTTPException
 from qdrant_client.http import models
-from tenacity import (
-    AsyncRetrying,
-    retry_if_exception,
-    stop_after_attempt,
-    wait_exponential_jitter,
-)
 
 from app.core.config import config
 from app.core.constants import (
@@ -28,9 +24,11 @@ from app.core.constants import (
     SCOPE_HIERARCHY,
 )
 from app.core.logger import log_latency
+from app.core.retry import execute_with_retry
 from app.modules.chat.chat_schema import ChatCompletionRequest, ChatCompletionResponse
 from app.modules.embedding.embedding_service import EmbeddingService
 from app.modules.gateway_requests.gateway_requests_schema import (
+    EvaluationStatus,
     GatewayRequestLogCreate,
     RoutingDecision,
 )
@@ -94,6 +92,32 @@ class LlmRouterService:
         self.llm_usage_service = llm_usage_service
         self.llm_quota_service = llm_quota_service
         self.gateway_requests_service = gateway_requests_service
+        self._background_tasks: set[asyncio.Task[Any]] = set()
+        self._embedding_cache: OrderedDict[
+            str, tuple[list[float] | None, dict[str, list] | None]
+        ] = OrderedDict()
+        self._max_embedding_cache_size = 1000
+
+    def clear_embedding_cache(self) -> None:
+        self._embedding_cache.clear()
+
+    def _create_background_task(
+        self, coro: Coroutine[Any, Any, Any]
+    ) -> asyncio.Task[Any]:
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        return task
+
+    async def shutdown(self) -> None:
+        """
+        Close the service in the dependencies shutdown event, waiting for any background tasks to finish.
+        """
+        if self._background_tasks:
+            logger.info(
+                f"Waiting for {len(self._background_tasks)} background tasks to complete..."
+            )
+            await asyncio.gather(*list(self._background_tasks), return_exceptions=True)
 
     async def _call_provider_with_retry(
         self,
@@ -103,6 +127,8 @@ class LlmRouterService:
         timeout_seconds: float | None = None,
         fallback_service: str | None = None,
         fallback_model: str | None = None,
+        api_key: str | None = None,
+        exact_hash: str | None = None,
     ) -> tuple[ChatCompletionResponse | None, str, str]:
         max_retries = max_retries if max_retries is not None else config.LLM_MAX_RETRIES
         timeout_seconds = (
@@ -119,15 +145,6 @@ class LlmRouterService:
             fallback_model if fallback_model is not None else config.FALLBACK_LLM_MODEL
         )
         fallback = config.USE_FALLBACK_LLM
-
-        def is_retryable_exception(exc: BaseException) -> bool:
-            if isinstance(exc, asyncio.TimeoutError):
-                return True
-            if isinstance(exc, HTTPException):
-                if exc.status_code in (400, 401, 403, 500, 502, 503, 504):
-                    return False
-                return True
-            return True
 
         async def attempt_call(svc: str, req: ChatCompletionRequest):
             llm_req = req.model_copy(deep=True)
@@ -159,27 +176,17 @@ class LlmRouterService:
                     status_code=400, detail=f"Unsupported LLM service: {svc}"
                 )
 
-        retryer = AsyncRetrying(
-            stop=stop_after_attempt(max_retries + 1)
-            if max_retries > 0
-            else stop_after_attempt(1),
-            wait=wait_exponential_jitter(
-                initial=config.RETRY_BACKOFF_INITIAL_SECONDS,
-                max=config.RETRY_BACKOFF_MAX_SECONDS,
-            ),
-            retry=retry_if_exception(is_retryable_exception),
-            reraise=True,
-        )
-
+        t_primary_start = time.perf_counter()
         try:
-            async for attempt in retryer:
-                with attempt:
-                    resp = await asyncio.wait_for(
-                        attempt_call(service_name, request), timeout=timeout_seconds
-                    )
-                    used_model = resp.model if (resp and resp.model) else request.model
-                    return resp, service_name, used_model
-            return None, service_name, request.model  # Should not be reached
+            resp = await execute_with_retry(
+                attempt_call,
+                service_name,
+                request,
+                timeout_seconds=timeout_seconds,
+                max_retries=max_retries,
+            )
+            used_model = resp.model if (resp and resp.model) else request.model
+            return resp, service_name, used_model
         except Exception as e:
             if isinstance(e, HTTPException) and e.status_code in (400, 401, 403, 500):
                 logger.error(
@@ -191,6 +198,23 @@ class LlmRouterService:
                 logger.warning(
                     f"Primary service {service_name} failed. Attempting fallback {fallback_service}."
                 )
+                primary_status = e.status_code if isinstance(e, HTTPException) else 500
+                primary_err = str(e.detail) if isinstance(e, HTTPException) else str(e)
+                self._create_background_task(
+                    self._log_usage(
+                        request=request,
+                        response=None,
+                        service_name=service_name,
+                        start_time=t_primary_start,
+                        exact_hash=exact_hash or self._generate_cache_key(request),
+                        api_key=api_key,
+                        model=request.model,
+                        is_success=False,
+                        status_code=primary_status,
+                        error_message=primary_err,
+                    )
+                )
+
                 fallback_req = request.model_copy(deep=True)
                 if fallback_model:
                     fallback_req.model = fallback_model
@@ -210,17 +234,27 @@ class LlmRouterService:
                     logger.error(
                         f"Fallback service {fallback_service} failed: {fallback_e}"
                     )
-                    raise HTTPException(status_code=503, detail="Service Unavailable")
+                    if isinstance(fallback_e, HTTPException):
+                        raise fallback_e
+                    raise HTTPException(
+                        status_code=503,
+                        detail=f"Fallback service {fallback_service} failed: {fallback_e}",
+                    )
             else:
                 logger.error(
                     f"Primary service {service_name} failed and no fallback configured: {e}"
                 )
                 if isinstance(e, HTTPException):
                     raise e
-                raise HTTPException(status_code=503, detail="Service Unavailable")
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Primary service {service_name} failed: {e}",
+                )
 
     def _generate_cache_key(self, request: ChatCompletionRequest) -> str:
-        # use the version keys in the cache key to invalidate older cache keys
+        # use the version keys in the cache key in future to invalidate older cache keys
+        # embedding version
+        # cache key version
         key_dict = {
             "service_name": request.service_name,
             "model": request.model,
@@ -245,15 +279,28 @@ class LlmRouterService:
 
     async def _get_embeddings(
         self, text: str, get_sparse: bool = True, prefix: str = ""
-    ):
+    ) -> tuple[list[float] | None, dict[str, list] | None]:
         if not text:
             return None, None
+
+        cache_key = f"{prefix}:{get_sparse}:{hashlib.sha256(text.encode()).hexdigest()}"
+        if cache_key in self._embedding_cache:
+            self._embedding_cache.move_to_end(cache_key)
+            return self._embedding_cache[cache_key]
+
         vec = await self.embedding_service.get_embedding_async(f"{prefix}{text}")
         if get_sparse:
-            sparse = self.embedding_service.get_sparse_embedding(text)
+            sparse = await asyncio.to_thread(
+                self.embedding_service.get_sparse_embedding, text
+            )
         else:
             sparse = None
-        return vec, sparse
+
+        res = (vec, sparse)
+        self._embedding_cache[cache_key] = res
+        if len(self._embedding_cache) > self._max_embedding_cache_size:
+            self._embedding_cache.popitem(last=False)
+        return res
 
     def _prepare_prompts(self, request: ChatCompletionRequest) -> tuple[str, str, str]:
         prompt_text = "|\n".join(
@@ -278,8 +325,10 @@ class LlmRouterService:
         tenant_id = request.tenant_id
         if self.llm_cache_service:
             try:
-                return self.llm_cache_service.search_exact(
-                    exact_hash=exact_hash, tenant_id=tenant_id
+                return await asyncio.to_thread(
+                    self.llm_cache_service.search_exact,
+                    exact_hash=exact_hash,
+                    tenant_id=tenant_id,
                 )
             except Exception:
                 logger.exception("Qdrant exact search error")
@@ -287,7 +336,7 @@ class LlmRouterService:
 
     async def evaluate_semantic_cache(self, request: ChatCompletionRequest) -> dict:
         prompt_text, system_prompt, user_prompt = self._prepare_prompts(request)
-        logger.info(f"User prompt: {user_prompt}")
+        logger.debug(f"User prompt: {user_prompt}")
 
         exact_hash = self._generate_cache_key(request)
         tenant_id = request.tenant_id
@@ -317,6 +366,7 @@ class LlmRouterService:
             "matches": [],
             "eligible_matches": [],
             "latency_breakdown": breakdown,
+            "embeddings": None,
         }
 
         use_qdrant_semantic_matching = config.USE_QDRANT_SEMANTIC_MATCHING == "true"
@@ -354,6 +404,15 @@ class LlmRouterService:
             )
             t_emb_end = time.perf_counter()
             breakdown["embedding_gen_ms"] = round((t_emb_end - t_emb_start) * 1000, 2)
+
+            result["embeddings"] = {
+                "prompt_vector": prompt_vector,
+                "prompt_sparse": None,
+                "system_vector": system_vector,
+                "system_sparse": system_sparse,
+                "user_vector": user_vector,
+                "user_sparse": user_sparse,
+            }
 
             must_conditions = [
                 models.FieldCondition(
@@ -497,7 +556,8 @@ class LlmRouterService:
 
             if prompt_vector:
                 t_dense_start = time.perf_counter()
-                dense_matches = self.llm_cache_service.query_points_dense(
+                dense_matches = await asyncio.to_thread(
+                    self.llm_cache_service.query_points_dense,
                     vector=prompt_vector,
                     using="prompt_embedding",
                     query_filter=query_filter,
@@ -557,10 +617,32 @@ class LlmRouterService:
                             response.cache_info = cache_info
                             result["response"] = response
                             result["cache_info"] = cache_info
+
+                            use_redis_exact_matching = (
+                                config.USE_REDIS_EXACT_MATCHING == "true"
+                            )
+                            if use_redis_exact_matching is True:
+                                expires_at = top_dense_match["payload"].get(
+                                    "expires_at"
+                                )
+                                ttl = (
+                                    max(0, expires_at - int(time.time()))
+                                    if expires_at
+                                    else config.DEFAULT_CACHE_TTL_SECONDS
+                                )
+                                await self._save_to_redis_cache(
+                                    exact_hash=exact_hash,
+                                    response=response,
+                                    log_message="Saving Qdrant fast path matched response in Redis",
+                                    ttl=ttl,
+                                    save_to_redis=use_redis_exact_matching,
+                                    point_id=top_dense_match["id"],
+                                )
                         return result
 
             t_rrf_start = time.perf_counter()
-            matches = self.llm_cache_service.query_points_rrf(
+            matches = await asyncio.to_thread(
+                self.llm_cache_service.query_points_rrf,
                 system_prompt_vector=system_vector,
                 system_prompt_sparse=system_sparse,
                 user_prompt_vector=user_vector,
@@ -598,6 +680,12 @@ class LlmRouterService:
                     breakdown["intent_classify_ms"] = round(
                         (t_intent_end - t_intent_start) * 1000, 2
                     )
+                    if not intent_result:
+                        logger.warning(
+                            "Intent classification unavailable or timed out. Degrading to semantic cache miss."
+                        )
+                        return result
+
                     intent = intent_result.intent
                     time_sensitivity = intent_result.time_sensitivity
                     core_operation = intent_result.core_operation
@@ -624,7 +712,8 @@ class LlmRouterService:
                     )
 
                     t_rerank_start = time.perf_counter()
-                    matches_reranked = self.reranker_service.rerank(
+                    matches_reranked = await asyncio.to_thread(
+                        self.reranker_service.rerank,
                         query=prompt_text,
                         candidates=eligible_matches,
                         request_model=request.model,
@@ -732,6 +821,7 @@ class LlmRouterService:
                                     log_message="Saving Qdrant semantic search query matched response in Redis",
                                     ttl=ttl,
                                     save_to_redis=use_redis_exact_matching,
+                                    point_id=top_match["id"],
                                 )
 
                             result["response"] = response
@@ -763,6 +853,7 @@ class LlmRouterService:
         service_name: str | None = None,
         model: str | None = None,
         save_to_qdrant: bool = False,
+        embeddings: dict[str, Any] | None = None,
     ) -> tuple[str | None, int | None]:
         if save_to_qdrant is False:
             return None, None
@@ -802,37 +893,65 @@ class LlmRouterService:
         response_dump = response.model_dump(exclude={"cache_info"})
 
         try:
-            logger.info("Embeddings generation started...")
+            # Reuse pre-computed embeddings if available and prefixes match
+            if embeddings and EMBEDDING_QUERY_PREFIX == EMBEDDING_DOCUMENT_PREFIX:
+                logger.info("Reusing pre-computed embeddings for Qdrant cache storage")
+                system_vec = embeddings.get("system_vector")
+                system_sparse = embeddings.get("system_sparse")
+                user_vec = embeddings.get("user_vector")
+                user_sparse = embeddings.get("user_sparse")
+                prompt_vec = embeddings.get("prompt_vector")
+                prompt_sparse = embeddings.get("prompt_sparse")
+            else:
+                system_vec, system_sparse = None, None
+                user_vec, user_sparse = None, None
+                prompt_vec, prompt_sparse = None, None
 
-            system_vec, system_sparse = await self._get_embeddings(
-                system_prompt, True, EMBEDDING_DOCUMENT_PREFIX
-            )
-            user_vec, user_sparse = await self._get_embeddings(
-                user_prompt, True, EMBEDDING_DOCUMENT_PREFIX
-            )
-            prompt_vec, prompt_sparse = await self._get_embeddings(
-                prompt_text, False, EMBEDDING_DOCUMENT_PREFIX
-            )
-            logger.info("Embeddings generated successfully")
+            if system_vec is None and system_prompt:
+                system_vec, system_sparse = await self._get_embeddings(
+                    system_prompt, True, EMBEDDING_DOCUMENT_PREFIX
+                )
+            if user_vec is None and user_prompt:
+                user_vec, user_sparse = await self._get_embeddings(
+                    user_prompt, True, EMBEDDING_DOCUMENT_PREFIX
+                )
+            if prompt_vec is None and prompt_text:
+                prompt_vec, prompt_sparse = await self._get_embeddings(
+                    prompt_text, False, EMBEDDING_DOCUMENT_PREFIX
+                )
+            logger.info("Embeddings ready for Qdrant cache storage")
 
             if intent is None:
                 intent_result = await self.intent_classifier_service.classify_intent(
                     request
                 )
-                intent = intent_result.intent
-                time_sensitivity = intent_result.time_sensitivity
-                core_operation = intent_result.core_operation
-                core_subject = intent_result.core_subject
-                subject_modifier = intent_result.subject_modifier
-                action_modifier = intent_result.action_modifier
-                logger.info(
-                    f"""Classified intent for prompt {exact_hash}: {intent.value} (Time Sensitivity: {time_sensitivity})
-                    (Core Operation: {core_operation}) (Core Subject: {core_subject})
-                    (Subject Modifier: {subject_modifier}) (Action Modifier: {action_modifier})"""
-                )
+                if intent_result:
+                    intent = intent_result.intent
+                    time_sensitivity = intent_result.time_sensitivity
+                    core_operation = intent_result.core_operation
+                    core_subject = intent_result.core_subject
+                    subject_modifier = intent_result.subject_modifier
+                    action_modifier = intent_result.action_modifier
+                    logger.info(
+                        f"""Classified intent for prompt {exact_hash}: {intent.value} (Time Sensitivity: {time_sensitivity})
+                        (Core Operation: {core_operation}) (Core Subject: {core_subject})
+                        (Subject Modifier: {subject_modifier}) (Action Modifier: {action_modifier})"""
+                    )
+                else:
+                    intent = IntentEnum.GENERAL_QUERY
+                    time_sensitivity = 0.0
+                    core_operation = ""
+                    core_subject = ""
+                    subject_modifier = None
+                    action_modifier = None
+                    logger.warning(
+                        f"Intent classification unavailable for prompt {exact_hash}. Falling back to default intent {intent.value}."
+                    )
 
-            max_scope_enum = self.entity_extractor_service.determine_max_scope(
-                prompt_text
+            entities, max_scope_enum = (
+                self.entity_extractor_service.get_tags_and_max_scope(
+                    user_prompt or prompt_text
+                )
             )
             max_scope = max_scope_enum.value
 
@@ -848,8 +967,6 @@ class LlmRouterService:
 
             if SCOPE_HIERARCHY[actual_scope] > SCOPE_HIERARCHY[max_scope]:
                 actual_scope = max_scope
-
-            entities = self.entity_extractor_service.get_qdrant_entity_tags(user_prompt)
 
             ttl = self.intent_classifier_service.calculate_ttl(intent, time_sensitivity)
             cacheable = True
@@ -881,7 +998,8 @@ class LlmRouterService:
 
             logger.info("Saving generated embedding in Qdrant...")
 
-            point_id = self.llm_cache_service.upsert(
+            point_id = await asyncio.to_thread(
+                self.llm_cache_service.upsert,
                 prompt=prompt_text,
                 response=response_dump,
                 system_prompt_vector=system_vec,
@@ -935,7 +1053,26 @@ class LlmRouterService:
 
         cached_data = await self.redis_service.get(exact_hash)
         if cached_data:
-            response = ChatCompletionResponse(**json.loads(cached_data))
+            try:
+                data = json.loads(cached_data)
+            except Exception:
+                logger.error(f"Failed to parse cached JSON from Redis for {exact_hash}")
+                return None
+
+            point_id = None
+            if (
+                isinstance(data, dict)
+                and "response" in data
+                and isinstance(data["response"], dict)
+            ):
+                response = ChatCompletionResponse(**data["response"])
+                point_id = data.get("point_id")
+            elif isinstance(data, dict):
+                response = ChatCompletionResponse(**data)
+                point_id = data.get("point_id")
+            else:
+                return None
+
             if is_mock_response(response):
                 logger.warning(
                     f"Found cached mock response in Redis for {exact_hash}. Purging and ignoring."
@@ -944,14 +1081,14 @@ class LlmRouterService:
                 return None
 
             logger.info(
-                f"Serving response from Redis Cache for {exact_hash} using {service_name}"
+                f"Serving response from Redis Cache for {exact_hash} using {service_name} (point_id: {point_id})"
             )
             response.cache_info = {
                 "matched": True,
-                "score": 1.0,
+                "score": 0.0,
                 "source": "redis",
                 "cache_hit": True,
-                "point_id": None,
+                "point_id": point_id,
             }
             return response
         return None
@@ -968,8 +1105,10 @@ class LlmRouterService:
             logger.info("Qdrant cache service is not available, skipping exact search")
             return None, None, None
 
-        cached_payload, point_id = self.llm_cache_service.search_exact(
-            exact_hash=exact_hash, tenant_id=tenant_id
+        cached_payload, point_id = await asyncio.to_thread(
+            self.llm_cache_service.search_exact,
+            exact_hash=exact_hash,
+            tenant_id=tenant_id,
         )
         if cached_payload and "response" in cached_payload:
             response = ChatCompletionResponse(**cached_payload["response"])
@@ -1008,6 +1147,7 @@ class LlmRouterService:
         log_message: str,
         ttl: int | None = -1,
         save_to_redis: bool = False,
+        point_id: str | None = None,
     ) -> None:
         if save_to_redis is False:
             return
@@ -1027,10 +1167,21 @@ class LlmRouterService:
         if self.redis_service:
             logger.info(log_message)
             response_dump = response.model_dump(exclude={"cache_info"})
+
+            resolved_point_id = point_id
+            if (
+                not resolved_point_id
+                and hasattr(response, "cache_info")
+                and response.cache_info
+            ):
+                resolved_point_id = response.cache_info.get("point_id")
+
+            payload = {
+                "response": response_dump,
+                "point_id": resolved_point_id,
+            }
             pass_ttl = None if ttl == -1 else ttl
-            await self.redis_service.set(
-                exact_hash, json.dumps(response_dump), ttl=pass_ttl
-            )
+            await self.redis_service.set(exact_hash, json.dumps(payload), ttl=pass_ttl)
 
     async def _background_save_cache(
         self,
@@ -1045,6 +1196,7 @@ class LlmRouterService:
         core_subject: str | None = None,
         subject_modifier: str | None = None,
         action_modifier: str | None = None,
+        embeddings: dict[str, Any] | None = None,
     ) -> None:
         try:
             point_id = None
@@ -1063,6 +1215,7 @@ class LlmRouterService:
                     service_name=service_name,
                     model=model,
                     save_to_qdrant=use_qdrant_exact_matching,
+                    embeddings=embeddings,
                 )
             use_redis_exact_matching = config.USE_REDIS_EXACT_MATCHING == "true"
             if use_redis_exact_matching:
@@ -1073,6 +1226,7 @@ class LlmRouterService:
                     "Saving LLM generated response in Redis",
                     ttl=ttl,
                     save_to_redis=use_redis_exact_matching,
+                    point_id=point_id,
                 )
             logger.info(
                 f"Background cache write completed successfully for {exact_hash} (point_id: {point_id})"
@@ -1083,19 +1237,23 @@ class LlmRouterService:
     async def _log_usage(
         self,
         request: ChatCompletionRequest,
-        response: ChatCompletionResponse,
+        response: ChatCompletionResponse | None,
         service_name: str,
         start_time: float,
         exact_hash: str,
         api_key: str | None = None,
         model: str | None = None,
+        is_success: bool = True,
+        status_code: int = 200,
+        error_message: str | None = None,
     ) -> None:
         try:
             end_time = time.perf_counter()
             latency_ms = int((end_time - start_time) * 1000)
             is_cache_hit = (
                 response.cache_info.get("cache_hit", False)
-                if hasattr(response, "cache_info")
+                if response
+                and hasattr(response, "cache_info")
                 and isinstance(response.cache_info, dict)
                 else False
             )
@@ -1103,7 +1261,12 @@ class LlmRouterService:
             prompt_text, _, _ = self._prepare_prompts(request)
             input_text = prompt_text
             output_text = (
-                response.choices[0].message.content if response.choices else ""
+                response.choices[0].message.content
+                if response
+                and response.choices
+                and len(response.choices) > 0
+                and response.choices[0].message
+                else None
             )
             prompt_tokens = (
                 response.usage.prompt_tokens
@@ -1125,8 +1288,10 @@ class LlmRouterService:
             cache_creation_tokens = 0 if is_cache_hit else total_tokens
 
             finish_reason = None
-            if response.choices and len(response.choices) > 0:
+            if response and response.choices and len(response.choices) > 0:
                 finish_reason = response.choices[0].finish_reason
+            elif not is_success:
+                finish_reason = "error"
 
             effective_model = model or (
                 response.model if response and response.model else request.model
@@ -1148,17 +1313,23 @@ class LlmRouterService:
                 cache_read_tokens=cache_read_tokens,
                 cache_creation_tokens=cache_creation_tokens,
                 cost=0.0,
+                cost_calculated=not is_success,
                 latency_ms=latency_ms,
-                status_code=200,
-                is_success=True,
+                status_code=status_code,
+                is_success=is_success,
+                error_message=error_message,
                 finish_reason=finish_reason,
             )
 
-            self.llm_usage_service.create_llm_usage_log(log_data)
-            logger.info(f"LLM usage logged successfully for {exact_hash}")
+            await asyncio.to_thread(
+                self.llm_usage_service.create_llm_usage_log, log_data
+            )
+            logger.info(
+                f"LLM usage logged successfully for {exact_hash} (success={is_success})"
+            )
 
             # Record tokens for TPM limit
-            if self.llm_quota_service and api_key and total_tokens > 0:
+            if self.llm_quota_service and api_key and total_tokens > 0 and is_success:
                 try:
                     await self.llm_quota_service.record_tokens(
                         api_key=api_key,
@@ -1175,12 +1346,19 @@ class LlmRouterService:
     async def _log_gateway_request(
         self,
         request: ChatCompletionRequest,
-        response: ChatCompletionResponse,
+        response: ChatCompletionResponse | None,
         service_name: str,
         start_time: float,
         exact_hash: str,
         model: str | None = None,
         latency_breakdown: dict[str, Any] | None = None,
+        error_message: str | None = None,
+        routing_decision: RoutingDecision | None = None,
+        intent: str | None = None,
+        core_operation: str | None = None,
+        core_subject: str | None = None,
+        subject_modifier: str | None = None,
+        action_modifier: str | None = None,
     ) -> None:
         if not self.gateway_requests_service:
             return
@@ -1190,25 +1368,39 @@ class LlmRouterService:
             latency_ms = int((end_time - start_time) * 1000)
             prompt_text, _, _ = self._prepare_prompts(request)
 
-            source = (
-                response.cache_info.get("source", "llm")
-                if hasattr(response, "cache_info")
-                else "llm"
-            )
-            routing_decision = RoutingDecision.LLM
-            if source == "redis":
-                routing_decision = RoutingDecision.REDIS_EXACT
-            elif source == "qdrant_exact_path":
-                routing_decision = RoutingDecision.QDRANT_EXACT
-            elif source == "qdrant_semantic_path":
-                routing_decision = RoutingDecision.QDRANT_SEMANTIC
-            elif source == "qdrant_fast_path":
-                routing_decision = RoutingDecision.QDRANT_FAST
+            if routing_decision is not None:
+                final_routing_decision = routing_decision
+            elif response:
+                source = (
+                    response.cache_info.get("source", "llm")
+                    if hasattr(response, "cache_info") and response.cache_info
+                    else "llm"
+                )
+                final_routing_decision = RoutingDecision.LLM
+                if source == "redis":
+                    final_routing_decision = RoutingDecision.REDIS_EXACT
+                elif source == "qdrant_exact_path":
+                    final_routing_decision = RoutingDecision.QDRANT_EXACT
+                elif source == "qdrant_semantic_path":
+                    final_routing_decision = RoutingDecision.QDRANT_SEMANTIC
+                elif source == "qdrant_fast_path":
+                    final_routing_decision = RoutingDecision.QDRANT_FAST
+            else:
+                final_routing_decision = RoutingDecision.LLM
 
-            cache_info = response.cache_info if hasattr(response, "cache_info") else {}
+            cache_info = (
+                response.cache_info
+                if response and hasattr(response, "cache_info") and response.cache_info
+                else {}
+            )
 
             output_text = (
-                response.choices[0].message.content if response.choices else ""
+                response.choices[0].message.content
+                if response
+                and response.choices
+                and len(response.choices) > 0
+                and response.choices[0].message
+                else None
             )
 
             effective_model = model or (
@@ -1228,19 +1420,23 @@ class LlmRouterService:
                 else None
             )
 
+            eval_status = (
+                EvaluationStatus.SKIPPED if error_message else EvaluationStatus.PENDING
+            )
+
             log_data = GatewayRequestLogCreate(
                 query_text=prompt_text,
                 response_text=output_text,
-                routing_decision=routing_decision,
+                routing_decision=final_routing_decision,
                 provider=service_name,
                 model=effective_model,
                 point_id=cache_info.get("point_id"),
                 exact_hash=exact_hash,
-                intent=cache_info.get("intent"),
-                core_operation=cache_info.get("core_operation"),
-                core_subject=cache_info.get("core_subject"),
-                subject_modifier=cache_info.get("subject_modifier"),
-                action_modifier=cache_info.get("action_modifier"),
+                intent=cache_info.get("intent") or intent,
+                core_operation=cache_info.get("core_operation") or core_operation,
+                core_subject=cache_info.get("core_subject") or core_subject,
+                subject_modifier=cache_info.get("subject_modifier") or subject_modifier,
+                action_modifier=cache_info.get("action_modifier") or action_modifier,
                 rerank_score=cache_info.get("rerank_score", None),
                 latency_ms=latency_ms,
                 provider_latency_ms=provider_latency_ms,
@@ -1250,8 +1446,10 @@ class LlmRouterService:
                 tenant_id=request.tenant_id,
                 session_id=request.session_id,
                 conversation_id=request.conversation_id,
+                error_message=error_message,
+                evaluation_status=eval_status,
             )
-            self.gateway_requests_service.log_request(log_data)
+            await asyncio.to_thread(self.gateway_requests_service.log_request, log_data)
         except Exception:
             logger.exception("Failed to log gateway request")
 
@@ -1284,7 +1482,7 @@ class LlmRouterService:
 
             # 2. Try Exact Match in Qdrant
             t_qdrant_exact_start = time.perf_counter()
-            response, _, remaining_ttl = await self._get_qdrant_exact_match(
+            response, point_id, remaining_ttl = await self._get_qdrant_exact_match(
                 exact_hash, tenant_id, prompt_text
             )
             t_qdrant_exact_end = time.perf_counter()
@@ -1300,6 +1498,7 @@ class LlmRouterService:
                         "Saving Qdrant exact search query matched response in Redis",
                         ttl=remaining_ttl,
                         save_to_redis=use_redis_exact_matching,
+                        point_id=point_id,
                     )
                 return response
 
@@ -1320,24 +1519,43 @@ class LlmRouterService:
             subject_modifier = semantic_result.get("subject_modifier", None)
             action_modifier = semantic_result.get("action_modifier", None)
             miss_cache_info = semantic_result.get("miss_cache_info")
+            embeddings = semantic_result.get("embeddings")
 
             t_provider_start = time.perf_counter()
-            (
-                response,
-                actual_service,
-                actual_model,
-            ) = await self._call_provider_with_retry(
-                request=request,
-                service_name=service_name,
-                max_retries=config.LLM_MAX_RETRIES,
-                timeout_seconds=config.LLM_PROVIDER_TIMEOUT_SECONDS,
-                fallback_service=config.FALLBACK_LLM_SERVICE,
-                fallback_model=config.FALLBACK_LLM_MODEL,
-            )
-            t_provider_end = time.perf_counter()
-            breakdown["provider_ms"] = round(
-                (t_provider_end - t_provider_start) * 1000, 2
-            )
+            try:
+                (
+                    response,
+                    actual_service,
+                    actual_model,
+                ) = await self._call_provider_with_retry(
+                    request=request,
+                    service_name=service_name,
+                    max_retries=config.LLM_MAX_RETRIES,
+                    timeout_seconds=config.LLM_PROVIDER_TIMEOUT_SECONDS,
+                    fallback_service=config.FALLBACK_LLM_SERVICE,
+                    fallback_model=config.FALLBACK_LLM_MODEL,
+                    api_key=api_key,
+                    exact_hash=exact_hash,
+                )
+            except Exception as e:
+                provider_error = e
+                if (
+                    config.USE_FALLBACK_LLM == "true"
+                    and config.FALLBACK_LLM_SERVICE
+                    and not (
+                        isinstance(e, HTTPException)
+                        and e.status_code in (400, 401, 403, 500)
+                    )
+                ):
+                    actual_service = config.FALLBACK_LLM_SERVICE
+                    if config.FALLBACK_LLM_MODEL:
+                        actual_model = config.FALLBACK_LLM_MODEL
+                raise
+            finally:
+                t_provider_end = time.perf_counter()
+                breakdown["provider_ms"] = round(
+                    (t_provider_end - t_provider_start) * 1000, 2
+                )
 
             if response and response.choices and not is_mock_response(response):
                 cache_info = {
@@ -1361,7 +1579,7 @@ class LlmRouterService:
                 breakdown["cache_write_ms"] = 0.0
 
                 # Offload cache persistence to background task so client latency is unaffected
-                asyncio.create_task(
+                self._create_background_task(
                     self._background_save_cache(
                         request=request,
                         response=response.model_copy(deep=True),
@@ -1374,6 +1592,7 @@ class LlmRouterService:
                         core_subject=core_subject,
                         subject_modifier=subject_modifier,
                         action_modifier=action_modifier,
+                        embeddings=embeddings,
                     )
                 )
             elif response and is_mock_response(response):
@@ -1395,39 +1614,92 @@ class LlmRouterService:
                 response.cache_info = cache_info
 
             return response
+        except Exception as e:
+            if not provider_error:
+                provider_error = e
+            raise
         finally:
+            end_time = time.perf_counter()
+            total_duration = round((end_time - start_time) * 1000, 2)
+            breakdown["total_ms"] = total_duration
+
+            cache_lookup_total = (
+                breakdown.get("redis_exact_ms", 0.0)
+                + breakdown.get("qdrant_exact_ms", 0.0)
+                + breakdown.get("cache_lookup_total_ms", 0.0)
+            )
+            breakdown["cache_lookup_total_ms"] = round(cache_lookup_total, 2)
+
             if response:
-                end_time = time.perf_counter()
-                total_duration = round((end_time - start_time) * 1000, 2)
-                breakdown["total_ms"] = total_duration
-
-                cache_lookup_total = (
-                    breakdown.get("redis_exact_ms", 0.0)
-                    + breakdown.get("qdrant_exact_ms", 0.0)
-                    + breakdown.get("cache_lookup_total_ms", 0.0)
-                )
-                breakdown["cache_lookup_total_ms"] = round(cache_lookup_total, 2)
-
                 if not hasattr(response, "cache_info") or response.cache_info is None:
                     response.cache_info = {}
                 response.cache_info["exact_hash"] = exact_hash
                 response.cache_info["latency_breakdown"] = breakdown
 
-                await self._log_usage(
-                    request=request,
-                    response=response,
-                    service_name=actual_service,
-                    start_time=start_time,
-                    exact_hash=exact_hash,
-                    api_key=api_key,
-                    model=actual_model,
+                self._create_background_task(
+                    self._log_usage(
+                        request=request,
+                        response=response,
+                        service_name=actual_service,
+                        start_time=start_time,
+                        exact_hash=exact_hash,
+                        api_key=api_key,
+                        model=actual_model,
+                    )
                 )
-                await self._log_gateway_request(
-                    request=request,
-                    response=response,
-                    service_name=actual_service,
-                    start_time=start_time,
-                    exact_hash=exact_hash,
-                    model=actual_model,
-                    latency_breakdown=breakdown,
+                self._create_background_task(
+                    self._log_gateway_request(
+                        request=request,
+                        response=response,
+                        service_name=actual_service,
+                        start_time=start_time,
+                        exact_hash=exact_hash,
+                        model=actual_model,
+                        latency_breakdown=breakdown,
+                    )
+                )
+            elif provider_error:
+                status_code = (
+                    provider_error.status_code
+                    if isinstance(provider_error, HTTPException)
+                    else 500
+                )
+                error_detail = (
+                    str(provider_error.detail)
+                    if isinstance(provider_error, HTTPException)
+                    else str(provider_error)
+                )
+                self._create_background_task(
+                    self._log_usage(
+                        request=request,
+                        response=None,
+                        service_name=actual_service,
+                        start_time=start_time,
+                        exact_hash=exact_hash,
+                        api_key=api_key,
+                        model=actual_model,
+                        is_success=False,
+                        status_code=status_code,
+                        error_message=error_detail,
+                    )
+                )
+                self._create_background_task(
+                    self._log_gateway_request(
+                        request=request,
+                        response=None,
+                        service_name=actual_service,
+                        start_time=start_time,
+                        exact_hash=exact_hash,
+                        model=actual_model,
+                        latency_breakdown=breakdown,
+                        error_message=error_detail,
+                        routing_decision=RoutingDecision.LLM,
+                        intent=intent.value
+                        if (intent and hasattr(intent, "value"))
+                        else None,
+                        core_operation=core_operation,
+                        core_subject=core_subject,
+                        subject_modifier=subject_modifier,
+                        action_modifier=action_modifier,
+                    )
                 )

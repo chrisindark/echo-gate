@@ -91,7 +91,7 @@ class Config:
             os.getenv("QDRANT_DENSE_SEARCH_HIGH_THRESHOLD", "0.98")
         )
         self.QDRANT_SPARSE_SEARCH_HIGH_THRESHOLD = float(
-            os.getenv("QDRANT_SPARSE_SEARCH_HIGH_THRESHOLD", "0.70")
+            os.getenv("QDRANT_SPARSE_SEARCH_HIGH_THRESHOLD", "0.33")
         )
         self.QDRANT_SEARCH_LIMIT = int(os.getenv("QDRANT_SEARCH_LIMIT", "10"))
         self.DEFAULT_CACHE_TTL_SECONDS = int(
@@ -168,6 +168,18 @@ class Config:
         )
         self.INTENT_CLASSIFIER_TEMPERATURE = float(
             os.getenv("INTENT_CLASSIFIER_TEMPERATURE", "0.0")
+        )
+        self.INTENT_CLASSIFIER_TIMEOUT_SECONDS = float(
+            os.getenv("INTENT_CLASSIFIER_TIMEOUT_SECONDS", "2.5")
+        )
+        self.INTENT_CLASSIFIER_MAX_TOKENS = int(
+            os.getenv("INTENT_CLASSIFIER_MAX_TOKENS", "500")
+        )
+        self.INTENT_CLASSIFIER_REASONING_EFFORT = os.getenv(
+            "INTENT_CLASSIFIER_REASONING_EFFORT", "low"
+        )
+        self.INTENT_CLASSIFIER_MAX_RETRIES = int(
+            os.getenv("INTENT_CLASSIFIER_MAX_RETRIES", "0")
         )
 
         self.CORE_QUERY_EXTRACTOR_SERVICE = os.getenv(

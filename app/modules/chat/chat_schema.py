@@ -56,6 +56,7 @@ class ChatCompletionRequest(BaseModel):
     session_id: str | None = None
     conversation_id: str | None = None
     response_format: dict | None = None
+    reasoning_effort: str | None = None
 
     @model_validator(mode="after")
     def validate_model_for_service(self) -> "ChatCompletionRequest":

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 
@@ -40,6 +41,9 @@ class EmbeddingService:
             self.embedding_dimension = self.model.get_embedding_dimension() or 384
             logger.info(f"Model loaded. Dimension: {self.embedding_dimension}")
 
+    def _encode_local(self, text: str) -> list[float]:
+        return self.model.encode(text).tolist()
+
     @log_latency()
     def get_embedding(self, text: str) -> list[float]:
         """
@@ -56,7 +60,7 @@ class EmbeddingService:
             response.raise_for_status()
             return response.json()["embedding"]
         else:
-            return self.model.encode(text).tolist()
+            return self._encode_local(text)
 
     @log_latency()
     async def get_embedding_async(self, text: str) -> list[float]:
@@ -74,7 +78,7 @@ class EmbeddingService:
                 return response.json()["embedding"]
         else:
             # Note: sentence-transformers encode is blocking
-            return self.model.encode(text).tolist()
+            return await asyncio.to_thread(self._encode_local, text)
 
     @log_latency()
     def get_sparse_embedding(self, text: str) -> dict[str, list]:

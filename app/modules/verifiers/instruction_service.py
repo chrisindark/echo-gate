@@ -5,7 +5,9 @@ import re
 class InstructionVerifier:
     def __init__(self):
         # Pre-compile constraint patterns
-        self.re_json = re.compile(r"\b(json|json format|valid json)\b", re.IGNORECASE)
+        self.re_json = re.compile(
+            r"\b(respond in json|json format|valid json|return json)\b", re.IGNORECASE
+        )
         self.re_table = re.compile(
             r"\b(markdown table|in a table|table format|tabular format|as a table)\b",
             re.IGNORECASE,

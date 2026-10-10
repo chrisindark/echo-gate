@@ -43,7 +43,8 @@ class DependencyContainer:
         await cls.get_redis_service()
         cls.get_embedding_service()
         cls.get_qdrant_client_service()
-        cls.get_llm_cache_collection_service()
+        cache_service = cls.get_llm_cache_collection_service()
+        cache_service.ensure_indexes()
         cls.get_llm_provider_service()
         cls.get_reranker_service()
         await cls.get_intent_classifier_service()
@@ -58,6 +59,11 @@ class DependencyContainer:
 
     @classmethod
     async def shutdown(cls) -> None:
+        """
+        Close the services in the lifespan event, waiting for any background tasks to finish.
+        """
+        if cls._llm_router_service is not None:
+            await cls._llm_router_service.shutdown()
         try:
             if cls._redis_service is not None:
                 await cls._redis_service.close()

@@ -32,10 +32,85 @@ class LlmCacheCollectionService:
         self.vector_size: int = vector_size
         self._init_collection()
 
+    PAYLOAD_INDEXES: list[tuple[str, models.PayloadSchemaType]] = [
+        ("exact_hash", models.PayloadSchemaType.KEYWORD),
+        ("prompt_version", models.PayloadSchemaType.KEYWORD),
+        ("model", models.PayloadSchemaType.KEYWORD),
+        ("embedding_model", models.PayloadSchemaType.KEYWORD),
+        ("embedding_version", models.PayloadSchemaType.KEYWORD),
+        ("cacheable", models.PayloadSchemaType.BOOL),
+        ("cache_key_version", models.PayloadSchemaType.KEYWORD),
+        ("tenant_id", models.PayloadSchemaType.KEYWORD),
+        ("user_id", models.PayloadSchemaType.KEYWORD),
+        ("session_id", models.PayloadSchemaType.KEYWORD),
+        ("conversation_id", models.PayloadSchemaType.KEYWORD),
+        ("scope", models.PayloadSchemaType.KEYWORD),
+        ("expires_at", models.PayloadSchemaType.INTEGER),
+        ("response_format_hash", models.PayloadSchemaType.KEYWORD),
+        ("stop_hash", models.PayloadSchemaType.KEYWORD),
+        ("completion_tokens", models.PayloadSchemaType.INTEGER),
+        ("entities", models.PayloadSchemaType.KEYWORD),
+        ("intent", models.PayloadSchemaType.KEYWORD),
+        ("core_operation", models.PayloadSchemaType.KEYWORD),
+        ("core_subject", models.PayloadSchemaType.KEYWORD),
+        ("subject_modifier", models.PayloadSchemaType.KEYWORD),
+        ("action_modifier", models.PayloadSchemaType.KEYWORD),
+    ]
+
     @property
     def client(self) -> QdrantClient:
         """Access underlying QdrantClient for backward compatibility."""
         return self.client_service.client
+
+    def ensure_indexes(self) -> None:
+        """
+        Idempotently verify and create all required payload indexes on the collection.
+        Inspects existing indexes on the collection and creates any missing ones.
+        """
+        try:
+            if not self.client_service.collection_exists(self.collection_name):
+                logger.warning(
+                    f"Collection '{self.collection_name}' does not exist. Skipping ensure_indexes."
+                )
+                return
+
+            collection_info = self.client_service.get_collection(self.collection_name)
+            existing_indexes: set[str] = set()
+            if (
+                hasattr(collection_info, "payload_schema")
+                and collection_info.payload_schema
+            ):
+                existing_indexes = set(collection_info.payload_schema.keys())
+
+            logger.info(
+                f"Ensuring payload indexes on '{self.collection_name}' "
+                f"({len(existing_indexes)} existing index(es) found)"
+            )
+
+            for field_name, field_schema in self.PAYLOAD_INDEXES:
+                if field_name not in existing_indexes:
+                    try:
+                        logger.info(
+                            f"Creating payload index: {field_name} ({field_schema}) on {self.collection_name}"
+                        )
+                        self.client_service.create_payload_index(
+                            collection_name=self.collection_name,
+                            field_name=field_name,
+                            field_schema=field_schema,
+                        )
+                        existing_indexes.add(field_name)
+                    except Exception as e:
+                        logger.warning(
+                            f"Could not create payload index '{field_name}' on '{self.collection_name}': {e}"
+                        )
+                else:
+                    logger.debug(
+                        f"Payload index '{field_name}' already exists on '{self.collection_name}'."
+                    )
+        except Exception:
+            logger.exception(
+                f"Failed to ensure payload indexes on Qdrant collection '{self.collection_name}'"
+            )
 
     def _create_collection(self) -> None:
         logger.info(f"Creating LLM Cache Qdrant collection: {self.collection_name}")
@@ -72,37 +147,7 @@ class LlmCacheCollectionService:
                 )
             ),
         )
-
-        # Create payload indexes for faster filtering
-        logger.info("Creating payload indexes for LLM cache fields")
-        indexes = [
-            ("exact_hash", models.PayloadSchemaType.KEYWORD),
-            ("prompt_version", models.PayloadSchemaType.KEYWORD),
-            ("model", models.PayloadSchemaType.KEYWORD),
-            ("embedding_model", models.PayloadSchemaType.KEYWORD),
-            ("embedding_version", models.PayloadSchemaType.KEYWORD),
-            ("cacheable", models.PayloadSchemaType.BOOL),
-            ("cache_key_version", models.PayloadSchemaType.KEYWORD),
-            ("tenant_id", models.PayloadSchemaType.KEYWORD),
-            ("user_id", models.PayloadSchemaType.KEYWORD),
-            ("session_id", models.PayloadSchemaType.KEYWORD),
-            ("conversation_id", models.PayloadSchemaType.KEYWORD),
-            ("scope", models.PayloadSchemaType.KEYWORD),
-            ("expires_at", models.PayloadSchemaType.INTEGER),
-            ("response_format_hash", models.PayloadSchemaType.KEYWORD),
-            ("stop_hash", models.PayloadSchemaType.KEYWORD),
-            ("completion_tokens", models.PayloadSchemaType.INTEGER),
-            ("entities", models.PayloadSchemaType.KEYWORD),
-            ("intent", models.PayloadSchemaType.KEYWORD),
-            ("core_operation", models.PayloadSchemaType.KEYWORD),
-            ("core_subject", models.PayloadSchemaType.KEYWORD),
-        ]
-        for field_name, field_schema in indexes:
-            self.client_service.create_payload_index(
-                collection_name=self.collection_name,
-                field_name=field_name,
-                field_schema=field_schema,
-            )
+        self.ensure_indexes()
 
     def _init_collection(self) -> None:
         try:
@@ -129,10 +174,10 @@ class LlmCacheCollectionService:
                 if existing_size is not None and existing_size != self.vector_size:
                     logger.warning(
                         f"Vector dimension mismatch! Existing collection has size {existing_size}, "
-                        f"but current config expects {self.vector_size}. Recreating collection."
+                        f"but current config expects {self.vector_size}."
                     )
-                    self.client_service.delete_collection(self.collection_name)
-                    self._create_collection()
+                    raise ValueError("Vector dimension mismatch")
+                self.ensure_indexes()
         except Exception:
             logger.exception("Failed to initialize Qdrant collection")
 
@@ -416,11 +461,11 @@ class LlmCacheCollectionService:
                 )
             if prompt_vector:
                 point_vector["prompt_embedding"] = prompt_vector
-            if prompt_sparse and prompt_sparse.get("indices"):
-                point_vector["prompt_bm25"] = models.SparseVector(
-                    indices=prompt_sparse["indices"],
-                    values=prompt_sparse["values"],
-                )
+            # if prompt_sparse and prompt_sparse.get("indices"):
+            #     point_vector["prompt_bm25"] = models.SparseVector(
+            #         indices=prompt_sparse["indices"],
+            #         values=prompt_sparse["values"],
+            #     )
 
             self.client_service.upsert(
                 collection_name=self.collection_name,

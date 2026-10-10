@@ -56,6 +56,7 @@ class GatewayRequestLogBase(BaseModel):
     tenant_id: str | None = None
     session_id: str | None = None
     conversation_id: str | None = None
+    error_message: str | None = None
 
 
 class GatewayRequestLogCreate(GatewayRequestLogBase):
