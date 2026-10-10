@@ -53,6 +53,9 @@ class Config:
 
         # Redis
         self.REDIS_TTL = int(os.getenv("REDIS_TTL", "3600"))  # Default 1 hour TTL
+        self.USE_REDIS_EXACT_MATCHING = os.getenv(
+            "USE_REDIS_EXACT_MATCHING", "false"
+        ).lower()
 
         # Provider & Fallback Defaults
         self.USE_FALLBACK_LLM = os.getenv("USE_FALLBACK_LLM", "true")
@@ -78,6 +81,12 @@ class Config:
         )
 
         # Semantic Search & Cache Tuning
+        self.USE_QDRANT_EXACT_MATCHING = os.getenv(
+            "USE_QDRANT_EXACT_MATCHING", "false"
+        ).lower()
+        self.USE_QDRANT_SEMANTIC_MATCHING = os.getenv(
+            "USE_QDRANT_SEMANTIC_MATCHING", "false"
+        ).lower()
         self.QDRANT_DENSE_SEARCH_HIGH_THRESHOLD = float(
             os.getenv("QDRANT_DENSE_SEARCH_HIGH_THRESHOLD", "0.98")
         )
@@ -88,12 +97,6 @@ class Config:
         self.DEFAULT_CACHE_TTL_SECONDS = int(
             os.getenv("DEFAULT_CACHE_TTL_SECONDS", str(1 * 24 * 60 * 60))
         )
-        self.USE_REDIS_SEMANTIC_MATCHING = os.getenv(
-            "USE_REDIS_SEMANTIC_MATCHING", "true"
-        ).lower()
-        self.USE_QDRANT_SEMANTIC_MATCHING = os.getenv(
-            "USE_QDRANT_SEMANTIC_MATCHING", "true"
-        ).lower()
 
         # Cache Confidence Thresholds
         default_thresholds = {

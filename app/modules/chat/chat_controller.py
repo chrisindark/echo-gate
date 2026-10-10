@@ -131,5 +131,7 @@ async def cache_save(
         "X-Conversation-ID"
     )
 
-    point_id, _ = await llmService.save_to_cache(request=request, response=response)
+    point_id, _ = await llmService.save_to_qdrant_cache(
+        request=request, response=response
+    )
     return BaseAPIResponse.success_response({"point_id": point_id})

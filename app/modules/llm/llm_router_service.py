@@ -319,10 +319,17 @@ class LlmRouterService:
             "latency_breakdown": breakdown,
         }
 
-        if config.USE_QDRANT_SEMANTIC_MATCHING != "true":
+        use_qdrant_semantic_matching = config.USE_QDRANT_SEMANTIC_MATCHING == "true"
+        if use_qdrant_semantic_matching is False:
+            logger.info(
+                "Qdrant semantic matching is disabled, skipping semantic search"
+            )
             return result
 
         if not self.llm_cache_service:
+            logger.info(
+                "Qdrant cache service is not available, skipping semantic search"
+            )
             return result
 
         intent = None
@@ -715,12 +722,17 @@ class LlmRouterService:
                             ttl = self.intent_classifier_service.calculate_ttl(
                                 intent, time_sensitivity
                             )
-                            await self._save_to_redis_cache(
-                                exact_hash,
-                                response,
-                                "Saving Qdrant semantic search query matched response in Redis",
-                                ttl=ttl,
+                            use_redis_exact_matching = (
+                                config.USE_REDIS_EXACT_MATCHING == "true"
                             )
+                            if use_redis_exact_matching is True:
+                                await self._save_to_redis_cache(
+                                    exact_hash=exact_hash,
+                                    response=response,
+                                    log_message="Saving Qdrant semantic search query matched response in Redis",
+                                    ttl=ttl,
+                                    save_to_redis=use_redis_exact_matching,
+                                )
 
                             result["response"] = response
                             result["cache_info"] = cache_info
@@ -738,7 +750,7 @@ class LlmRouterService:
                 (semantic_end - semantic_start) * 1000, 2
             )
 
-    async def save_to_cache(
+    async def save_to_qdrant_cache(
         self,
         request: ChatCompletionRequest,
         response: ChatCompletionResponse,
@@ -750,8 +762,9 @@ class LlmRouterService:
         action_modifier: str | None = None,
         service_name: str | None = None,
         model: str | None = None,
+        save_to_qdrant: bool = False,
     ) -> tuple[str | None, int | None]:
-        if config.USE_QDRANT_SEMANTIC_MATCHING != "true":
+        if save_to_qdrant is False:
             return None, None
 
         if not self.llm_cache_service:
@@ -912,7 +925,9 @@ class LlmRouterService:
     async def _get_redis_exact_match(
         self, exact_hash: str, service_name: str
     ) -> ChatCompletionResponse | None:
-        if config.USE_REDIS_SEMANTIC_MATCHING != "true":
+        use_redis_exact_matching = config.USE_REDIS_EXACT_MATCHING == "true"
+        if use_redis_exact_matching is False:
+            logger.info("Redis exact matching and semantic matching is disabled")
             return None
 
         if not self.redis_service:
@@ -944,10 +959,13 @@ class LlmRouterService:
     async def _get_qdrant_exact_match(
         self, exact_hash: str, tenant_id: str | None, prompt_text: str
     ) -> tuple[ChatCompletionResponse | None, str | None, int | None]:
-        if config.USE_QDRANT_SEMANTIC_MATCHING != "true":
+        use_qdrant_exact_matching = config.USE_QDRANT_EXACT_MATCHING == "true"
+        if use_qdrant_exact_matching is False:
+            logger.info("Qdrant exact matching is disabled, skipping exact search")
             return None, None, None
 
         if not self.llm_cache_service:
+            logger.info("Qdrant cache service is not available, skipping exact search")
             return None, None, None
 
         cached_payload, point_id = self.llm_cache_service.search_exact(
@@ -989,8 +1007,9 @@ class LlmRouterService:
         response: ChatCompletionResponse,
         log_message: str,
         ttl: int | None = -1,
+        save_to_redis: bool = False,
     ) -> None:
-        if config.USE_REDIS_SEMANTIC_MATCHING != "true":
+        if save_to_redis is False:
             return
 
         if is_mock_response(response):
@@ -1028,24 +1047,33 @@ class LlmRouterService:
         action_modifier: str | None = None,
     ) -> None:
         try:
-            point_id, ttl = await self.save_to_cache(
-                request=request,
-                response=response,
-                intent=intent,
-                time_sensitivity=time_sensitivity,
-                core_operation=core_operation,
-                core_subject=core_subject,
-                subject_modifier=subject_modifier,
-                action_modifier=action_modifier,
-                service_name=service_name,
-                model=model,
-            )
-            await self._save_to_redis_cache(
-                exact_hash,
-                response,
-                "Saving LLM generated response in Redis",
-                ttl=ttl,
-            )
+            point_id = None
+            ttl = None
+            use_qdrant_exact_matching = config.USE_QDRANT_EXACT_MATCHING == "true"
+            if use_qdrant_exact_matching:
+                point_id, ttl = await self.save_to_qdrant_cache(
+                    request=request,
+                    response=response,
+                    intent=intent,
+                    time_sensitivity=time_sensitivity,
+                    core_operation=core_operation,
+                    core_subject=core_subject,
+                    subject_modifier=subject_modifier,
+                    action_modifier=action_modifier,
+                    service_name=service_name,
+                    model=model,
+                    save_to_qdrant=use_qdrant_exact_matching,
+                )
+            use_redis_exact_matching = config.USE_REDIS_EXACT_MATCHING == "true"
+            if use_redis_exact_matching:
+                ttl = config.REDIS_TTL
+                await self._save_to_redis_cache(
+                    exact_hash,
+                    response,
+                    "Saving LLM generated response in Redis",
+                    ttl=ttl,
+                    save_to_redis=use_redis_exact_matching,
+                )
             logger.info(
                 f"Background cache write completed successfully for {exact_hash} (point_id: {point_id})"
             )
@@ -1264,12 +1292,15 @@ class LlmRouterService:
                 (t_qdrant_exact_end - t_qdrant_exact_start) * 1000, 2
             )
             if response:
-                await self._save_to_redis_cache(
-                    exact_hash,
-                    response,
-                    "Saving Qdrant exact search query matched response in Redis",
-                    ttl=remaining_ttl,
-                )
+                use_redis_exact_matching = config.USE_REDIS_EXACT_MATCHING == "true"
+                if use_redis_exact_matching:
+                    await self._save_to_redis_cache(
+                        exact_hash,
+                        response,
+                        "Saving Qdrant exact search query matched response in Redis",
+                        ttl=remaining_ttl,
+                        save_to_redis=use_redis_exact_matching,
+                    )
                 return response
 
             # 3. Try Semantic Match if Exact misses
