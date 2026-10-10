@@ -8,6 +8,16 @@ from app.modules.verifiers.instruction_service import InstructionVerifier
 logger = logging.getLogger(__name__)
 
 
+def _normalize_modifier(value: Any) -> str:
+    """Normalize string modifier or attribute, treating None, 'null', 'none', etc. as empty."""
+    if value is None:
+        return ""
+    val_str = str(value).strip().lower()
+    if val_str in ("none", "null", "n/a", "undefined", ""):
+        return ""
+    return val_str
+
+
 class RerankerService:
     def __init__(
         self,
@@ -29,9 +39,10 @@ class RerankerService:
             else:
                 prompt = payload.get("prompt")
                 if not prompt:
-                    raise KeyError(
+                    logger.warning(
                         f"Candidate payload missing prompt: {candidate.get('id', 'unknown')}"
                     )
+                    prompt = ""
                 pairs.append((query, prompt))
 
         return self.cross_encoder_service.rerank_predict(pairs)
@@ -70,14 +81,19 @@ class RerankerService:
 
             request_entities = request_entities or []
             request_entity_set = set(request_entities)
-            request_core_operation = request_core_operation or ""
-            request_core_subject = request_core_subject or ""
-            request_subject_modifier = request_subject_modifier or ""
-            request_action_modifier = request_action_modifier or ""
+            norm_req_operation = _normalize_modifier(request_core_operation)
+            norm_req_subject = _normalize_modifier(request_core_subject)
+            norm_req_subject_modifier = _normalize_modifier(request_subject_modifier)
+            norm_req_action_modifier = _normalize_modifier(request_action_modifier)
+
+            scores = self.verify(query, user_query, candidates)
+            logger.debug(f"reranker_scores: {scores}")
+            if not scores:
+                return []
 
             reranked = []
 
-            for candidate in candidates:
+            for candidate, score in zip(candidates, scores):
                 try:
                     try:
                         c_text = (
@@ -92,7 +108,6 @@ class RerankerService:
                             f"Failed to extract response from candidate: {candidate}"
                         )
                         c_text = ""
-                    # candidate_texts.append(c_text or "")
 
                     # deterministically verify json output only and apply penalty if not json
                     instruction_scores = self.instruction_service.verify_instruction(
@@ -100,12 +115,6 @@ class RerankerService:
                     )
                     logger.debug(f"instruction_scores: {instruction_scores}")
                     instruction_score = instruction_scores[0]
-
-                    scores = self.verify(query, user_query, [candidate])
-                    logger.debug(f"reranker_scores: {scores}")
-                    if not scores:
-                        continue
-                    score = scores[0]
 
                     payload = candidate.get("payload") or {}
                     logger.debug(f"candidate payload: {payload}")
@@ -157,14 +166,13 @@ class RerankerService:
                         )
 
                     penalty_operation = 0.0
-                    candidate_core_operation = payload.get("core_operation", "")
+                    candidate_core_operation = payload.get("core_operation")
                     logger.debug(
                         f"candidate core_operation: {candidate_core_operation}"
                     )
-                    if (request_core_operation or "").lower() != (
-                        candidate_core_operation or ""
-                    ).lower():
-                        penalty_operation = 0.25
+                    norm_cand_operation = _normalize_modifier(candidate_core_operation)
+                    if norm_req_operation != norm_cand_operation:
+                        penalty_operation = 0.15
                         logger.debug(
                             f"Applied core_operation penalty: req={request_core_operation}, cand={candidate_core_operation}"
                         )
@@ -174,12 +182,11 @@ class RerankerService:
                         )
 
                     penalty_subject = 0.0
-                    candidate_core_subject = payload.get("core_subject", "")
+                    candidate_core_subject = payload.get("core_subject")
                     logger.debug(f"candidate core_subject: {candidate_core_subject}")
-                    if (request_core_subject or "").lower() != (
-                        candidate_core_subject or ""
-                    ).lower():
-                        penalty_subject = 0.25
+                    norm_cand_subject = _normalize_modifier(candidate_core_subject)
+                    if norm_req_subject != norm_cand_subject:
+                        penalty_subject = 0.15
                         logger.debug(
                             f"Applied core_subject penalty: req={request_core_subject}, cand={candidate_core_subject}"
                         )
@@ -189,37 +196,39 @@ class RerankerService:
                         )
 
                     penalty_subject_modifier = 0.0
-                    candidate_subject_modifier = payload.get("subject_modifier", "")
+                    candidate_subject_modifier = payload.get("subject_modifier")
                     logger.debug(
                         f"candidate subject_modifier: {candidate_subject_modifier}"
                     )
-                    if (request_subject_modifier or "").lower() != (
-                        candidate_subject_modifier or ""
-                    ).lower():
-                        penalty_subject_modifier = 0.25
+                    norm_cand_subject_modifier = _normalize_modifier(
+                        candidate_subject_modifier
+                    )
+                    if norm_req_subject_modifier != norm_cand_subject_modifier:
+                        penalty_subject_modifier = 0.15
                         logger.debug(
                             f"Applied subject_modifier penalty: req={request_subject_modifier}, cand={candidate_subject_modifier}"
                         )
                     else:
                         logger.debug(
-                            f"No subject_modifier penalty applied: req_neg={request_subject_modifier}, cand={candidate_subject_modifier}"
+                            f"No subject_modifier penalty applied: req={request_subject_modifier}, cand={candidate_subject_modifier}"
                         )
 
                     penalty_action_modifier = 0.0
-                    candidate_action_modifier = payload.get("action_modifier", "")
+                    candidate_action_modifier = payload.get("action_modifier")
                     logger.debug(
                         f"candidate action_modifier: {candidate_action_modifier}"
                     )
-                    if (request_action_modifier or "").lower() != (
-                        candidate_action_modifier or ""
-                    ).lower():
-                        penalty_action_modifier = 0.25
+                    norm_cand_action_modifier = _normalize_modifier(
+                        candidate_action_modifier
+                    )
+                    if norm_req_action_modifier != norm_cand_action_modifier:
+                        penalty_action_modifier = 0.15
                         logger.debug(
                             f"Applied action_modifier penalty: req={request_action_modifier}, cand={candidate_action_modifier}"
                         )
                     else:
                         logger.debug(
-                            f"No action_modifier penalty applied: req_neg={request_action_modifier}, cand={candidate_action_modifier}"
+                            f"No action_modifier penalty applied: req={request_action_modifier}, cand={candidate_action_modifier}"
                         )
 
                     candidate_temperature = payload.get("temperature")

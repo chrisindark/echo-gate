@@ -16,6 +16,7 @@ class LlmUsageLogBase(BaseModel):
     cache_read_tokens: int = 0
     cache_creation_tokens: int = 0
     cost: float = 0.0
+    cost_calculated: bool = False
     latency_ms: int | None = None
     status_code: int | None = None
     is_success: bool = True

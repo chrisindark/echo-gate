@@ -21,6 +21,25 @@ from app.modules.chat.chat_schema import (
 logger = logging.getLogger(__name__)
 
 
+def _extract_http_error_detail(response: httpx.Response, fallback_msg: str) -> str:
+    try:
+        data = response.json()
+        if isinstance(data, dict):
+            err = data.get("error")
+            if isinstance(err, dict) and "message" in err:
+                return f"{fallback_msg}: {err['message']}"
+            elif isinstance(err, str):
+                return f"{fallback_msg}: {err}"
+            elif "message" in data:
+                return f"{fallback_msg}: {data['message']}"
+    except Exception:
+        pass
+    text = response.text
+    if text:
+        return f"{fallback_msg}: {text}"
+    return fallback_msg
+
+
 class LlmProviderService:
     def __init__(self) -> None:
         self.openai_api_key: str | None = config.OPENAI_API_KEY
@@ -47,8 +66,16 @@ class LlmProviderService:
         headers: dict[str, str] = {"Content-Type": "application/json"}
 
         payload_data = request.model_dump(exclude_unset=True)
-        if "service_name" in payload_data:
-            del payload_data["service_name"]
+        for key in [
+            "service_name",
+            "reasoning_effort",
+            "user_id",
+            "tenant_id",
+            "session_id",
+            "conversation_id",
+            "cache_info",
+        ]:
+            payload_data.pop(key, None)
 
         try:
             async with httpx.AsyncClient() as client:
@@ -63,15 +90,14 @@ class LlmProviderService:
                 data = response.json()
                 return ChatCompletionResponse(**data)
         except httpx.HTTPStatusError as e:
+            detail = _extract_http_error_detail(e.response, "Ollama error")
             logger.error(
                 f"Ollama returned HTTP error: {e.response.status_code} - {e.response.text}"
             )
-            raise HTTPException(
-                status_code=e.response.status_code, detail="Ollama error"
-            )
+            raise HTTPException(status_code=e.response.status_code, detail=detail)
         except Exception as e:
             logger.error(f"Failed to call Ollama: {e}")
-            raise HTTPException(status_code=502, detail="Bad Gateway")
+            raise HTTPException(status_code=502, detail=f"Bad Gateway: {e}")
 
     @log_latency()
     async def generate_gemini_completion(
@@ -172,7 +198,7 @@ class LlmProviderService:
             )
         except Exception as e:
             logger.error(f"Failed to call Gemini API: {e}")
-            raise HTTPException(status_code=502, detail="Bad Gateway")
+            raise HTTPException(status_code=502, detail=f"Bad Gateway: {e}")
 
     @log_latency()
     async def generate_openai_completion(
@@ -209,15 +235,14 @@ class LlmProviderService:
                 data = response.json()
                 return ChatCompletionResponse(**data)
         except httpx.HTTPStatusError as e:
+            detail = _extract_http_error_detail(e.response, "Upstream LLM error")
             logger.error(
                 f"Upstream API returned HTTP error: {e.response.status_code} - {e.response.text}"
             )
-            raise HTTPException(
-                status_code=e.response.status_code, detail="Upstream LLM error"
-            )
+            raise HTTPException(status_code=e.response.status_code, detail=detail)
         except Exception as e:
             logger.error(f"Failed to call upstream LLM: {e}")
-            raise HTTPException(status_code=502, detail="Bad Gateway")
+            raise HTTPException(status_code=502, detail=f"Bad Gateway: {e}")
 
     @log_latency()
     async def generate_groq_completion(
@@ -259,15 +284,14 @@ class LlmProviderService:
                 data = response.json()
                 return ChatCompletionResponse(**data)
         except httpx.HTTPStatusError as e:
+            detail = _extract_http_error_detail(e.response, "Groq LLM error")
             logger.error(
                 f"Groq API returned HTTP error: {e.response.status_code} - {e.response.text}"
             )
-            raise HTTPException(
-                status_code=e.response.status_code, detail="Groq LLM error"
-            )
+            raise HTTPException(status_code=e.response.status_code, detail=detail)
         except Exception as e:
             logger.error(f"Failed to call Groq LLM: {e}")
-            raise HTTPException(status_code=502, detail="Bad Gateway")
+            raise HTTPException(status_code=502, detail=f"Bad Gateway: {e}")
 
     @log_latency()
     async def generate_openrouter_completion(
@@ -306,15 +330,14 @@ class LlmProviderService:
                 data = response.json()
                 return ChatCompletionResponse(**data)
         except httpx.HTTPStatusError as e:
+            detail = _extract_http_error_detail(e.response, "OpenRouter LLM error")
             logger.error(
                 f"OpenRouter API returned HTTP error: {e.response.status_code} - {e.response.text}"
             )
-            raise HTTPException(
-                status_code=e.response.status_code, detail="OpenRouter LLM error"
-            )
+            raise HTTPException(status_code=e.response.status_code, detail=detail)
         except Exception as e:
             logger.error(f"Failed to call OpenRouter LLM: {e}")
-            raise HTTPException(status_code=502, detail="Bad Gateway")
+            raise HTTPException(status_code=502, detail=f"Bad Gateway: {e}")
 
     def generate_mock_response(
         self, request: ChatCompletionRequest

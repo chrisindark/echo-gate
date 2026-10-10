@@ -80,26 +80,55 @@ class EntityExtractorService:
 
         return extracted
 
+    def get_tags_and_max_scope(self, text: str) -> tuple[list[str], CacheScope]:
+        """
+        Extracts entity tags and determines the maximum allowable cache scope in a single pass.
+        Sensitive entities (e.g. EMAIL, API_KEY, ACCOUNT_ID, UUID) are hashed with SHA-256
+        to avoid storing raw secrets and PII in Qdrant payloads, and downgrade max scope to USER.
+        Tags are sorted for determinism.
+        """
+        tags: list[str] = []
+        sensitive_types_found: set[str] = set()
+
+        entities_dict = self.extract_entities(text)
+
+        for entity_type, values in entities_dict.items():
+            is_sensitive = entity_type in self.sensitive_entity_types
+            if is_sensitive and values:
+                sensitive_types_found.add(entity_type)
+
+            for val in values:
+                clean_val = val.strip().lower()
+                if is_sensitive:
+                    hashed_val = hashlib.sha256(clean_val.encode()).hexdigest()
+                    tags.append(f"{entity_type}:{hashed_val}")
+                else:
+                    tags.append(f"{entity_type}:{clean_val}")
+
+        tags.sort()
+
+        if sensitive_types_found:
+            types_str = ", ".join(sorted(sensitive_types_found))
+            logger.info(
+                f"Sensitive entity ({types_str}) detected. Downgrading max scope to USER."
+            )
+            return tags, CacheScope.USER
+
+        return tags, CacheScope.GLOBAL
+
+    extract_tags_and_scope = get_tags_and_max_scope
+    extract_tags_and_max_scope = get_tags_and_max_scope
+    get_tags_and_scope = get_tags_and_max_scope
+
     def get_qdrant_entity_tags(self, text: str) -> list[str]:
         """
         Extracts entities and formats them as flat string tags for Qdrant payload.
         Format: "TYPE:value" (e.g., "VERSION:3.11", "URL:https://google.com").
         Sensitive entities (e.g. EMAIL, API_KEY, ACCOUNT_ID, UUID) are hashed with SHA-256
         to avoid storing raw secrets and PII in Qdrant payloads.
+        Returns sorted tags for determinism.
         """
-        tags = []
-        entities_dict = self.extract_entities(text)
-
-        for entity_type, values in entities_dict.items():
-            for val in values:
-                # Clean up and normalize the tag
-                clean_val = val.strip().lower()
-                if entity_type in self.sensitive_entity_types:
-                    hashed_val = hashlib.sha256(clean_val.encode()).hexdigest()
-                    tags.append(f"{entity_type}:{hashed_val}")
-                else:
-                    tags.append(f"{entity_type}:{clean_val}")
-
+        tags, _ = self.get_tags_and_max_scope(text)
         return tags
 
     def determine_max_scope(self, text: str) -> CacheScope:
@@ -107,14 +136,5 @@ class EntityExtractorService:
         Determines the maximum allowable cache scope based on extracted entities.
         If sensitive account information is detected, restricts from GLOBAL to USER.
         """
-
-        entities_dict = self.extract_entities(text)
-
-        for sensitive_type in self.sensitive_entity_types:
-            if entities_dict.get(sensitive_type):
-                logger.info(
-                    f"Sensitive entity ({sensitive_type}) detected. Downgrading max scope to USER."
-                )
-                return CacheScope.USER
-
-        return CacheScope.GLOBAL
+        _, scope = self.get_tags_and_max_scope(text)
+        return scope

@@ -17,6 +17,20 @@ services:
     networks:
       - app-network
 
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=echo_gate
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: always
+    networks:
+      - app-network
+
   echo-gate:
     build:
       context: .
@@ -24,24 +38,33 @@ services:
       - "8000:8000"
     environment:
       - QDRANT_URL=http://qdrant:6333
-      - REDIS_URL=redis://localhost:6379
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_REDIS_URL=redis://redis:6379/1
     depends_on:
       - qdrant
+      - redis
     restart: always
+    networks:
+      - app-network
 
   celery_worker:
     build:
       context: .
     environment:
       - QDRANT_URL=http://qdrant:6333
-      - REDIS_URL=redis://redis:6379
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_REDIS_URL=redis://redis:6379/1
     depends_on:
       - redis
+      - qdrant
     command: poetry run celery -A app.core.celery_app worker --loglevel=info
     restart: always
+    networks:
+      - app-network
 
 volumes:
   qdrant_data:
+  postgres_data:
 
 networks:
   app-network:
