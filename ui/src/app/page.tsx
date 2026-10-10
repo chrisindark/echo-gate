@@ -314,13 +314,18 @@ export default function Home() {
         data.response.choices.length > 0
       ) {
         setResponse(data.response.choices[0].message.content);
-        if (data.response.cache_info) setCacheInfo(data.response.cache_info);
+        if (data.response.cache_info) {
+          setCacheInfo(data.response.cache_info);
+          setCacheStatus(data.response.cache_info.cache_hit ? 'HIT' : 'MISS');
+        }
       } else {
         setResponse(JSON.stringify(data, null, 2));
       }
 
       if (data.cache_info) {
         setCacheInfo(data.cache_info);
+        setCacheStatus(data.cache_info.cache_hit ? 'HIT' : 'MISS');
+
         if (data.cache_info.exact_hash) {
           window.history.replaceState(
             {},
