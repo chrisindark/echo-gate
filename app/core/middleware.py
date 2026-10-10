@@ -4,6 +4,7 @@ import uuid
 
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.core.logger import correlation_id_ctx_var
 
@@ -11,10 +12,10 @@ logger = logging.getLogger(__name__)
 
 
 class CorrelationIdMiddleware:
-    def __init__(self, app):
+    def __init__(self, app: ASGIApp):
         self.app = app
 
-    async def __call__(self, scope, receive, send):
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] not in ("http", "websocket"):
             return await self.app(scope, receive, send)
 
@@ -34,12 +35,12 @@ class CorrelationIdMiddleware:
         start_time = time.perf_counter()
         status_code = 500
 
-        async def send_wrapper(message):
+        async def send_wrapper(message: Message) -> None:
             nonlocal status_code
             if message["type"] == "http.response.start":
                 status_code = message.get("status", 500)
                 # Add the correlation ID to the response headers
-                headers = message.get("headers", [])
+                headers = list(message.get("headers", []))
                 headers.append((b"x-correlation-id", correlation_id.encode("latin1")))
                 message["headers"] = headers
             await send(message)

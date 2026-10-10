@@ -4,9 +4,9 @@ import inspect
 import logging
 import os
 import time
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable
 from contextvars import ContextVar
-from typing import Any, TypeVar, overload
+from typing import Any, TypeVar
 
 # Context variable for storing the correlation ID
 correlation_id_ctx_var: ContextVar[str] = ContextVar("correlation_id", default="-")
@@ -77,28 +77,12 @@ def setup_logger():
     logging.getLogger("uvicorn.access").disabled = True
 
 
-# Type variables for decorator
-P = TypeVar("P")
-R = TypeVar("R")
-
-
-@overload
-def log_latency(
-    action_name: str | None = None,
-) -> Callable[
-    [Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]
-]: ...
-
-
-@overload
-def log_latency(
-    action_name: str | None = None,
-) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
+F = TypeVar("F", bound=Callable[..., Any])
 
 
 def log_latency(
     action_name: str | None = None,
-) -> Callable[[Callable[P, Any]], Callable[P, Any]]:
+) -> Callable[[F], F]:
     """
     A decorator to log the latency of synchronous and asynchronous functions.
     """

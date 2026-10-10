@@ -1,11 +1,12 @@
 import logging
-from collections.abc import Callable
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal, SessionLocalRead
+from app.core.database import SessionFactory, SessionLocal, SessionLocalRead
 from app.modules.llm_usage.llm_usage_model import LlmUsageLog
 from app.modules.llm_usage.llm_usage_schema import LlmUsageLogCreate, LlmUsageLogUpdate
 
@@ -13,10 +14,15 @@ logger = logging.getLogger(__name__)
 
 
 class LlmUsageService:
+    _session_factory: SessionFactory | None
+    _session_factory_read: SessionFactory | None
+    _db_session: Session | None
+    _db_session_read: Session | None
+
     def __init__(
         self,
-        session_factory: Callable[[], Session] | Session | None = None,
-        session_factory_read: Callable[[], Session] | Session | None = None,
+        session_factory: SessionFactory | Session | None = None,
+        session_factory_read: SessionFactory | Session | None = None,
         db_session: Session | None = None,
         db_session_read: Session | None = None,
     ):
@@ -38,15 +44,18 @@ class LlmUsageService:
         self._db_session_read = db_session_read
 
     @contextmanager
-    def _get_session(self):
+    def _get_session(self) -> Generator[Session, None, None]:
         if self._db_session is not None:
             yield self._db_session
-        else:
+        elif self._session_factory is not None:
             with self._session_factory() as s:
+                yield s
+        else:
+            with SessionLocal() as s:
                 yield s
 
     @contextmanager
-    def _get_read_session(self):
+    def _get_read_session(self) -> Generator[Session, None, None]:
         if self._db_session_read is not None:
             yield self._db_session_read
         elif self._db_session is not None:
@@ -54,8 +63,11 @@ class LlmUsageService:
         elif self._session_factory_read is not None:
             with self._session_factory_read() as s:
                 yield s
-        else:
+        elif self._session_factory is not None:
             with self._session_factory() as s:
+                yield s
+        else:
+            with SessionLocalRead() as s:
                 yield s
 
     def get_llm_usage_logs(
@@ -156,7 +168,7 @@ class LlmUsageService:
             logger.exception("Failed to get pending cost calculations")
             raise
 
-    def bulk_update_costs(self, updates: list[dict]) -> bool:
+    def bulk_update_costs(self, updates: list[dict[str, Any]]) -> bool:
         """
         Bulk update cost and cost_calculated fields for LLM usage logs.
         `updates` should be a list of dicts, e.g.:
