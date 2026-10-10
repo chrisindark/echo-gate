@@ -1,13 +1,13 @@
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Generator
 from contextlib import contextmanager
 
 from fastapi import HTTPException, status
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal
+from app.core.database import SessionFactory, SessionLocal
 from app.modules.llm_quota.llm_quota_model import LlmQuotaRule
 from app.modules.redis.redis_service import RedisService
 
@@ -15,10 +15,14 @@ logger = logging.getLogger(__name__)
 
 
 class LlmQuotaService:
+    redis_service: RedisService
+    _session_factory: SessionFactory | None
+    _db_session: Session | None
+
     def __init__(
         self,
         redis_service: RedisService,
-        session_factory: Callable[[], Session] | Session | None = None,
+        session_factory: SessionFactory | Session | None = None,
         db_session: Session | None = None,
     ):
         self.redis_service = redis_service
@@ -33,11 +37,14 @@ class LlmQuotaService:
         self._db_session = db_session
 
     @contextmanager
-    def _get_session(self):
+    def _get_session(self) -> Generator[Session, None, None]:
         if self._db_session is not None:
             yield self._db_session
-        else:
+        elif self._session_factory is not None:
             with self._session_factory() as s:
+                yield s
+        else:
+            with SessionLocal() as s:
                 yield s
 
     async def get_applicable_limits(
@@ -46,7 +53,7 @@ class LlmQuotaService:
         model: str | None = None,
         user: str | None = None,
         tenant_id: str | None = None,
-    ):
+    ) -> tuple[int | None, int | None]:
         with self._get_session() as session:
             query = session.query(LlmQuotaRule).filter(LlmQuotaRule.is_active.is_(True))
 
@@ -75,18 +82,20 @@ class LlmQuotaService:
 
             rules = query.all()
 
-            max_rpm = None
-            max_tpm = None
+            max_rpm: int | None = None
+            max_tpm: int | None = None
 
             for rule in rules:
-                if rule.max_rpm is not None and (
-                    max_rpm is None or rule.max_rpm < max_rpm
+                rule_max_rpm = getattr(rule, "max_rpm", None)
+                if rule_max_rpm is not None and (
+                    max_rpm is None or rule_max_rpm < max_rpm
                 ):
-                    max_rpm = rule.max_rpm
-                if rule.max_tpm is not None and (
-                    max_tpm is None or rule.max_tpm < max_tpm
+                    max_rpm = int(rule_max_rpm)
+                rule_max_tpm = getattr(rule, "max_tpm", None)
+                if rule_max_tpm is not None and (
+                    max_tpm is None or rule_max_tpm < max_tpm
                 ):
-                    max_tpm = rule.max_tpm
+                    max_tpm = int(rule_max_tpm)
 
             return max_rpm, max_tpm
 
@@ -166,7 +175,7 @@ class LlmQuotaService:
         provider: str | None = None,
         model: str | None = None,
         user_id: str | None = None,
-    ):
+    ) -> None:
         redis_suffix = (
             f"{api_key}:{provider or 'any'}:{model or 'any'}:{user_id or 'any'}"
         )

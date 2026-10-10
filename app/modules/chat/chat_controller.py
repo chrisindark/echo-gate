@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
 from app.core.dependencies import get_llm_router_service
@@ -28,8 +28,6 @@ api_v1_router = APIRouter(prefix="/api/v1/chat", tags=["Chat"])
 async def create_chat_completion(
     http_request: Request,
     request: ChatCompletionRequest,
-    # background_tasks: BackgroundTasks,
-    response: Response,
     llmService: LlmRouterService = Depends(get_llm_router_service),
 ) -> ChatCompletionResponse:
     """

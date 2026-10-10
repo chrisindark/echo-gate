@@ -11,6 +11,7 @@ from app.core.config import config
 from app.core.dependencies import DependencyContainer
 from app.core.logger import setup_logger
 from app.core.middleware import CorrelationIdMiddleware, UserMiddleware
+from app.modules.analytics.analytics_controller import api_v1_router as analytics_router
 from app.modules.chat.chat_controller import api_v1_router as chat_router
 from app.modules.gateway_requests.gateway_requests_controller import (
     api_v1_router as gateway_requests_router,
@@ -18,7 +19,6 @@ from app.modules.gateway_requests.gateway_requests_controller import (
 from app.modules.llm_usage.llm_usage_controller import api_v1_router as llm_usage_router
 from app.modules.qdrant.qdrant_controller import api_v1_router as qdrant_router
 from app.modules.verifiers.verifier_controller import api_v1_router as verifier_router
-from app.modules.analytics.analytics_controller import api_v1_router as analytics_router
 
 # Initialize the custom colored logger with correlation ID
 setup_logger()
