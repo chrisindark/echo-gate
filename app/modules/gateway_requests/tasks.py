@@ -1,10 +1,13 @@
 import asyncio
 import logging
 import time
+import uuid
 
-from app.core.celery_app import celery_app
+from fastapi import BackgroundTasks
+
 from app.core.config import config
-from app.core.database import SessionLocal
+from app.core.database import task_db_session
+from app.core.helpers import dispatch_task
 from app.modules.gateway_requests import (
     EvaluationStatus,
     GatewayRequestLog,
@@ -12,9 +15,10 @@ from app.modules.gateway_requests import (
 )
 from app.modules.gateway_requests.gateway_requests_service import GatewayRequestsService
 from app.modules.llm.llm_provider_service import LlmProviderService
-from app.modules.verifiers.cross_encoder_service import CrossEncoderService
-from app.modules.verifiers.instruction_service import InstructionVerifier
-from app.modules.verifiers.judge_service import JudgeService
+from app.modules.verifier.cross_encoder_service import CrossEncoderService
+from app.modules.verifier.instruction_service import InstructionVerifier
+from app.modules.verifier.judge_service import JudgeService
+from app.worker.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
@@ -97,13 +101,13 @@ async def _evaluate_single_request(
     gateway_service.update_evaluation(gateway_request.id, update_data)
 
 
-async def _evaluate_batch_async(task_id: str):
+async def _evaluate_batch_async(task_id: str, db_session=None):
     start_time = time.time()
 
-    with SessionLocal() as db_session:
+    with task_db_session(db_session=db_session) as session:
         try:
             gateway_service = GatewayRequestsService(
-                db_session=db_session, db_session_read=db_session
+                db_session=session, db_session_read=session
             )
             cross_encoder_service = CrossEncoderService()
             llm_provider_service = LlmProviderService()
@@ -151,8 +155,10 @@ async def _evaluate_batch_async(task_id: str):
 @celery_app.task(
     bind=True, name="app.modules.gateway_requests.tasks.evaluate_pending_requests"
 )
-def evaluate_pending_requests(self):
-    task_id = self.request.id
+def evaluate_pending_requests(self=None):
+    task_id = (
+        getattr(getattr(self, "request", None), "id", None) or f"bg-{uuid.uuid4()}"
+    )
     logger.info(f"[{task_id}] Starting evaluate_pending_requests task")
     start_time = time.time()
 
@@ -165,3 +171,25 @@ def evaluate_pending_requests(self):
         f"[{task_id}] Evaluated {evaluated_count} logs. (latency: {latency_ms}ms)"
     )
     return f"Evaluated {evaluated_count} requests."
+
+
+async def evaluate_pending_requests_background(task_id: str | None = None) -> int:
+    """Async execution entrypoint for FastAPI BackgroundTasks without spinning a new event loop."""
+    tid = task_id or f"bg-{uuid.uuid4()}"
+    logger.info(f"[{tid}] Starting evaluate_pending_requests in background task")
+    return await _evaluate_batch_async(tid)
+
+
+def dispatch_evaluate_pending_requests(
+    background_tasks: BackgroundTasks | None = None,
+) -> tuple[str, bool]:
+    """
+    Dispatch evaluate_pending_requests to Celery if online, or fallback to background_tasks.
+    """
+    return dispatch_task(
+        evaluate_pending_requests,
+        evaluate_pending_requests_background,
+        background_tasks=background_tasks,
+        task_name="evaluate_pending_requests",
+        task_id_prefix="eval-bg-",
+    )

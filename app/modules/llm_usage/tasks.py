@@ -1,33 +1,36 @@
 import logging
 import time
+import uuid
 from decimal import Decimal
 
+from fastapi import BackgroundTasks
+from sqlalchemy.orm import Session
 
-from app.core.celery_app import celery_app
-from app.core.database import SessionLocal
+from app.core.database import task_db_session
+from app.core.helpers import dispatch_task
 from app.core.pricing import get_model_prices
 from app.modules.llm_usage.llm_usage_schema import LlmUsageLogUpdate
 from app.modules.llm_usage.llm_usage_service import LlmUsageService
+from app.worker.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
 
-@celery_app.task(
-    bind=True, name="app.modules.llm_usage.tasks.process_uncalculated_costs"
-)
-def process_uncalculated_costs(self):
+def execute_process_uncalculated_costs_job(
+    task_id: str | None = None, db_session: Session | None = None
+) -> str:
     """
-    Periodically checks for usage logs that don't have cost calculated.
-    Fetches the price for each model and updates the cost.
+    Executes cost calculations for pending usage logs.
+    Shared across Celery and in-process background task fallback.
     """
-    task_id = self.request.id
-    logger.info(f"[{task_id}] Starting process_uncalculated_costs task")
+    tid = task_id or f"bg-{uuid.uuid4()}"
+    logger.info(f"[{tid}] Starting process_uncalculated_costs job")
     start_time = time.time()
 
-    with SessionLocal() as db_session:
+    with task_db_session(db_session=db_session) as session:
         try:
             llm_usage_service = LlmUsageService(
-                db_session=db_session, db_session_read=db_session
+                db_session=session, db_session_read=session
             )
             # Fetch up to 1000 uncalculated rows to avoid long transactions
             uncalculated_logs = llm_usage_service.get_pending_cost_calculations(
@@ -38,7 +41,7 @@ def process_uncalculated_costs(self):
                 end_time = time.time()
                 latency_ms = int((end_time - start_time) * 1000)
                 logger.info(
-                    f"[{task_id}] No uncalculated costs found. (latency: {latency_ms}ms)"
+                    f"[{tid}] No uncalculated costs found. (latency: {latency_ms}ms)"
                 )
                 return "No rows to update."
 
@@ -48,13 +51,11 @@ def process_uncalculated_costs(self):
                     str(log.service_name), str(log.model)
                 )
                 # Calculate cost based on tokens.
-                # cache_read_tokens are usually billed at a discount in actual APIs (like OpenAI, Anthropic),
-                # but for this MVP, we just use standard prompt and completion tokens.
                 prompt_cost = (log.prompt_tokens or 0) * prompt_price
                 completion_cost = (log.completion_tokens or 0) * completion_price
                 total_cost = prompt_cost + completion_cost
                 logger.debug(
-                    f"[{task_id}] Log {log.id} - Prompt: {prompt_price}, Completion: {completion_price}, Total: {total_cost}"
+                    f"[{tid}] Log {log.id} - Prompt: {prompt_price}, Completion: {completion_price}, Total: {total_cost}"
                 )
                 log.cost = Decimal(str(total_cost))
                 log.cost_calculated = True
@@ -70,13 +71,42 @@ def process_uncalculated_costs(self):
             end_time = time.time()
             latency_ms = int((end_time - start_time) * 1000)
             logger.info(
-                f"[{task_id}] Successfully calculated and updated costs for {updated_count} logs. (latency: {latency_ms}ms)"
+                f"[{tid}] Successfully calculated and updated costs for {updated_count} logs. (latency: {latency_ms}ms)"
             )
             return f"Updated {updated_count} rows."
         except Exception as e:
             end_time = time.time()
             latency_ms = int((end_time - start_time) * 1000)
             logger.error(
-                f"[{task_id}] Error calculating costs: {e} (latency: {latency_ms}ms)"
+                f"[{tid}] Error calculating costs: {e} (latency: {latency_ms}ms)"
             )
             raise
+
+
+@celery_app.task(
+    bind=True, name="app.modules.llm_usage.tasks.process_uncalculated_costs"
+)
+def process_uncalculated_costs(self=None):
+    """
+    Periodically checks for usage logs that don't have cost calculated.
+    Fetches the price for each model and updates the cost.
+    """
+    task_id = (
+        getattr(getattr(self, "request", None), "id", None) or f"bg-{uuid.uuid4()}"
+    )
+    return execute_process_uncalculated_costs_job(task_id=task_id)
+
+
+def dispatch_process_uncalculated_costs(
+    background_tasks: BackgroundTasks | None = None,
+) -> tuple[str, bool]:
+    """
+    Dispatch process_uncalculated_costs to Celery if online, or fallback to background_tasks.
+    """
+    return dispatch_task(
+        process_uncalculated_costs,
+        execute_process_uncalculated_costs_job,
+        background_tasks=background_tasks,
+        task_name="process_uncalculated_costs",
+        task_id_prefix="cost-bg-",
+    )

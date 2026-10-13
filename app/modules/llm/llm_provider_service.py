@@ -1,6 +1,8 @@
+import json
 import logging
 import time
 import uuid
+from typing import Any
 
 import httpx
 from fastapi import HTTPException
@@ -15,6 +17,8 @@ from app.modules.chat.chat_schema import (
     ChatCompletionResponse,
     ChatMessage,
     Choice,
+    FunctionCall,
+    ToolCall,
     Usage,
 )
 
@@ -76,6 +80,10 @@ class LlmProviderService:
             "cache_info",
         ]:
             payload_data.pop(key, None)
+        if payload_data.get("tools") is None:
+            payload_data.pop("tools", None)
+        if payload_data.get("tool_choice") is None:
+            payload_data.pop("tool_choice", None)
 
         try:
             async with httpx.AsyncClient() as client:
@@ -111,20 +119,60 @@ class LlmProviderService:
 
         logger.info(f"Forwarding request to Gemini ({request.model})...")
 
-        contents = []
+        contents: Any = []
         system_instruction = None
+        tool_call_names: dict[str, str] = {}
+
         for msg in request.messages:
             if msg.role == "system":
                 system_instruction = msg.content
+            elif msg.role == "tool":
+                fn_name = msg.name or tool_call_names.get(
+                    msg.tool_call_id or "", "function"
+                )
+                resp_payload = {}
+                if msg.content:
+                    try:
+                        parsed = json.loads(msg.content)
+                        resp_payload = (
+                            parsed if isinstance(parsed, dict) else {"result": parsed}
+                        )
+                    except Exception:
+                        resp_payload = {"result": msg.content}
+                part = types.Part.from_function_response(
+                    name=fn_name, response=resp_payload
+                )
+                contents.append(types.Content(role="tool", parts=[part]))
             else:
                 role = "user" if msg.role == "user" else "model"
-                contents.append(
-                    types.Content(
-                        role=role, parts=[types.Part.from_text(text=msg.content)]
-                    )
-                )
+                parts = []
+                if msg.content:
+                    parts.append(types.Part.from_text(text=msg.content))
+                if msg.tool_calls:
+                    for tc in msg.tool_calls:
+                        if tc.id:
+                            tool_call_names[tc.id] = tc.function.name
+                        try:
+                            args = (
+                                json.loads(tc.function.arguments)
+                                if tc.function.arguments
+                                else {}
+                            )
+                            if not isinstance(args, dict):
+                                args = {"value": args}
+                        except Exception:
+                            args = {}
+                        parts.append(
+                            types.Part.from_function_call(
+                                name=tc.function.name,
+                                args=args,
+                            )
+                        )
+                if not parts:
+                    parts.append(types.Part.from_text(text=""))
+                contents.append(types.Content(role=role, parts=parts))
 
-        config_kwargs = {}
+        config_kwargs: dict[str, Any] = {}
         if request.temperature is not None:
             config_kwargs["temperature"] = request.temperature
         if request.top_p is not None:
@@ -133,6 +181,55 @@ class LlmProviderService:
             config_kwargs["max_output_tokens"] = request.max_tokens
         if system_instruction:
             config_kwargs["system_instruction"] = system_instruction
+
+        if request.tools:
+            function_declarations = []
+            for tool in request.tools:
+                fn = tool.function
+                function_declarations.append(
+                    types.FunctionDeclaration(
+                        name=fn.name,
+                        description=fn.description,
+                        parameters_json_schema=fn.parameters,
+                    )
+                )
+            if function_declarations:
+                config_kwargs["tools"] = [
+                    types.Tool(function_declarations=function_declarations)
+                ]
+
+        if request.tool_choice:
+            tool_choice = request.tool_choice
+            if isinstance(tool_choice, str):
+                tc_lower = tool_choice.lower()
+                if tc_lower == "auto":
+                    config_kwargs["tool_config"] = types.ToolConfig(
+                        function_calling_config=types.FunctionCallingConfig(
+                            mode=types.FunctionCallingConfigMode.AUTO
+                        )
+                    )
+                elif tc_lower == "none":
+                    config_kwargs["tool_config"] = types.ToolConfig(
+                        function_calling_config=types.FunctionCallingConfig(
+                            mode=types.FunctionCallingConfigMode.NONE
+                        )
+                    )
+                elif tc_lower == "required":
+                    config_kwargs["tool_config"] = types.ToolConfig(
+                        function_calling_config=types.FunctionCallingConfig(
+                            mode=types.FunctionCallingConfigMode.ANY
+                        )
+                    )
+            elif isinstance(tool_choice, dict):
+                fn_dict = tool_choice.get("function", {})
+                fn_name = fn_dict.get("name") if isinstance(fn_dict, dict) else None
+                if fn_name:
+                    config_kwargs["tool_config"] = types.ToolConfig(
+                        function_calling_config=types.FunctionCallingConfig(
+                            mode=types.FunctionCallingConfigMode.ANY,
+                            allowed_function_names=[fn_name],
+                        )
+                    )
 
         if request.response_format:
             response_format_type = request.response_format.get("type")
@@ -172,6 +269,28 @@ class LlmProviderService:
                 else 0
             )
 
+            tool_calls = []
+            if response.function_calls:
+                for fc in response.function_calls:
+                    call_id = fc.id or f"call_{uuid.uuid4().hex[:12]}"
+                    try:
+                        args_str = json.dumps(fc.args or {})
+                    except Exception:
+                        args_str = "{}"
+                    tool_calls.append(
+                        ToolCall(
+                            id=call_id,
+                            type="function",
+                            function=FunctionCall(
+                                name=fc.name,
+                                arguments=args_str,
+                            ),
+                        )
+                    )
+
+            finish_reason = "tool_calls" if tool_calls else "stop"
+            content_text = response.text if response.text else None
+
             return ChatCompletionResponse(
                 id=f"chatcmpl-{uuid.uuid4().hex[:12]}",
                 created=int(time.time()),
@@ -180,9 +299,11 @@ class LlmProviderService:
                     Choice(
                         index=0,
                         message=ChatMessage(
-                            role="assistant", content=response.text or ""
+                            role="assistant",
+                            content=content_text,
+                            tool_calls=tool_calls if tool_calls else None,
                         ),
-                        finish_reason="stop",
+                        finish_reason=finish_reason,
                     )
                 ],
                 usage=Usage(
@@ -215,10 +336,22 @@ class LlmProviderService:
             "Content-Type": "application/json",
         }
 
-        # Remove service_name before sending to OpenAI
+        # Remove service_name and metadata fields before sending to OpenAI
         payload_data = request.model_dump(exclude_unset=True)
-        if "service_name" in payload_data:
-            del payload_data["service_name"]
+        for key in [
+            "service_name",
+            "reasoning_effort",
+            "user_id",
+            "tenant_id",
+            "session_id",
+            "conversation_id",
+            "cache_info",
+        ]:
+            payload_data.pop(key, None)
+        if payload_data.get("tools") is None:
+            payload_data.pop("tools", None)
+        if payload_data.get("tool_choice") is None:
+            payload_data.pop("tool_choice", None)
 
         try:
             async with httpx.AsyncClient() as client:
@@ -263,6 +396,7 @@ class LlmProviderService:
         payload_data = request.model_dump(exclude_unset=True)
         for key in [
             "service_name",
+            "reasoning_effort",
             "user_id",
             "tenant_id",
             "session_id",
@@ -270,6 +404,10 @@ class LlmProviderService:
             "cache_info",
         ]:
             payload_data.pop(key, None)
+        if payload_data.get("tools") is None:
+            payload_data.pop("tools", None)
+        if payload_data.get("tool_choice") is None:
+            payload_data.pop("tool_choice", None)
 
         try:
             async with httpx.AsyncClient() as client:
@@ -310,10 +448,22 @@ class LlmProviderService:
             "X-Title": "Echo Gate",  # Optional
         }
 
-        # Remove service_name before sending
+        # Remove service_name and metadata fields before sending
         payload_data = request.model_dump(exclude_unset=True)
-        if "service_name" in payload_data:
-            del payload_data["service_name"]
+        for key in [
+            "service_name",
+            "reasoning_effort",
+            "user_id",
+            "tenant_id",
+            "session_id",
+            "conversation_id",
+            "cache_info",
+        ]:
+            payload_data.pop(key, None)
+        if payload_data.get("tools") is None:
+            payload_data.pop("tools", None)
+        if payload_data.get("tool_choice") is None:
+            payload_data.pop("tool_choice", None)
 
         try:
             async with httpx.AsyncClient() as client:
@@ -342,6 +492,39 @@ class LlmProviderService:
     def generate_mock_response(
         self, request: ChatCompletionRequest
     ) -> ChatCompletionResponse:
+        if request.tools and request.tool_choice != "none":
+            target_fn_name = None
+            if isinstance(request.tool_choice, dict):
+                target_fn_name = request.tool_choice.get("function", {}).get("name")
+            if not target_fn_name and request.tools:
+                target_fn_name = request.tools[0].function.name
+
+            mock_tool_call = ToolCall(
+                id=f"call_{uuid.uuid4().hex[:12]}",
+                type="function",
+                function=FunctionCall(
+                    name=target_fn_name or "mock_tool", arguments="{}"
+                ),
+            )
+            return ChatCompletionResponse(
+                id=f"chatcmpl-{uuid.uuid4().hex[:12]}",
+                created=int(time.time()),
+                model=request.model,
+                choices=[
+                    Choice(
+                        index=0,
+                        message=ChatMessage(
+                            role="assistant",
+                            content=None,
+                            tool_calls=[mock_tool_call],
+                        ),
+                        finish_reason="tool_calls",
+                    )
+                ],
+                usage=Usage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
+                system_fingerprint="mock",
+            )
+
         return ChatCompletionResponse(
             id=f"chatcmpl-{uuid.uuid4().hex[:12]}",
             created=int(time.time()),

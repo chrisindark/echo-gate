@@ -2,8 +2,8 @@ import logging
 from typing import Any
 
 from app.core.logger import log_latency
-from app.modules.verifiers.cross_encoder_service import CrossEncoderService
-from app.modules.verifiers.instruction_service import InstructionVerifier
+from app.modules.verifier.cross_encoder_service import CrossEncoderService
+from app.modules.verifier.instruction_service import InstructionVerifier
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +93,7 @@ class RerankerService:
 
             reranked = []
 
-            for candidate, score in zip(candidates, scores):
+            for candidate, score in zip(candidates, scores, strict=False):
                 try:
                     try:
                         c_text = (
@@ -237,7 +237,7 @@ class RerankerService:
                     else:
                         try:
                             candidate_temperature = float(candidate_temperature)
-                        except (ValueError, TypeError):
+                        except ValueError, TypeError:
                             candidate_temperature = 0.0
 
                     logger.debug(f"candidate temperature: {candidate_temperature}")

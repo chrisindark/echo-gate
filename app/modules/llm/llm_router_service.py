@@ -79,8 +79,8 @@ class LlmRouterService:
         intent_classifier_service: IntentClassifierService,
         entity_extractor_service: EntityExtractorService,
         llm_usage_service: LlmUsageService,
-        llm_quota_service: LlmQuotaService = None,
-        gateway_requests_service: GatewayRequestsService = None,
+        llm_quota_service: LlmQuotaService | None = None,
+        gateway_requests_service: GatewayRequestsService | None = None,
     ) -> None:
         self.llm_provider_service = llm_provider_service
         self.embedding_service = embedding_service
@@ -255,6 +255,20 @@ class LlmRouterService:
         # use the version keys in the cache key in future to invalidate older cache keys
         # embedding version
         # cache key version
+        messages_list = []
+        for msg in request.messages:
+            msg_dict: dict[str, Any] = {
+                "role": msg.role,
+                "content": msg.content,
+            }
+            if msg.name:
+                msg_dict["name"] = msg.name
+            if msg.tool_call_id:
+                msg_dict["tool_call_id"] = msg.tool_call_id
+            if msg.tool_calls:
+                msg_dict["tool_calls"] = [tc.model_dump() for tc in msg.tool_calls]
+            messages_list.append(msg_dict)
+
         key_dict = {
             "service_name": request.service_name,
             "model": request.model,
@@ -270,9 +284,15 @@ class LlmRouterService:
             "presence_penalty": request.presence_penalty,
             "frequency_penalty": request.frequency_penalty,
             "logit_bias": request.logit_bias,
-            "messages": [
-                {"role": msg.role, "content": msg.content} for msg in request.messages
-            ],
+            "tools": (
+                [t.model_dump() for t in request.tools] if request.tools else None
+            ),
+            "tool_choice": (
+                request.tool_choice
+                if isinstance(request.tool_choice, (str, int, float, bool, type(None)))
+                else json.dumps(request.tool_choice, sort_keys=True)
+            ),
+            "messages": messages_list,
         }
         key_str = json.dumps(key_dict, sort_keys=True)
         return hashlib.sha256(key_str.encode()).hexdigest()
@@ -303,17 +323,39 @@ class LlmRouterService:
         return res
 
     def _prepare_prompts(self, request: ChatCompletionRequest) -> tuple[str, str, str]:
-        prompt_text = "|\n".join(
-            [f"{msg.role}: {msg.content}" for msg in request.messages]
-        )
+        prompt_parts = []
+        for msg in request.messages:
+            parts = []
+            if msg.content:
+                parts.append(msg.content)
+            if msg.tool_calls:
+                tc_str = ",".join(
+                    [
+                        f"{tc.function.name}({tc.function.arguments})"
+                        for tc in msg.tool_calls
+                    ]
+                )
+                parts.append(f"[tool_calls: {tc_str}]")
+            if msg.tool_call_id:
+                parts.append(f"[call_id: {msg.tool_call_id}]")
+            content_desc = " ".join(parts) if parts else ""
+            prompt_parts.append(f"{msg.role}: {content_desc}")
+
+        prompt_text = "|\n".join(prompt_parts)
         prompt_text = f"model:{request.model}|{prompt_text}"
 
         system_messages = [
-            msg.content for msg in request.messages if msg.role == "system"
+            msg.content
+            for msg in request.messages
+            if msg.role == "system" and msg.content
         ]
         system_prompt = "\n".join(system_messages) if system_messages else ""
 
-        user_messages = [msg.content for msg in request.messages if msg.role == "user"]
+        user_messages = [
+            msg.content
+            for msg in request.messages
+            if msg.role == "user" and msg.content
+        ]
         user_prompt = "\n".join(user_messages) if user_messages else ""
 
         return prompt_text, system_prompt, user_prompt
@@ -379,6 +421,12 @@ class LlmRouterService:
         if not self.llm_cache_service:
             logger.info(
                 "Qdrant cache service is not available, skipping semantic search"
+            )
+            return result
+
+        if request.tools:
+            logger.info(
+                "Request contains tools/function declarations; bypassing semantic cache to ensure deterministic tool execution"
             )
             return result
 
@@ -844,7 +892,7 @@ class LlmRouterService:
         self,
         request: ChatCompletionRequest,
         response: ChatCompletionResponse,
-        intent: IntentEnum = None,
+        intent: IntentEnum | None = None,
         time_sensitivity: float = 0.0,
         core_operation: str | None = None,
         core_subject: str | None = None,
@@ -1268,6 +1316,17 @@ class LlmRouterService:
                 and response.choices[0].message
                 else None
             )
+            if (
+                output_text is None
+                and response
+                and response.choices
+                and len(response.choices) > 0
+                and response.choices[0].message
+                and response.choices[0].message.tool_calls
+            ):
+                output_text = json.dumps(
+                    [tc.model_dump() for tc in response.choices[0].message.tool_calls]
+                )
             prompt_tokens = (
                 response.usage.prompt_tokens
                 if response and response.usage and response.usage.prompt_tokens
@@ -1402,6 +1461,17 @@ class LlmRouterService:
                 and response.choices[0].message
                 else None
             )
+            if (
+                output_text is None
+                and response
+                and response.choices
+                and len(response.choices) > 0
+                and response.choices[0].message
+                and response.choices[0].message.tool_calls
+            ):
+                output_text = json.dumps(
+                    [tc.model_dump() for tc in response.choices[0].message.tool_calls]
+                )
 
             effective_model = model or (
                 response.model if response and response.model else request.model
@@ -1468,7 +1538,12 @@ class LlmRouterService:
 
         actual_service = service_name
         actual_model = request.model
-
+        intent: IntentEnum | None = None
+        core_operation: str | None = None
+        core_subject: str | None = None
+        subject_modifier: str | None = None
+        action_modifier: str | None = None
+        provider_error: str | None = None
         response: ChatCompletionResponse | None = None
 
         try:
@@ -1538,7 +1613,7 @@ class LlmRouterService:
                     exact_hash=exact_hash,
                 )
             except Exception as e:
-                provider_error = e
+                provider_error = str(e)
                 if (
                     config.USE_FALLBACK_LLM == "true"
                     and config.FALLBACK_LLM_SERVICE
@@ -1616,7 +1691,7 @@ class LlmRouterService:
             return response
         except Exception as e:
             if not provider_error:
-                provider_error = e
+                provider_error = str(e)
             raise
         finally:
             end_time = time.perf_counter()

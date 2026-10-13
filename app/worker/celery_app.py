@@ -43,24 +43,25 @@ PYTHON_ENV = os.getenv("PYTHON_ENV", "local")
 
 ENV_FILE = BASE_DIR / f".env.{PYTHON_ENV}"
 
-if not ENV_FILE.exists():
-    raise RuntimeError(f"Environment file not found: {ENV_FILE}")
-
-load_dotenv(ENV_FILE)
-
-logger.info(f"Loaded environment: {PYTHON_ENV}")
+if ENV_FILE.exists():
+    load_dotenv(ENV_FILE)
+    logger.info(f"Loaded environment file: {ENV_FILE}")
+else:
+    logger.info(
+        f"Environment file not found at {ENV_FILE}; using system environment variables."
+    )
 
 load_dotenv()
 
 config.load()
 
-# Celery uses the REDIS_URL from the environment for both broker and result backend
-redis_url = config.CELERY_REDIS_URL
+broker_url = config.CELERY_BROKER_URL
+result_backend_url = config.CELERY_RESULT_BACKEND
 
 celery_app = Celery(
     "echo_gate_tasks",
-    broker=redis_url,
-    backend=redis_url,
+    broker=broker_url,
+    backend=result_backend_url,
     include=[
         "app.modules.llm_usage.tasks",
         "app.modules.gateway_requests.tasks",
@@ -89,6 +90,21 @@ celery_app.conf.update(
     result_serializer="json",
     timezone="UTC",
     enable_utc=True,
+    task_track_started=True,
+    task_time_limit=1800,
+    broker_connection_retry=True,
+    broker_connection_retry_on_startup=True,
+    broker_connection_max_retries=3,
     # Configure periodic tasks (Celery Beat)
     beat_schedule=beat_schedule,
 )
+
+from celery.signals import worker_process_init  # noqa: E402
+
+
+@worker_process_init.connect
+def on_worker_process_init(**kwargs):
+    """Ensure child Celery worker processes initialize an isolated database connection pool without dropping parent connections."""
+    from app.core.database import engine
+
+    engine.dispose(close=False)

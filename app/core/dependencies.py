@@ -1,5 +1,5 @@
 from app.core.config import config
-from app.core.database import SessionLocal, SessionLocalRead
+from app.core.database import SessionLocal
 from app.modules.embedding.embedding_service import EmbeddingService
 from app.modules.gateway_requests.gateway_requests_service import GatewayRequestsService
 from app.modules.intent_classifier.entity_extractor_service import (
@@ -16,9 +16,9 @@ from app.modules.qdrant.llm_cache_collection_service import LlmCacheCollectionSe
 from app.modules.qdrant.qdrant_client_service import QdrantClientService
 from app.modules.redis.redis_service import RedisService
 from app.modules.reranking.reranker_service import RerankerService
-from app.modules.verifiers.cross_encoder_service import CrossEncoderService
-from app.modules.verifiers.instruction_service import InstructionVerifier
-from app.modules.verifiers.judge_service import JudgeService
+from app.modules.verifier.cross_encoder_service import CrossEncoderService
+from app.modules.verifier.instruction_service import InstructionVerifier
+from app.modules.verifier.judge_service import JudgeService
 
 
 class DependencyContainer:
@@ -96,7 +96,9 @@ class DependencyContainer:
     @classmethod
     def get_qdrant_client_service(cls) -> QdrantClientService:
         if cls._qdrant_client_service is None:
-            cls._qdrant_client_service = QdrantClientService(url=config.QDRANT_URL)
+            cls._qdrant_client_service = QdrantClientService(
+                url=config.QDRANT_URL, api_key=config.QDRANT_API_KEY
+            )
         return cls._qdrant_client_service
 
     @classmethod
@@ -167,7 +169,7 @@ class DependencyContainer:
     def get_llm_usage_service(cls) -> LlmUsageService:
         if cls._llm_usage_service is None:
             cls._llm_usage_service = LlmUsageService(
-                session_factory=SessionLocal, session_factory_read=SessionLocalRead
+                session_factory=SessionLocal, session_factory_read=SessionLocal
             )
         return cls._llm_usage_service
 
@@ -212,7 +214,7 @@ class DependencyContainer:
     def get_gateway_requests_service(cls) -> GatewayRequestsService:
         if cls._gateway_requests_service is None:
             cls._gateway_requests_service = GatewayRequestsService(
-                session_factory=SessionLocal, session_factory_read=SessionLocalRead
+                session_factory=SessionLocal, session_factory_read=SessionLocal
             )
         return cls._gateway_requests_service
 

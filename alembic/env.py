@@ -34,10 +34,10 @@ PYTHON_ENV = os.getenv("PYTHON_ENV", "local")
 
 ENV_FILE = BASE_DIR / "../app" / f".env.{PYTHON_ENV}"
 
-if not ENV_FILE.exists():
-    raise RuntimeError(f"Environment file not found: {ENV_FILE}")
+if ENV_FILE.exists():
+    load_dotenv(ENV_FILE)
 
-load_dotenv(ENV_FILE)
+load_dotenv()
 
 models = [LlmUsageLog, LlmQuotaRule, GatewayRequestLog]
 # from app.modules.conversation.conversation_model import Conversation, Message

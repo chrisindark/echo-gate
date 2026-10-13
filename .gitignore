@@ -24,6 +24,8 @@ env/
 
 # SQLite Database
 sqlite3.db
+sqlite3.db-shm
+sqlite3.db-wal
 
 # Celery
 celerybeat-schedule

@@ -7,14 +7,36 @@ class Config:
         self.load()
 
     def load(self):
+        self.PROJECT_NAME = os.getenv("PROJECT_NAME", "")
+        self.VERSION = os.getenv("VERSION", "0.1.0")
+
         # Urls
         self.OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
         self.REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
         self.QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
+        qdrant_key = os.getenv("QDRANT_API_KEY")
+        self.QDRANT_API_KEY = (
+            qdrant_key.strip() if qdrant_key and qdrant_key.strip() else None
+        )
+        qdrant_replication = os.getenv("QDRANT_REPLICATION_FACTOR")
+        self.QDRANT_REPLICATION_FACTOR = (
+            int(qdrant_replication)
+            if qdrant_replication and qdrant_replication.strip().isdigit()
+            else None
+        )
+        qdrant_consistency = os.getenv("QDRANT_WRITE_CONSISTENCY_FACTOR")
+        self.QDRANT_WRITE_CONSISTENCY_FACTOR = (
+            int(qdrant_consistency)
+            if qdrant_consistency and qdrant_consistency.strip().isdigit()
+            else None
+        )
         self.DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///sqlite3.db")
         self.DATABASE_URL_READ = os.getenv("DATABASE_URL_READ", self.DATABASE_URL)
-        self.CELERY_REDIS_URL = os.getenv(
-            "CELERY_REDIS_URL", "redis://localhost:6379/1"
+        self.CELERY_BROKER_URL = os.getenv(
+            "CELERY_BROKER_URL", "redis://localhost:6379/1"
+        )
+        self.CELERY_RESULT_BACKEND = os.getenv(
+            "CELERY_RESULT_BACKEND", "redis://localhost:6379/1"
         )
         self.OPENAI_BASE_URL = os.getenv(
             "OPENAI_BASE_URL", "https://api.openai.com/v1/chat/completions"
@@ -121,7 +143,7 @@ class Config:
         if thresholds_env:
             try:
                 self.CACHE_CONFIDENCE_THRESHOLDS = json.loads(thresholds_env)
-            except (json.JSONDecodeError, TypeError):
+            except json.JSONDecodeError, TypeError:
                 self.CACHE_CONFIDENCE_THRESHOLDS = default_thresholds
         else:
             self.CACHE_CONFIDENCE_THRESHOLDS = default_thresholds
@@ -148,7 +170,7 @@ class Config:
         if ttls_env:
             try:
                 self.INTENT_TTL_SECONDS = json.loads(ttls_env)
-            except (json.JSONDecodeError, TypeError):
+            except json.JSONDecodeError, TypeError:
                 self.INTENT_TTL_SECONDS = default_intent_ttls
         else:
             self.INTENT_TTL_SECONDS = default_intent_ttls

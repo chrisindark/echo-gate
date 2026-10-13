@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
 from app.core.dependencies import get_llm_router_service
-from app.core.guard import llm_quota_guard
+from app.core.guards import llm_quota_guard
 from app.core.responses import BaseAPIResponse
 from app.modules.chat.chat_schema import ChatCompletionRequest, ChatCompletionResponse
 from app.modules.llm.llm_router_service import LlmRouterService

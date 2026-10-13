@@ -6,7 +6,7 @@ from datetime import datetime
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionFactory, SessionLocal, SessionLocalRead
+from app.core.database import SessionFactory, SessionLocal
 from app.modules.gateway_requests.gateway_requests_model import GatewayRequestLog
 from app.modules.gateway_requests.gateway_requests_schema import (
     GatewayRequestLogCreate,
@@ -39,7 +39,7 @@ class GatewayRequestsService:
         if session_factory is None and db_session is None:
             session_factory = SessionLocal
         if session_factory_read is None and db_session_read is None:
-            session_factory_read = SessionLocalRead
+            session_factory_read = SessionLocal
 
         self._session_factory = session_factory
         self._session_factory_read = session_factory_read
@@ -47,7 +47,7 @@ class GatewayRequestsService:
         self._db_session_read = db_session_read
 
     @contextmanager
-    def _get_session(self) -> Generator[Session, None, None]:
+    def _get_session(self) -> Generator[Session]:
         if self._db_session is not None:
             yield self._db_session
         elif self._session_factory is not None:
@@ -58,7 +58,7 @@ class GatewayRequestsService:
                 yield s
 
     @contextmanager
-    def _get_read_session(self) -> Generator[Session, None, None]:
+    def _get_read_session(self) -> Generator[Session]:
         if self._db_session_read is not None:
             yield self._db_session_read
         elif self._db_session is not None:
@@ -70,7 +70,7 @@ class GatewayRequestsService:
             with self._session_factory() as s:
                 yield s
         else:
-            with SessionLocalRead() as s:
+            with SessionLocal() as s:
                 yield s
 
     def log_request(self, log_data: GatewayRequestLogCreate) -> GatewayRequestLog:
