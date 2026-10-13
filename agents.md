@@ -15,7 +15,7 @@ provider behavior, or persistence decision is genuinely unspecified.
 
 ## Architecture
 
-- `app/main.py`: app setup, lifespan, middleware, and routers. It requires
+- `app/main.py`: app setup, lifespan, middlewares, and routers. It requires
   `app/.env.<PYTHON_ENV>` before startup.
 - `app/core/dependencies.py`: singleton service construction and shutdown. Add new
   shared services here only when FastAPI dependencies need them.

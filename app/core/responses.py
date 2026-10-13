@@ -15,11 +15,13 @@ class BaseAPIResponse(BaseModel, Generic[T]):
     @classmethod
     def success_response(
         cls, response: T, status_code: int = 200
-    ) -> "BaseAPIResponse[T]":
+    ) -> BaseAPIResponse[T]:
         return cls(
             success=True,
-            response=response,
             status_code=status_code,
+            response=response,
+            error_message=None,
+            error_code=None,
         )
 
     @classmethod
@@ -28,11 +30,12 @@ class BaseAPIResponse(BaseModel, Generic[T]):
         error_message: str,
         status_code: int = 400,
         error_code: int | None = None,
-    ) -> "BaseAPIResponse[T]":
+        response: T | None = None,
+    ) -> BaseAPIResponse[T]:
         return cls(
             success=False,
-            response=None,
             status_code=status_code,
+            response=response,
             error_message=error_message,
             error_code=error_code,
         )

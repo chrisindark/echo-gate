@@ -1,7 +1,7 @@
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 
 from app.core.dependencies import get_gateway_requests_service
 from app.core.responses import BaseAPIResponse
@@ -13,6 +13,7 @@ from app.modules.gateway_requests.gateway_requests_schema import (
     GatewayRequestLogUpdate,
 )
 from app.modules.gateway_requests.gateway_requests_service import GatewayRequestsService
+from app.modules.gateway_requests.tasks import dispatch_evaluate_pending_requests
 
 logger = logging.getLogger(__name__)
 
@@ -75,12 +76,12 @@ def get_gateway_request_logs(
     """Fetch a filtered, paginated list of gateway request traces."""
     try:
         if time_range and time_range.lower() in TIME_RANGE_MAP:
-            end_time = datetime.now(timezone.utc)
+            end_time = datetime.now(UTC)
             start_time = end_time - TIME_RANGE_MAP[time_range.lower()]
         elif start_time and start_time.tzinfo is None:
-            start_time = start_time.replace(tzinfo=timezone.utc)
+            start_time = start_time.replace(tzinfo=UTC)
         if end_time and end_time.tzinfo is None:
-            end_time = end_time.replace(tzinfo=timezone.utc)
+            end_time = end_time.replace(tzinfo=UTC)
 
         logs, total = gateway_requests_service.get_request_logs(
             skip=skip,
@@ -260,3 +261,24 @@ def delete_gateway_request_log(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An error occurred while deleting the gateway request log.",
         ) from e
+
+
+@api_v1_router.post(
+    "/evaluate",
+    response_model=BaseAPIResponse[dict],
+)
+def trigger_evaluation(
+    background_tasks: BackgroundTasks,
+) -> dict:
+    """Trigger background evaluation of pending requests with fallback to FastAPI background tasks."""
+    task_id, dispatched_to_celery = dispatch_evaluate_pending_requests(
+        background_tasks=background_tasks
+    )
+    return BaseAPIResponse.success_response(
+        {
+            "task_id": task_id,
+            "dispatched_to_celery": dispatched_to_celery,
+            "message": "Evaluation queued successfully"
+            + (" via Celery" if dispatched_to_celery else " in background worker"),
+        }
+    )

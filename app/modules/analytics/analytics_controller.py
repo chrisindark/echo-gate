@@ -4,7 +4,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db_read
+from app.core.database import get_db
 from app.core.responses import BaseAPIResponse
 from app.modules.analytics.analytics_schema import (
     AnalyticsDashboardResponse,
@@ -31,7 +31,7 @@ def get_dashboard_data(
     ),
     end_time: datetime | None = Query(None, description="End time for analytics range"),
     tenant_id: str | None = Query(None, description="Optional tenant ID filter"),
-    db_read: Session = Depends(get_db_read),
+    db_read: Session = Depends(get_db),
 ):
     """
     Get aggregated analytics data for the dashboard (KPIs, time series, cache performance, model breakdown, and latency metrics).
@@ -64,7 +64,7 @@ def get_latency_metrics(
     ),
     end_time: datetime | None = Query(None, description="End time for analytics range"),
     tenant_id: str | None = Query(None, description="Optional tenant ID filter"),
-    db_read: Session = Depends(get_db_read),
+    db_read: Session = Depends(get_db),
 ):
     """
     Get detailed latency metrics and pipeline breakdown across cache lookup, vector search, reranking, and provider calls.

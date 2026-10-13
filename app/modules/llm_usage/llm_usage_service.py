@@ -6,7 +6,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionFactory, SessionLocal, SessionLocalRead
+from app.core.database import SessionFactory, SessionLocal
 from app.modules.llm_usage.llm_usage_model import LlmUsageLog
 from app.modules.llm_usage.llm_usage_schema import LlmUsageLogCreate, LlmUsageLogUpdate
 
@@ -36,7 +36,7 @@ class LlmUsageService:
         if session_factory is None and db_session is None:
             session_factory = SessionLocal
         if session_factory_read is None and db_session_read is None:
-            session_factory_read = SessionLocalRead
+            session_factory_read = SessionLocal
 
         self._session_factory = session_factory
         self._session_factory_read = session_factory_read
@@ -44,7 +44,7 @@ class LlmUsageService:
         self._db_session_read = db_session_read
 
     @contextmanager
-    def _get_session(self) -> Generator[Session, None, None]:
+    def _get_session(self) -> Generator[Session]:
         if self._db_session is not None:
             yield self._db_session
         elif self._session_factory is not None:
@@ -55,7 +55,7 @@ class LlmUsageService:
                 yield s
 
     @contextmanager
-    def _get_read_session(self) -> Generator[Session, None, None]:
+    def _get_read_session(self) -> Generator[Session]:
         if self._db_session_read is not None:
             yield self._db_session_read
         elif self._db_session is not None:
@@ -67,7 +67,7 @@ class LlmUsageService:
             with self._session_factory() as s:
                 yield s
         else:
-            with SessionLocalRead() as s:
+            with SessionLocal() as s:
                 yield s
 
     def get_llm_usage_logs(

@@ -30,8 +30,13 @@ class QdrantClientService:
                 or getattr(config, "QDRANT_URL", None)
                 or os.getenv("QDRANT_URL", "http://localhost:6333")
             )
+            qdrant_api_key = (
+                api_key
+                if api_key is not None
+                else getattr(config, "QDRANT_API_KEY", None)
+            )
             logger.info(f"Connecting to Qdrant at {qdrant_url}")
-            self.client = QdrantClient(url=qdrant_url, api_key=api_key)
+            self.client = QdrantClient(url=qdrant_url, api_key=qdrant_api_key)
 
     def close(self) -> None:
         """Close Qdrant client connection."""

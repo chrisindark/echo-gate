@@ -5,8 +5,8 @@ import math
 from app.core.config import config
 from app.modules.chat.chat_schema import ChatCompletionRequest, ChatMessage
 from app.modules.llm.llm_provider_service import LlmProviderService
-from app.modules.verifiers.cross_encoder_service import CrossEncoderService
-from app.modules.verifiers.instruction_service import InstructionVerifier
+from app.modules.verifier.cross_encoder_service import CrossEncoderService
+from app.modules.verifier.instruction_service import InstructionVerifier
 
 logger = logging.getLogger(__name__)
 

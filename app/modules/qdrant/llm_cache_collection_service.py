@@ -5,6 +5,7 @@ from typing import Any
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 
+from app.core.config import config
 from app.core.logger import log_latency
 from app.modules.qdrant.qdrant_client_service import QdrantClientService
 from app.modules.qdrant.qdrant_schema import QdrantPayload
@@ -114,6 +115,14 @@ class LlmCacheCollectionService:
 
     def _create_collection(self) -> None:
         logger.info(f"Creating LLM Cache Qdrant collection: {self.collection_name}")
+        cluster_kwargs: dict[str, Any] = {}
+        if config.QDRANT_REPLICATION_FACTOR is not None:
+            cluster_kwargs["replication_factor"] = config.QDRANT_REPLICATION_FACTOR
+        if config.QDRANT_WRITE_CONSISTENCY_FACTOR is not None:
+            cluster_kwargs["write_consistency_factor"] = (
+                config.QDRANT_WRITE_CONSISTENCY_FACTOR
+            )
+
         self.client_service.create_collection(
             collection_name=self.collection_name,
             vectors_config={
@@ -146,6 +155,7 @@ class LlmCacheCollectionService:
                     always_ram=True,  # Quantized vectors in RAM
                 )
             ),
+            **cluster_kwargs,
         )
         self.ensure_indexes()
 

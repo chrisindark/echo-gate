@@ -32,9 +32,35 @@ ALLOWED_MODELS = {
 }
 
 
+class FunctionCall(BaseModel):
+    name: str
+    arguments: str
+
+
+class ToolCall(BaseModel):
+    id: str
+    type: str = "function"
+    function: FunctionCall
+
+
+class FunctionDefinition(BaseModel):
+    name: str
+    description: str | None = None
+    parameters: dict[str, Any] | None = None
+    strict: bool | None = None
+
+
+class Tool(BaseModel):
+    type: str = "function"
+    function: FunctionDefinition
+
+
 class ChatMessage(BaseModel):
     role: str
-    content: str
+    content: str | None = None
+    name: str | None = None
+    tool_call_id: str | None = None
+    tool_calls: list[ToolCall] | None = None
 
 
 class ChatCompletionRequest(BaseModel):
@@ -50,16 +76,18 @@ class ChatCompletionRequest(BaseModel):
     presence_penalty: float | None = 0.0
     frequency_penalty: float | None = 0.0
     logit_bias: dict[str, float] | None = None
-    user: dict[str, Any] | None = None
+    user: dict[str, Any] | str | None = None
     user_id: str | None = None
     tenant_id: str | None = None
     session_id: str | None = None
     conversation_id: str | None = None
     response_format: dict | None = None
     reasoning_effort: str | None = None
+    tools: list[Tool] | None = None
+    tool_choice: str | dict[str, Any] | None = None
 
     @model_validator(mode="after")
-    def validate_model_for_service(self) -> "ChatCompletionRequest":
+    def validate_model_for_service(self) -> ChatCompletionRequest:
         service = self.service_name or "ollama"
         if service in ALLOWED_MODELS and self.model not in ALLOWED_MODELS[service]:
             allowed = ", ".join(ALLOWED_MODELS[service])
