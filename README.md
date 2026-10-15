@@ -61,6 +61,7 @@ Echo Gate accepts OpenAI-compatible `chat/completions` requests and routes them 
 - **Token Usage Accounting**: Tracks prompt, completion, total, cache-read, and cache-creation tokens per request.
 - **Cost Calculation**: Automated dollar cost computation based on provider and model token pricing tiers.
 - **Rate & Token Limits**: Enforces Tokens-Per-Minute (TPM) quota rules per API key, provider, and model.
+- **Multi-Tenant Isolation (Postgres RLS)**: Every request resolves an API key to a tenant/user and the gateway binds that identity to the database transaction. Row-Level Security policies on the traces, usage, quota, and conversation tables make cross-tenant reads and writes impossible at the storage layer.
 
 ### 6. Observability UI (Next.js 16)
 - Independent frontend located in `ui/` (Next.js 16, React 19, Tailwind CSS, Radix UI Themes):
@@ -177,8 +178,13 @@ GROQ_API_KEY=your_groq_key
 OPENROUTER_API_KEY=your_openrouter_key
 
 # Database Connections
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/echo_gate
-DATABASE_URL_READ=postgresql://postgres:postgres@localhost:5432/echo_gate
+# The app connects as a non-owner role so Postgres RLS applies.
+DATABASE_URL=postgresql+psycopg://echo_gate_app:echo_gate_app@localhost:5432/echo_gate
+DATABASE_URL_READ=postgresql+psycopg://echo_gate_app:echo_gate_app@localhost:5432/echo_gate
+# Owner credentials, used only by Alembic (RLS does not apply to table owners).
+MIGRATION_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/echo_gate
+DB_APP_ROLE=echo_gate_app
+DB_APP_PASSWORD=echo_gate_app
 REDIS_URL=redis://localhost:6379/0
 CELERY_BROKER_URL=redis://localhost:6379/1
 QDRANT_URL=http://localhost:6333
@@ -204,11 +210,35 @@ docker-compose up -d postgres redis qdrant
 # Install backend dependencies
 poetry install
 
-# Run database migrations
+# Run database migrations (as the owner role, via MIGRATION_DATABASE_URL)
+# This also creates the non-owner application role and the RLS policies.
 poetry run alembic upgrade head
 ```
 
-### 6. Start the Services
+The baseline migration provisions a non-superuser `echo_gate_app` role and enables
+Row-Level Security on every tenant-scoped table. The gateway connects as that role,
+so queries are automatically restricted to the tenant resolved from the request's
+`X-API-Key`. Trusted background jobs (Celery) run in system mode and can operate
+across tenants.
+
+### 6. Create an API Key
+
+Every request's tenant context comes from an API key. Create one after the API is
+running:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/admin/api-keys/ \
+  -H "Content-Type: application/json" \
+  -d '{"name": "local-dev", "tenant_id": "acme", "user_id": "dev"}'
+```
+
+The response includes the plaintext `api_key` (shown once). Send it as
+`X-API-Key` on subsequent requests; the gateway maps it to the tenant/user and
+sets the Postgres RLS context. When no key is supplied the request is treated as
+the `anonymous` tenant.
+
+
+### 7. Start the Services
 
 **API Gateway:**
 ```bash

@@ -1,5 +1,6 @@
 from app.core.config import config
-from app.core.database import SessionLocal
+from app.core.database import SessionLocal, SessionLocalRead
+from app.modules.api_keys.api_keys_service import get_api_key_service
 from app.modules.embedding.embedding_service import EmbeddingService
 from app.modules.gateway_requests.gateway_requests_service import GatewayRequestsService
 from app.modules.intent_classifier.entity_extractor_service import (
@@ -171,7 +172,7 @@ class DependencyContainer:
     def get_llm_usage_service(cls) -> LlmUsageService:
         if cls._llm_usage_service is None:
             cls._llm_usage_service = LlmUsageService(
-                session_factory=SessionLocal, session_factory_read=SessionLocal
+                session_factory=SessionLocal, session_factory_read=SessionLocalRead
             )
         return cls._llm_usage_service
 
@@ -215,7 +216,7 @@ class DependencyContainer:
     def get_gateway_requests_service(cls) -> GatewayRequestsService:
         if cls._gateway_requests_service is None:
             cls._gateway_requests_service = GatewayRequestsService(
-                session_factory=SessionLocal, session_factory_read=SessionLocal
+                session_factory=SessionLocal, session_factory_read=SessionLocalRead
             )
         return cls._gateway_requests_service
 
@@ -275,3 +276,7 @@ def get_gateway_requests_service() -> GatewayRequestsService:
 
 def get_judge_service() -> JudgeService:
     return DependencyContainer.get_judge_service()
+
+
+# Re-exported for FastAPI Depends wiring in controllers.
+__all__ = ["get_api_key_service"]

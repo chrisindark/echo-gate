@@ -8,6 +8,8 @@ from sqlalchemy import engine_from_config, pool
 
 from alembic import context
 from app.core.database import SQLALCHEMY_DATABASE_URL, Base
+from app.modules.api_keys.api_keys_model import ApiKey
+from app.modules.conversation.conversation_model import Conversation, Message
 from app.modules.gateway_requests.gateway_requests_model import GatewayRequestLog
 from app.modules.llm_quota.llm_quota_model import LlmQuotaRule
 from app.modules.llm_usage.llm_usage_model import LlmUsageLog
@@ -39,9 +41,13 @@ if ENV_FILE.exists():
 
 load_dotenv()
 
-models = [LlmUsageLog, LlmQuotaRule, GatewayRequestLog]
-# from app.modules.conversation.conversation_model import Conversation, Message
-config.set_main_option("sqlalchemy.url", SQLALCHEMY_DATABASE_URL)
+# Migrations must run as the table owner (a superuser/owner role), because RLS
+# policies do not apply to the role that owns the tables. The application itself
+# connects as a separate, non-owner role (DATABASE_URL).
+MIGRATION_DATABASE_URL = os.getenv("MIGRATION_DATABASE_URL", SQLALCHEMY_DATABASE_URL)
+
+models = [LlmUsageLog, LlmQuotaRule, GatewayRequestLog, Conversation, Message, ApiKey]
+config.set_main_option("sqlalchemy.url", MIGRATION_DATABASE_URL)
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,

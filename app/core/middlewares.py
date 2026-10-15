@@ -1,11 +1,14 @@
+import asyncio
 import logging
 import time
 import uuid
 
 from fastapi import Request
+from starlette.datastructures import Headers
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.logger import correlation_id_ctx_var
+from app.core.rls import ANONYMOUS_TENANT, rls_context
 
 logger = logging.getLogger(__name__)
 
@@ -85,3 +88,46 @@ class UserMiddleware(BaseHTTPMiddleware):
 
         response = await call_next(request)
         return response
+
+
+class TenantContextMiddleware:
+    """Establish the Postgres RLS tenant context for each request.
+
+    Written as a pure ASGI middleware (not ``BaseHTTPMiddleware``) so the
+    contextvars set here are visible to the endpoint and its thread-pool work,
+    which is what the RLS GUC hook in ``app.core.rls`` reads.
+
+    Resolution order:
+    1. ``X-API-Key`` resolved server-side to a tenant/user (trusted).
+    2. ``X-Tenant-ID`` / ``X-User-ID`` headers (internal/trusted callers).
+    3. ``anonymous`` tenant.
+    """
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        headers = Headers(scope=scope)
+        tenant_id = headers.get("x-tenant-id")
+        user_id = headers.get("x-user-id")
+        api_key = headers.get("x-api-key")
+
+        if api_key:
+            # Imported lazily so the middleware module stays import-light.
+            from app.modules.api_keys.api_keys_service import api_key_service
+
+            identity = await asyncio.to_thread(api_key_service.resolve_api_key, api_key)
+            if identity is not None:
+                tenant_id = identity.tenant_id
+                user_id = identity.user_id
+
+        state = scope.setdefault("state", {})
+        state["tenant_id"] = tenant_id or ANONYMOUS_TENANT
+        state["user_id"] = user_id
+
+        with rls_context(tenant_id=tenant_id, user_id=user_id):
+            await self.app(scope, receive, send)

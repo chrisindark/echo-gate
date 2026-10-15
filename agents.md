@@ -6,7 +6,8 @@ Echo Gate is a Python 3.11+ FastAPI gateway with an independent Next.js 16 UI in
 The gateway accepts OpenAI-compatible chat-completion requests and routes to Gemini
 (`google-genai`), OpenAI, Groq, OpenRouter, or Ollama. It uses Redis (exact) plus
 Qdrant (semantic) caching, Celery for background jobs, and SQLAlchemy with Alembic
-(SQLite by default, Postgres in docker-compose).
+(PostgreSQL only; the app connects as a non-owner role so Row-Level Security
+enforces per-tenant isolation).
 
 ## Plan First
 

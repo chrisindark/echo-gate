@@ -38,8 +38,16 @@ async def create_chat_completion(
     if not request.user:
         # Fallback to user set by UserMiddleware or custom headers
         request.user = getattr(http_request.state, "user", None)
-    request.user_id = request.user_id or http_request.headers.get("X-User-ID")
-    request.tenant_id = request.tenant_id or http_request.headers.get("X-Tenant-ID")
+    request.user_id = (
+        request.user_id
+        or getattr(http_request.state, "user_id", None)
+        or http_request.headers.get("X-User-ID")
+    )
+    request.tenant_id = (
+        request.tenant_id
+        or getattr(http_request.state, "tenant_id", None)
+        or http_request.headers.get("X-Tenant-ID")
+    )
     request.session_id = request.session_id or http_request.headers.get("X-Session-ID")
     request.conversation_id = request.conversation_id or http_request.headers.get(
         "X-Conversation-ID"
@@ -65,8 +73,16 @@ async def semantic_search(
     """
     if not request.user:
         request.user = getattr(http_request.state, "user", None)
-    request.user_id = request.user_id or http_request.headers.get("X-User-ID")
-    request.tenant_id = request.tenant_id or http_request.headers.get("X-Tenant-ID")
+    request.user_id = (
+        request.user_id
+        or getattr(http_request.state, "user_id", None)
+        or http_request.headers.get("X-User-ID")
+    )
+    request.tenant_id = (
+        request.tenant_id
+        or getattr(http_request.state, "tenant_id", None)
+        or http_request.headers.get("X-Tenant-ID")
+    )
     request.session_id = request.session_id or http_request.headers.get("X-Session-ID")
     request.conversation_id = request.conversation_id or http_request.headers.get(
         "X-Conversation-ID"
@@ -94,8 +110,16 @@ async def exact_search(
     """
     if not request.user:
         request.user = getattr(http_request.state, "user", None)
-    request.user_id = request.user_id or http_request.headers.get("X-User-ID")
-    request.tenant_id = request.tenant_id or http_request.headers.get("X-Tenant-ID")
+    request.user_id = (
+        request.user_id
+        or getattr(http_request.state, "user_id", None)
+        or http_request.headers.get("X-User-ID")
+    )
+    request.tenant_id = (
+        request.tenant_id
+        or getattr(http_request.state, "tenant_id", None)
+        or http_request.headers.get("X-Tenant-ID")
+    )
     request.session_id = request.session_id or http_request.headers.get("X-Session-ID")
     request.conversation_id = request.conversation_id or http_request.headers.get(
         "X-Conversation-ID"
@@ -122,8 +146,16 @@ async def cache_save(
 
     if not request.user:
         request.user = getattr(http_request.state, "user", None)
-    request.user_id = request.user_id or http_request.headers.get("X-User-ID")
-    request.tenant_id = request.tenant_id or http_request.headers.get("X-Tenant-ID")
+    request.user_id = (
+        request.user_id
+        or getattr(http_request.state, "user_id", None)
+        or http_request.headers.get("X-User-ID")
+    )
+    request.tenant_id = (
+        request.tenant_id
+        or getattr(http_request.state, "tenant_id", None)
+        or http_request.headers.get("X-Tenant-ID")
+    )
     request.session_id = request.session_id or http_request.headers.get("X-Session-ID")
     request.conversation_id = request.conversation_id or http_request.headers.get(
         "X-Conversation-ID"

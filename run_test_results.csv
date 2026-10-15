@@ -1,0 +1,683 @@
+test_id,canonical_id,query,expected_match,actual_match,top_1_score,top_1_rerank_score,top_1_prompt,top_2_score,top_2_rerank_score,top_2_prompt,top_3_score,top_3_rerank_score,top_3_prompt,accepted
+gha_001,github_actions_after_merge,Can GitHub Actions run automatically after a pull request is merged into master?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|user: i have a service that acts as an llm api gateway for my product, providing fallback providers for llm service/model calls, llm usage tracking, latency and cost tracking, api rate limiting etc. i also embed and save the query and response to qdrant to allow a kind of semantic caching feature to save hits. should i also provide embedding fallback of ollama for openai embedding calls ? if i do, wont it cause the problem of vector search when the embedding models are different and i have no idea about which result to return ?",,,,,,,False
+gha_002,github_actions_after_merge,Can GitHub Actions run on master whenever a PR gets merged?,True,False,2.0,0.4976310729980469,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Can GitHub Actions run automatically after a pull request is merged into master?",,,,,,,False
+gha_003,github_actions_after_merge,I want my GitHub workflow to execute every time a pull request is merged into the main branch. How do I configure that?,True,False,1.25,0.18721085786819458,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Can GitHub Actions run on master whenever a PR gets merged?",1.8333334,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Can GitHub Actions run automatically after a pull request is merged into master?",0.7,0.0,"model:gemini-3.1-flash-lite|user: i have a service that acts as an llm api gateway for my product, providing fallback providers for llm service/model calls, llm usage tracking, latency and cost tracking, api rate limiting etc. i also embed and save the query and response to qdrant to allow a kind of semantic caching feature to save hits. should i also provide embedding fallback of ollama for openai embedding calls ? if i do, wont it cause the problem of vector search when the embedding models are different and i have no idea about which result to return ?",False
+gha_004,github_actions_after_merge,How do I trigger a GitHub Actions workflow after a merge to the default branch?,False,False,1.6666667,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: I want my GitHub workflow to execute every time a pull request is merged into the main branch. How do I configure that?",1.5833334,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Can GitHub Actions run automatically after a pull request is merged into master?",0.95,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Can GitHub Actions run on master whenever a PR gets merged?",False
+gha_005,github_actions_before_merge,Can GitHub Actions run before a pull request is merged?,False,False,0.98333335,0.5383727550506592,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Can GitHub Actions run on master whenever a PR gets merged?",1.6666667,0.45226389169692993,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Can GitHub Actions run automatically after a pull request is merged into master?",1.0833334,0.15681636333465576,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: I want my GitHub workflow to execute every time a pull request is merged into the main branch. How do I configure that?",False
+gha_006,github_actions_push_master,How can I make GitHub Actions run whenever someone pushes directly to master?,False,False,1.5000001,0.4944853186607361,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Can GitHub Actions run automatically after a pull request is merged into master?",1.1666667,0.4869982600212097,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Can GitHub Actions run on master whenever a PR gets merged?",0.81666666,0.41656196117401123,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Can GitHub Actions run before a pull request is merged?",False
+py_001,python_reverse_list,How can I reverse a list in Python?,False,False,1.75,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",1.0595238,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",0.9333334,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: I want my GitHub workflow to execute every time a pull request is merged into the main branch. How do I configure that?",False
+py_002,python_reverse_list,What's the easiest way to reverse a Python list?,True,False,1.2857143,0.49945420026779175,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I reverse a list in Python?",1.45,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.8916667,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",False
+py_003,python_reverse_list,How do I get the elements of a list in reverse order in Python?,True,False,1.25,0.7499244213104248,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I reverse a list in Python?",1.0333334,0.024074673652648926,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What's the easiest way to reverse a Python list?",1.5,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",False
+py_004,javascript_reverse_array,How do I reverse a list in JavaScript?,False,False,1.0833334,0.19002382457256317,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I reverse a list in Python?",0.9722222,0.1797412633895874,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I get the elements of a list in reverse order in Python?",1.3611112,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",False
+py_005,python_sort_descending,How can I sort a Python list in descending order?,False,False,0.9761905,0.259565532207489,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What's the easiest way to reverse a Python list?",1.2,0.24778962135314941,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I get the elements of a list in reverse order in Python?",0.8055556,0.24038153886795044,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I reverse a list in Python?",False
+dict_001,python_dict_key_exists,How do I check if a key exists in a Python dictionary?,False,False,1.2916666,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",1.1111112,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What's the easiest way to reverse a Python list?",0.90043294,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",False
+dict_002,python_dict_key_exists,What's the Pythonic way to determine whether a dictionary contains a specific key?,True,False,1.3333334,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What's the easiest way to reverse a Python list?",1.2909092,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",1.1666667,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I check if a key exists in a Python dictionary?",False
+dict_003,python_dict_key_exists,How can I check whether a Python dict has a particular key?,True,False,1.1666667,0.09984455108642576,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I check if a key exists in a Python dictionary?",0.85384613,0.09961423873901365,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What's the Pythonic way to determine whether a dictionary contains a specific key?",1.2337663,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",False
+dict_004,python_dict_value_exists,How do I check if a value exists in a Python dictionary?,False,False,1.3333334,0.48959803581237793,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I check if a key exists in a Python dictionary?",0.78571427,0.3491556406021118,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I check whether a Python dict has a particular key?",1.2159091,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",False
+js_001,javascript_remove_array_duplicates,How do I remove duplicates from an array in JavaScript?,False,False,1.4,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I reverse a list in JavaScript?",1.1777779,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.81501836,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",False
+js_002,javascript_remove_array_duplicates,What's a simple way to eliminate duplicate values from a JavaScript array?,True,False,1.0,0.0994850158691406,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I remove duplicates from an array in JavaScript?",1.2016808,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.9583334,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What's the easiest way to reverse a Python list?",False
+js_003,javascript_remove_array_duplicates,How can I get only unique elements from a JS array?,True,False,1.1588236,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.80476195,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",0.78333336,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I remove duplicates from an array in JavaScript?",False
+js_004,javascript_sort_array,How do I sort an array in JavaScript?,False,False,1.25,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I remove duplicates from an array in JavaScript?",1.1497327,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.9,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I reverse a list in JavaScript?",False
+nest_001,nestjs_create_get_endpoint,How do I create a GET endpoint in NestJS?,False,False,1.2380952,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",1.1,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I reverse a list in JavaScript?",0.7879902,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",False
+nest_002,nestjs_create_get_endpoint,What's the proper way to define a GET route in NestJS?,True,False,0.8666667,0.4215087890625,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I create a GET endpoint in NestJS?",1.175,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.8859649,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What's the easiest way to reverse a Python list?",False
+nest_003,nestjs_create_get_endpoint,How can I add a GET controller endpoint to my NestJS application?,True,False,1.2,0.49960654973983765,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I create a GET endpoint in NestJS?",1.2197803,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.8686869,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",False
+nest_004,nestjs_create_post_endpoint,How do I create a POST endpoint in NestJS?,False,False,1.2,0.13607445955276487,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I create a GET endpoint in NestJS?",1.2083334,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.7719298,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",False
+nest_005,nestjs_auth_guards,How do I add authentication guards in NestJS?,False,False,1.2,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I create a GET endpoint in NestJS?",1.1214285,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.80757576,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",False
+next_001,nextjs_dynamic_route,How do I create a dynamic route in Next.js?,False,False,0.8666667,0.026943743228912354,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I create a GET endpoint in NestJS?",1.1875,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.7857143,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",False
+next_002,nextjs_dynamic_route,What's the syntax for dynamic routes in Next.js?,True,False,1.0,0.23995637893676758,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I create a dynamic route in Next.js?",1.1026316,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.8088235,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What's the easiest way to reverse a Python list?",False
+next_003,nextjs_dynamic_route,How can I define a dynamic URL parameter in a Next.js application?,True,False,0.8333334,0.2380346655845642,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I create a dynamic route in Next.js?",0.72527474,0.20069676637649536,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What's the syntax for dynamic routes in Next.js?",1.1166667,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",False
+next_004,nextjs_static_route,How do I create a static route in Next.js?,False,False,1.15,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I create a dynamic route in Next.js?",0.7291667,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",False
+docker_001,docker_build_image,How do I build a Docker image from a Dockerfile?,False,False,1.3026316,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",1.0333333,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I check if a key exists in a Python dictionary?",0.72222227,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",False
+docker_002,docker_build_image,What's the command to build an image using my Dockerfile?,True,False,1.1409091,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",1.0588236,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What's the easiest way to reverse a Python list?",0.8333334,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",False
+docker_003,docker_build_image,How can I create a Docker image from a Dockerfile?,True,False,1.0,0.24993634223937988,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I build a Docker image from a Dockerfile?",1.1192983,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.7166667,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",False
+docker_004,docker_start_container,How do I start an existing Docker container?,False,False,1.2291666,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.7291667,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",,,,False
+docker_005,docker_reduce_image_size,How can I reduce the size of my Docker image?,False,False,1.0625,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.8333334,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I create a Docker image from a Dockerfile?",0.7857143,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",False
+k8s_001,kubernetes_expose_deployment,How do I expose a Kubernetes deployment using a service?,False,False,1.2555556,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.75,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I build a Docker image from a Dockerfile?",0.71929824,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",False
+k8s_002,kubernetes_expose_deployment,How can I expose my Kubernetes pods through a Service?,True,False,1.117647,0.7496234178543091,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I expose a Kubernetes deployment using a service?",1.0625,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+k8s_003,kubernetes_expose_deployment,What's the best way to expose a deployment in Kubernetes?,True,False,0.78431374,0.4909074306488037,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I expose a Kubernetes deployment using a service?",1.1385282,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.75,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What's the easiest way to reverse a Python list?",False
+k8s_004,kubernetes_scale_deployment,How do I scale a Kubernetes deployment to five replicas?,False,False,0.9509804,0.2489790916442871,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I expose a Kubernetes deployment using a service?",1.392157,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.72222227,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",False
+sql_001,sql_find_duplicates,How do I find duplicate rows in SQL?,False,False,1.0833334,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I remove duplicates from an array in JavaScript?",1.0476191,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+sql_002,sql_find_duplicates,What's a query for identifying duplicate records in a database table?,True,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.8333334,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What's a simple way to eliminate duplicate values from a JavaScript array?",0.74285716,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What's the easiest way to reverse a Python list?",False
+sql_003,sql_find_duplicates,How can I detect duplicate values using SQL?,True,False,1.1052632,0.4998362064361572,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I find duplicate rows in SQL?",1.0476191,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.7380953,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",False
+sql_004,sql_delete_duplicates,How do I delete duplicate rows from a SQL table?,False,False,1.1052632,0.4473387598991394,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I find duplicate rows in SQL?",1.1111112,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.7,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I remove duplicates from an array in JavaScript?",False
+sql_005,sql_count_rows,How do I count the number of rows in a SQL table?,False,False,0.8552632,0.45206916332244873,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I find duplicate rows in SQL?",1.125,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+pg_001,postgres_create_index,How do I create an index in PostgreSQL?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+pg_002,postgres_create_index,What's the syntax for adding an index to a Postgres table?,True,False,1.0909091,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+pg_003,postgres_create_index,How can I add a database index in PostgreSQL?,True,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+pg_004,postgres_create_database,How do I create a PostgreSQL database?,False,False,0.7,0.49618834257125854,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I add a database index in PostgreSQL?",0.8333334,0.46703970432281494,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I create an index in PostgreSQL?",1.0769231,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",False
+redis_001,redis_key_expiration,How do I set a key with an expiration time in Redis?,False,False,1.3333334,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I check if a key exists in a Python dictionary?",1.135965,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.7291667,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",False
+redis_002,redis_key_expiration,How can I make a Redis key expire automatically?,True,False,1.0,0.24946719408035278,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I set a key with an expiration time in Redis?",1.1497327,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.86904764,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I check whether a Python dict has a particular key?",False
+redis_003,redis_key_expiration,What's the Redis command for setting a TTL on a key?,True,False,1.0625,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.7,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What's the Pythonic way to determine whether a dictionary contains a specific key?",0.7,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What's the easiest way to reverse a Python list?",False
+redis_004,redis_delete_key,How do I delete a Redis key immediately?,False,False,0.8333334,0.32489389181137085,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I set a key with an expiration time in Redis?",0.75,0.21424973011016846,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make a Redis key expire automatically?",1.1,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",False
+git_001,git_undo_last_commit,How do I undo my last Git commit?,False,False,1.5,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.8333334,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: I want my GitHub workflow to execute every time a pull request is merged into the main branch. How do I configure that?",0.7916667,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",False
+git_002,git_undo_last_commit,What's the safest way to undo the most recent commit in Git?,True,False,1.3958334,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.8409091,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What's the easiest way to reverse a Python list?",0.8333334,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",False
+git_003,git_undo_last_commit,How can I revert my latest Git commit?,True,False,1.0,0.48594820499420166,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I undo my last Git commit?",1.25,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.85833335,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",False
+git_004,git_undo_commit_keep_changes,How do I undo the last commit but keep the changes staged?,False,False,1.3333333,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I undo my last Git commit?",0.7380953,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",False
+git_005,git_create_branch,How do I create a new Git branch?,False,False,1.75,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.8095238,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",,,,False
+api_001,api_put_vs_patch,Should I use PUT or PATCH when updating part of a resource?,False,False,1.0833334,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+api_002,api_put_vs_patch,What's the difference between PUT and PATCH for partial updates?,True,False,1.0526316,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+api_003,api_put_vs_patch,When should an API use PATCH instead of PUT?,True,False,0.8333334,0.09406125545501709,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Should I use PUT or PATCH when updating part of a resource?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.75,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What's the difference between PUT and PATCH for partial updates?",False
+api_004,api_post_vs_put,What's the difference between POST and PUT?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What's the difference between PUT and PATCH for partial updates?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+http_001,http_404,What does HTTP status code 404 mean?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What's the difference between POST and PUT?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.75,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What's the easiest way to reverse a Python list?",False
+http_002,http_404,Can you explain what a 404 response means in HTTP?,True,False,1.0,0.6854347705841064,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What does HTTP status code 404 mean?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+http_003,http_404,Why am I getting a 404 Not Found response?,True,False,1.0666667,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.75,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Can you explain what a 404 response means in HTTP?",,,,False
+http_004,http_500,What does HTTP 500 mean?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What does HTTP status code 404 mean?",0.7,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What's the easiest way to reverse a Python list?",False
+jwt_001,jwt_explanation,What is a JWT and how does it work?,False,False,1.0625,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+jwt_002,jwt_explanation,Can you explain JSON Web Tokens and how authentication with them works?,True,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What is a JWT and how does it work?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.71929824,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",False
+jwt_003,jwt_explanation,How does JWT-based authentication work?,True,False,1.0,0.3467118501663208,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What is a JWT and how does it work?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+jwt_004,jwt_refresh,How do I refresh an expired JWT?,False,False,1.0666667,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I set a key with an expiration time in Redis?",,,,False
+linux_001,linux_process_using_port,How do I find which process is using port 3000 on Linux?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+linux_002,linux_process_using_port,How can I see what process has port 3000 open on Linux?,True,False,1.0,0.599922513961792,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I find which process is using port 3000 on Linux?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.73333335,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",False
+linux_003,linux_process_using_port,How do I identify the process listening on a particular port in Linux?,True,False,1.1428572,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I find which process is using port 3000 on Linux?",,,,False
+linux_004,linux_kill_process,How do I kill a process in Linux?,False,False,1.0588236,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.8333334,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I identify the process listening on a particular port in Linux?",0.7254902,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",False
+aws_001,aws_s3_upload_cli,How do I upload a file to an S3 bucket using AWS CLI?,False,False,1.3333334,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.8176471,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I expose a Kubernetes deployment using a service?",,,,False
+aws_002,aws_s3_upload_cli,What's the AWS CLI command for uploading a file to S3?,True,False,1.0,0.4995342493057251,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I upload a file to an S3 bucket using AWS CLI?",1.0625,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+aws_003,aws_s3_upload_cli,How can I copy a local file into an Amazon S3 bucket from the command line?,True,False,1.0,0.21209782361984253,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I upload a file to an S3 bucket using AWS CLI?",1.0909091,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+aws_004,aws_s3_download_cli,How do I download a file from S3 using AWS CLI?,False,False,1.0,0.2415170669555664,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I upload a file to an S3 bucket using AWS CLI?",1.0909091,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+llm_001,llm_temperature,What is temperature in an LLM?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+llm_002,llm_temperature,Can you explain what the temperature parameter does when generating text with an LLM?,True,False,1.0,0.33047637939453123,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What is temperature in an LLM?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+llm_003,llm_temperature,How does changing an LLM's temperature affect its output?,True,False,0.8333334,0.05226907730102537,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What is temperature in an LLM?",0.8333334,0.02300870418548584,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Can you explain what the temperature parameter does when generating text with an LLM?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",False
+llm_004,llm_top_p,What does top-p do in language model generation?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Can you explain what the temperature parameter does when generating text with an LLM?",,,,False
+llm_005,llm_temperature_vs_top_p,What is the difference between temperature and top-p?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.7,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What is temperature in an LLM?",,,,False
+vec_001,embedding_explanation,What is a vector embedding?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.8333334,0.0,"model:gemini-3.1-flash-lite|user: i have a service that acts as an llm api gateway for my product, providing fallback providers for llm service/model calls, llm usage tracking, latency and cost tracking, api rate limiting etc. i also embed and save the query and response to qdrant to allow a kind of semantic caching feature to save hits. should i also provide embedding fallback of ollama for openai embedding calls ? if i do, wont it cause the problem of vector search when the embedding models are different and i have no idea about which result to return ?",0.75,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What is a JWT and how does it work?",False
+vec_002,embedding_explanation,Can you explain what embeddings are in machine learning?,True,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.7,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What is a vector embedding?",,,,False
+vec_003,embedding_explanation,What does it mean to represent text as an embedding vector?,True,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.7,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What is a vector embedding?",,,,False
+vec_004,cosine_similarity,How does cosine similarity work for embeddings?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+vec_005,cosine_similarity,How is cosine similarity used to compare embedding vectors?,True,False,1.0,0.4989051818847656,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How does cosine similarity work for embeddings?",1.0555556,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.7254902,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",False
+qdrant_001,qdrant_similarity_search,How do I perform a vector similarity search in Qdrant?,False,False,1.0555556,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+qdrant_002,qdrant_similarity_search,How can I search Qdrant for vectors that are semantically similar?,True,False,0.8333334,0.24966669082641602,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I perform a vector similarity search in Qdrant?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.71929824,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",False
+qdrant_003,qdrant_similarity_search,What's the Qdrant API for performing nearest-neighbor vector search?,True,False,0.75,0.08579365015029905,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I perform a vector similarity search in Qdrant?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+qdrant_004,qdrant_payload_filter,How do I filter Qdrant results by payload fields?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I perform a vector similarity search in Qdrant?",,,,False
+qdrant_005,qdrant_payload_filter,How can I restrict Qdrant vector search using metadata filters?,True,False,1.0,0.13344240188598633,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I search Qdrant for vectors that are semantically similar?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+ollama_001,ollama_embeddings,How do I generate embeddings using Ollama?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+ollama_002,ollama_embeddings,What's the API endpoint for getting text embeddings from Ollama?,True,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.8333334,0.0,"model:gemini-3.1-flash-lite|user: i have a service that acts as an llm api gateway for my product, providing fallback providers for llm service/model calls, llm usage tracking, latency and cost tracking, api rate limiting etc. i also embed and save the query and response to qdrant to allow a kind of semantic caching feature to save hits. should i also provide embedding fallback of ollama for openai embedding calls ? if i do, wont it cause the problem of vector search when the embedding models are different and i have no idea about which result to return ?",,,,False
+ollama_003,ollama_embeddings,How can I use Ollama to turn text into embedding vectors?,True,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.8333334,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I generate embeddings using Ollama?",0.75757575,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",False
+ollama_004,ollama_run_model,How do I run an Ollama model locally?,False,False,0.75,0.21555602550506592,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I generate embeddings using Ollama?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.7,0.0,"model:gemini-3.1-flash-lite|user: i have a service that acts as an llm api gateway for my product, providing fallback providers for llm service/model calls, llm usage tracking, latency and cost tracking, api rate limiting etc. i also embed and save the query and response to qdrant to allow a kind of semantic caching feature to save hits. should i also provide embedding fallback of ollama for openai embedding calls ? if i do, wont it cause the problem of vector search when the embedding models are different and i have no idea about which result to return ?",False
+geo_001,france_capital,What is the capital of France?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.75,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What is the difference between temperature and top-p?",,,,False
+geo_002,france_capital,Which city is the capital of France?,True,False,1.0,0.49982893466949463,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What is the capital of France?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+geo_003,france_capital,Tell me France's capital city.,True,False,1.0,0.4998363256454468,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Which city is the capital of France?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.7,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What's the easiest way to reverse a Python list?",False
+geo_004,france_largest_city,What is the largest city in France by population?,False,False,0.8333334,0.24698597192764282,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Which city is the capital of France?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.75,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What is the capital of France?",False
+science_001,why_sky_blue,Why is the sky blue?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.7,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What is the difference between temperature and top-p?",,,,False
+science_002,why_sky_blue,What causes the sky to appear blue during the day?,True,False,0.75,0.7487078905105591,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Why is the sky blue?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.7,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What's the easiest way to reverse a Python list?",False
+science_003,why_sky_blue,Why does sunlight make the daytime sky look blue?,True,False,0.8333334,0.24962902069091797,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What causes the sky to appear blue during the day?",0.8333334,0.24458754062652588,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Why is the sky blue?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",False
+science_004,sunset_red_sky,Why does the sky turn red during sunset?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.8333334,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What causes the sky to appear blue during the day?",0.75,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Why does sunlight make the daytime sky look blue?",False
+math_001,percentage_calculation,What is 15 percent of 240?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+math_002,percentage_calculation,Calculate 15% of 240.,True,False,1.0,0.08916780948638914,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What is 15 percent of 240?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+math_003,percentage_calculation,"If I have 240 and need 15 percent of it, what is the result?",True,False,0.8333334,0.6992479681968689,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What is 15 percent of 240?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+math_004,different_percentage_calculation,What is 20 percent of 240?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What is 15 percent of 240?",,,,False
+writing_001,professional_meeting_email,Write a professional email asking for a meeting.,False,False,1.0625,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.75,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What's a query for identifying duplicate records in a database table?",,,,False
+writing_002,professional_meeting_email,Can you draft a formal email requesting a meeting?,True,False,1.0,0.24821484088897705,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Write a professional email asking for a meeting.",1.0666667,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+writing_003,professional_meeting_email,Please write a polite business email asking someone to schedule a meeting.,True,False,1.1428572,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Write a professional email asking for a meeting.",0.72222227,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",False
+writing_004,casual_coffee_message,Write a casual text asking a friend to meet for coffee.,False,False,1.0833334,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Write a professional email asking for a meeting.",,,,False
+translation_001,translate_how_are_you_spanish,Translate 'How are you?' into Spanish.,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+translation_002,translate_how_are_you_spanish,How do you say 'How are you?' in Spanish?,True,False,1.0,0.7440364360809326,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Translate 'How are you?' into Spanish.",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+translation_003,translate_how_are_you_spanish,Give me the Spanish translation of 'How are you?',True,False,1.0,0.4988865256309509,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Translate 'How are you?' into Spanish.",1.0555556,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+translation_004,translate_how_are_you_french,Translate 'How are you?' into French.,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Translate 'How are you?' into Spanish.",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+travel_001,things_to_do_tokyo,What are some things to do in Tokyo?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+travel_002,things_to_do_tokyo,What are the best attractions to visit in Tokyo?,True,False,1.0,0.24616843461990356,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What are some things to do in Tokyo?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+travel_003,things_to_do_tokyo,Can you suggest places worth visiting in Tokyo?,True,False,1.0,0.24926942586898804,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What are the best attractions to visit in Tokyo?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+travel_004,things_to_do_kyoto,What are some things to do in Kyoto?,False,False,1.0,0.4993094205856323,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What are some things to do in Tokyo?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.71428573,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",False
+food_001,pizza_dough,How do I make homemade pizza dough?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.75,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I create a PostgreSQL database?",,,,False
+food_002,pizza_dough,What's a good recipe for making pizza dough at home?,True,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+food_003,pizza_dough,How can I prepare pizza dough from scratch?,True,False,1.0,0.49546730518341064,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I make homemade pizza dough?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+food_004,pasta_dough,How do I make homemade pasta dough?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I make homemade pizza dough?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+finance_001,compound_interest,What is compound interest?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+finance_002,compound_interest,Can you explain how compound interest works?,True,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+finance_003,compound_interest,How does interest earning on previous interest work?,True,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Can you explain how compound interest works?",,,,False
+finance_004,simple_interest,What is simple interest?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.8333334,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What is compound interest?",,,,False
+productivity_001,work_from_home_focus,How can I stay focused while working from home?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+productivity_002,work_from_home_focus,What are some ways to improve concentration when working remotely?,True,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.8333334,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What are some things to do in Tokyo?",0.7,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What's the easiest way to reverse a Python list?",False
+productivity_003,work_from_home_focus,How do I avoid distractions while working at home?,True,False,1.0,0.48879170417785645,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I stay focused while working from home?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+productivity_004,study_focus,How can I stay focused while studying for exams?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I stay focused while working from home?",0.7166667,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",False
+hard_002,python_reverse_string,How do I reverse a string in Python?,False,False,0.7,0.6819276809692383,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I reverse a list in Python?",0.75,0.3601601719856262,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I get the elements of a list in reverse order in Python?",0.8333334,0.20238101482391357,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What's the easiest way to reverse a Python list?",False
+hard_004,postgres_index_remove,How do I remove an index in PostgreSQL?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I create an index in PostgreSQL?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+hard_005,docker_delete_container,How do I delete a Docker container?,False,False,1.1,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.875,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I start an existing Docker container?",0.7,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I build a Docker image from a Dockerfile?",False
+hard_006,docker_delete_image,How do I delete a Docker image?,False,False,0.8333334,0.713784396648407,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I delete a Docker container?",1.1,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+hard_007,github_actions_create_workflow,How do I create a GitHub Actions workflow?,False,False,2.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.9166667,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",,,,False
+hard_008,github_actions_delete_workflow,How do I delete a GitHub Actions workflow?,False,False,0.8333334,0.057057589292526245,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I create a GitHub Actions workflow?",1.8333334,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.7777778,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",False
+values_001,percentage_10_500,What is 10% of 500?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.8333334,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What is 20 percent of 240?",0.7,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: If I have 240 and need 15 percent of it, what is the result?",False
+values_002,percentage_10_600,What is 10% of 600?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What is 10% of 500?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+values_003,port_3000,How do I find process using port 3000?,False,False,1.0,0.2802244186401367,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I find which process is using port 3000 on Linux?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+values_004,port_8080,How do I find process using port 8080?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.8333334,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I find process using port 3000?",0.75,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I identify the process listening on a particular port in Linux?",False
+values_005,k8s_five_replicas,How do I deploy five replicas in Kubernetes?,False,False,1.0,0.24789196252822876,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I scale a Kubernetes deployment to five replicas?",0.7009804,0.21972781419754028,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I expose a Kubernetes deployment using a service?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",False
+values_006,k8s_ten_replicas,How do I deploy ten replicas in Kubernetes?,False,False,0.7009804,0.22426211833953857,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I expose a Kubernetes deployment using a service?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I scale a Kubernetes deployment to five replicas?",False
+time_001,weather_london_today,What's the weather in London today?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+time_002,weather_london_tomorrow,What's the weather in London tomorrow?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+time_003,tech_news_today,What are today's top technology news stories?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+time_004,tech_news_yesterday,What were yesterday's top technology news stories?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+entity_001,nextjs_vercel_deploy,How do I deploy a Next.js application to Vercel?,False,False,1.1428572,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I define a dynamic URL parameter in a Next.js application?",,,,False
+entity_002,nextjs_aws_deploy,How do I deploy a Next.js application to AWS?,False,False,1.0,0.1833995282649994,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I deploy a Next.js application to Vercel?",1.1111112,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+entity_003,nestjs_postgres,How do I connect a NestJS application to PostgreSQL?,False,False,0.7651515,0.10943025350570679,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I add a GET controller endpoint to my NestJS application?",1.2,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+entity_004,nestjs_mongodb,How do I connect a NestJS application to MongoDB?,False,False,1.1666666,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I connect a NestJS application to PostgreSQL?",,,,False
+informal_002,python_reverse_informal,whats the way to reverse a list in python,True,False,1.3333334,0.4644343852996826,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What's the easiest way to reverse a Python list?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+informal_003,python_reverse_informal,how can i revers a list in pyhton,True,False,1.0,0.7481762170791626,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I reverse a list in Python?",0.7666667,0.35209041833877563,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I reverse a list in JavaScript?",0.8333334,0.054515957832336426,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What's the easiest way to reverse a Python list?",False
+informal_004,python_reverse_informal,python list reverse how?,True,False,0.8333334,0.7498255372047424,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I reverse a list in Python?",0.72499996,0.7082642912864685,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I reverse a list in JavaScript?",0.875,0.6726536154747009,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What's the easiest way to reverse a Python list?",False
+long_002,reverse_list_long_short,I'm working on a Python application and I have a list of values. I don't want to manually loop through it or create another complicated data structure. I simply need to change the ordering so that the last element becomes the first and the first becomes the last. What's the standard Python approach for reversing the list?,True,False,0.8333334,0.747546374797821,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I get the elements of a list in reverse order in Python?",1.0833334,0.4756079912185669,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What's the easiest way to reverse a Python list?",1.0526316,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",False
+unrelated_001,capital_japan,What is the capital of Japan?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.7,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What is the capital of France?",,,,False
+unrelated_002,black_holes,How do black holes form?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+unrelated_003,chocolate_cake,Give me a recipe for chocolate cake.,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What's a good recipe for making pizza dough at home?",,,,False
+unrelated_004,ocean_poem,Write a poem about the ocean.,False,False,1.1111112,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+unrelated_005,photosynthesis,Explain how photosynthesis works.,False,False,0.7,0.016232073307037354,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Can you explain how compound interest works?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+soft_001,france_largest_city_population,What is the most populated city in France?,False,False,1.0,0.49797505140304565,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What is the largest city in France by population?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+soft_002,japan_largest_city,Which city is Japan's largest by population?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.8333334,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What is the largest city in France by population?",,,,False
+soft_003,ocean_blue_color,Why does the ocean look blue in daylight?,False,False,0.7,0.49898940324783325,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What causes the sky to appear blue during the day?",0.75,0.4332914352416992,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Why does sunlight make the daytime sky look blue?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",False
+soft_004,sunrise_sky_colors,Why does the sky turn orange and red at sunrise?,False,False,1.0,0.6237506866455078,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Why does the sky turn red during sunset?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+soft_005,percentage_increase_15_240,What is a 15 percent increase on 240?,False,False,1.0,0.8478291392326355,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What is 15 percent of 240?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+soft_006,simple_interest_240_15_percent,How much simple interest would 240 earn at 15 percent?,False,False,0.8333334,0.5971555471420288,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What is 15 percent of 240?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+soft_007,translate_thank_you_spanish,How do you say 'Thank you' in Spanish?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do you say 'How are you?' in Spanish?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+soft_008,translate_how_are_you_italian,Translate 'How are you?' into Italian.,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Translate 'How are you?' into French.",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+soft_009,things_to_do_kyoto_attractions,What are the top attractions to see in Kyoto?,False,False,0.8333334,0.5996778964996338,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What are the best attractions to visit in Tokyo?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.8333334,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What are some things to do in Kyoto?",False
+soft_010,things_to_do_osaka,What are the best places to visit in Osaka?,False,False,0.8333334,0.22551384568214417,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What are the best attractions to visit in Tokyo?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+soft_011,weather_paris_today,What's the weather in Paris today?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+soft_012,weather_london_weekend,What's the weather in London this weekend?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+soft_013,tech_news_yesterday_headlines,What were yesterday's biggest technology headlines?,False,False,1.0,0.4995630383491516,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What were yesterday's top technology news stories?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.75,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What's the easiest way to reverse a Python list?",False
+soft_014,science_news_today,What are today's top science news stories?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What were yesterday's top technology news stories?",,,,False
+soft_015,professional_reschedule_meeting_email,Write a formal email to reschedule a meeting.,False,False,0.75,0.24787700176239014,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Can you draft a formal email requesting a meeting?",1.1111112,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.75,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Please write a polite business email asking someone to schedule a meeting.",False
+soft_016,professional_meeting_followup_email,Draft a professional email thanking someone after a meeting.,False,False,0.8333334,0.49922800064086914,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Write a professional email asking for a meeting.",0.8333334,0.48773396015167236,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Can you draft a formal email requesting a meeting?",1.1428572,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",False
+soft_017,casual_lunch_message,Write a casual text asking a friend to meet for lunch.,False,False,1.0,0.3404402732849121,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Write a casual text asking a friend to meet for coffee.",1.0625,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+soft_018,decline_meeting_invitation_email,Can you write a polite email declining a meeting invitation?,False,False,1.0,0.20557034015655518,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Can you draft a formal email requesting a meeting?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+soft_019,homemade_pizza_sauce,How do I make pizza sauce from scratch?,False,False,0.8333334,0.4975767731666565,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I prepare pizza dough from scratch?",0.8333334,0.1855863332748413,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I make homemade pizza dough?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",False
+soft_020,homemade_bread_dough,What's a simple recipe for homemade bread dough?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What's a good recipe for making pizza dough at home?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+soft_021,homemade_chocolate_brownies,How can I make chocolate brownies at home?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.8666667,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",,,,False
+soft_022,study_focus_at_home,How do I stay focused while studying for a test at home?,False,False,1.0,0.4997923970222473,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I stay focused while studying for exams?",1.1,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+soft_023,office_work_focus,How can I avoid distractions while working in an office?,False,False,1.0,0.03058236837387085,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I avoid distractions while working at home?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+soft_024,driving_concentration,What are some ways to improve concentration during a long drive?,False,False,1.0,0.21897637844085693,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What are some ways to improve concentration when working remotely?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+soft_025,http_403_forbidden,What does HTTP status code 403 mean?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What does HTTP status code 404 mean?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+soft_026,http_401_unauthorized,What does a 401 Unauthorized response mean?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.75,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Can you explain what a 404 response means in HTTP?",0.7,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What does HTTP status code 403 mean?",False
+soft_027,compound_interest_vs_apy,How does compound interest differ from an annual percentage yield?,False,False,0.8333334,0.4427174091339111,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Can you explain how compound interest works?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.75,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How does interest earning on previous interest work?",False
+soft_028,fixed_rate_mortgage_explanation,Can you explain how a fixed-rate mortgage works?,False,False,1.0,0.1401347517967224,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Can you explain how compound interest works?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+soft_029,calculate_monthly_loan_payment,How do I calculate the monthly payment on a loan?,False,False,1.3333334,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+soft_030,moon_horizon_illusion,Why does the Moon appear larger near the horizon?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.75,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Why does the sky turn red during sunset?",,,,False
+soft_031,aurora_borealis_cause,What causes the northern lights to appear in the sky?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.8333334,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What causes the sky to appear blue during the day?",,,,False
+soft_032,black_holes_vs_neutron_stars,How are black holes different from neutron stars?,False,False,1.0,0.734350323677063,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do black holes form?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+soft_033,weather_vs_climate,What is the difference between weather and climate?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What is the difference between temperature and top-p?",,,,False
+soft_034,paper_vs_plastic_recycling,How does recycling paper differ from recycling plastic?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How does compound interest differ from an annual percentage yield?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+soft_035,vegan_vs_vegetarian_diet,What is the difference between a vegan and a vegetarian diet?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.75,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What is the difference between weather and climate?",,,,False
+soft_036,remove_coffee_stain_clothing,How do I remove a coffee stain from a white shirt?,False,False,1.1,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+soft_037,remove_wine_stain_carpet,What is the best way to remove red wine from a carpet?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+soft_038,beginner_10k_training,How can I train for a 10K race as a beginner?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+soft_039,beginner_home_strength_exercises,What are some beginner exercises for building strength at home?,False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+soft_040,tokyo_three_day_itinerary,How do I plan a three-day trip to Tokyo?,False,False,1.5,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+soft_041,kyoto_three_day_itinerary,What should I see during a three-day trip to Kyoto?,False,False,0.75,0.4970009922981262,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I plan a three-day trip to Tokyo?",0.7,0.03209683895111082,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: What are the top attractions to see in Kyoto?",1.1,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",False
+lc_health_001,nutrition_plant_based_benefits,"Over the past few decades, numerous studies have highlighted the potential health benefits of adopting a strict plant-based diet. I am currently writing a comprehensive research paper on this subject. Could you provide a detailed overview of the primary cardiovascular and metabolic advantages of eliminating all animal products from one's diet, specifically referencing improvements in cholesterol levels, blood pressure, and insulin sensitivity over a long-term period?",False,False,1.0625,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+lc_health_002,nutrition_plant_based_benefits,"I'm working on a detailed research essay concerning the health impacts of veganism. Please give me a thorough breakdown of how a strict plant-based diet benefits the cardiovascular system and metabolic health. I need you to focus on the long-term effects on insulin resistance, blood pressure, and cholesterol when someone completely removes animal products from their daily meals.",True,False,1.0,0.24971264600753784,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Over the past few decades, numerous studies have highlighted the potential health benefits of adopting a strict plant-based diet. I am currently writing a comprehensive research paper on this subject. Could you provide a detailed overview of the primary cardiovascular and metabolic advantages of eliminating all animal products from one's diet, specifically referencing improvements in cholesterol levels, blood pressure, and insulin sensitivity over a long-term period?",1.0909091,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+lc_health_003,nutrition_plant_based_benefits,"Can you summarize the heart and blood sugar benefits of eating only plants? For my school paper, I need to explain why avoiding meat and dairy helps with hypertension, lipid profiles, and glucose regulation in the long run.",True,False,1.0,0.08617655038833616,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Over the past few decades, numerous studies have highlighted the potential health benefits of adopting a strict plant-based diet. I am currently writing a comprehensive research paper on this subject. Could you provide a detailed overview of the primary cardiovascular and metabolic advantages of eliminating all animal products from one's diet, specifically referencing improvements in cholesterol levels, blood pressure, and insulin sensitivity over a long-term period?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.7291667,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How can I make GitHub Actions run whenever someone pushes directly to master?",False
+lc_health_004,nutrition_plant_based_risks,"Over the past few decades, numerous studies have highlighted the potential health risks of adopting a strict plant-based diet. I am currently writing a comprehensive research paper on this subject. Could you provide a detailed overview of the primary cardiovascular and metabolic disadvantages of eliminating all animal products from one's diet, specifically referencing worsening of cholesterol levels, blood pressure, and insulin sensitivity over a long-term period?",False,False,1.0,0.4986407160758972,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Over the past few decades, numerous studies have highlighted the potential health benefits of adopting a strict plant-based diet. I am currently writing a comprehensive research paper on this subject. Could you provide a detailed overview of the primary cardiovascular and metabolic advantages of eliminating all animal products from one's diet, specifically referencing improvements in cholesterol levels, blood pressure, and insulin sensitivity over a long-term period?",1.0625,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+lc_legal_001,legal_commercial_lease_break,"I am currently renting a commercial office space under a five-year lease agreement that started two years ago. Due to unexpected financial difficulties, my company is considering breaking the lease early. Can you explain the typical legal consequences and financial penalties associated with early termination of a commercial lease, and what clauses I should look for in my contract that might allow us to exit without severe liability?",False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+lc_legal_002,legal_commercial_lease_break,"Our business signed a 5-year commercial lease for our office a couple of years back, but we are facing budget constraints and need to terminate it prematurely. Could you outline the standard financial repercussions and legal liabilities for breaking this type of lease early? Also, please tell me which specific contract clauses might offer a way out with minimal penalties.",True,False,1.0,0.093335485458374,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: I am currently renting a commercial office space under a five-year lease agreement that started two years ago. Due to unexpected financial difficulties, my company is considering breaking the lease early. Can you explain the typical legal consequences and financial penalties associated with early termination of a commercial lease, and what clauses I should look for in my contract that might allow us to exit without severe liability?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,False
+lc_legal_003,legal_commercial_lease_break,"What happens if a company leaves its rented office before the 5-year term is up? We're broke and need to get out 3 years early. I need to know the typical fines, legal risks, and any loopholes in standard rental contracts that let you walk away without paying a fortune.",True,False,1.0526316,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: I am currently renting a commercial office space under a five-year lease agreement that started two years ago. Due to unexpected financial difficulties, my company is considering breaking the lease early. Can you explain the typical legal consequences and financial penalties associated with early termination of a commercial lease, and what clauses I should look for in my contract that might allow us to exit without severe liability?",,,,False
+lc_legal_004,legal_commercial_lease_renewal,"I am currently renting a commercial office space under a five-year lease agreement that is ending next month. Due to unexpected financial success, my company is considering renewing the lease early. Can you explain the typical legal benefits and financial incentives associated with early renewal of a commercial lease, and what clauses I should look for in my contract that might allow us to extend with favorable terms?",False,False,0.8333334,0.49839574098587036,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: I am currently renting a commercial office space under a five-year lease agreement that started two years ago. Due to unexpected financial difficulties, my company is considering breaking the lease early. Can you explain the typical legal consequences and financial penalties associated with early termination of a commercial lease, and what clauses I should look for in my contract that might allow us to exit without severe liability?",0.75,0.05618891716003416,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: Our business signed a 5-year commercial lease for our office a couple of years back, but we are facing budget constraints and need to terminate it prematurely. Could you outline the standard financial repercussions and legal liabilities for breaking this type of lease early? Also, please tell me which specific contract clauses might offer a way out with minimal penalties.",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",False
+lc_hr_001,hr_remote_work_policy,"As the newly appointed HR Director for a mid-sized tech company, I have been tasked with drafting a comprehensive permanent remote work policy for our engineering and design teams. The policy must clearly outline the expectations for core working hours, the process for requesting home office equipment stipends, and the mandatory quarterly in-person team-building retreats. Can you provide a detailed template that covers all these specific requirements?",False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",,,,,,,False
+lc_hr_002,hr_remote_work_policy,"I recently became the HR Director at a medium-sized technology firm, and I need to create a permanent work-from-home policy covering our designers and engineers. Please generate a thorough policy template that specifies the mandatory core hours they must be online, how they can go about getting reimbursed for home office gear, and the rules around attending our required quarterly face-to-face team offsites.",True,False,1.0526316,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: As the newly appointed HR Director for a mid-sized tech company, I have been tasked with drafting a comprehensive permanent remote work policy for our engineering and design teams. The policy must clearly outline the expectations for core working hours, the process for requesting home office equipment stipends, and the mandatory quarterly in-person team-building retreats. Can you provide a detailed template that covers all these specific requirements?",,,,False
+lc_hr_003,hr_remote_work_policy,"Draft a WFH guide for tech and design staff at my company. I'm the new HR head. It needs to include when they must be online during the day, how to ask for money for their desk setup, and the fact that they have to show up in person four times a year for retreats.",True,False,1.0714285,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",0.8333334,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: I recently became the HR Director at a medium-sized technology firm, and I need to create a permanent work-from-home policy covering our designers and engineers. Please generate a thorough policy template that specifies the mandatory core hours they must be online, how they can go about getting reimbursed for home office gear, and the rules around attending our required quarterly face-to-face team offsites.",0.8333334,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: As the newly appointed HR Director for a mid-sized tech company, I have been tasked with drafting a comprehensive permanent remote work policy for our engineering and design teams. The policy must clearly outline the expectations for core working hours, the process for requesting home office equipment stipends, and the mandatory quarterly in-person team-building retreats. Can you provide a detailed template that covers all these specific requirements?",False
+lc_hr_004,hr_return_to_office_policy,"As the newly appointed HR Director for a mid-sized tech company, I have been tasked with drafting a comprehensive strict return-to-office policy for our engineering and design teams. The policy must clearly outline the expectations for core in-office working hours, the process for relinquishing home office equipment stipends, and the mandatory daily in-person team meetings. Can you provide a detailed template that covers all these specific requirements?",False,False,1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: How do I trigger a GitHub Actions workflow after a merge to the default branch?",1.0,0.0,"model:gemini-3.1-flash-lite|system: You are a general purpose LLM answering questions for user queries|
+user: As the newly appointed HR Director for a mid-sized tech company, I have been tasked with drafting a comprehensive permanent remote work policy for our engineering and design teams. The policy must clearly outline the expectations for core working hours, the process for requesting home office equipment stipends, and the mandatory quarterly in-person team-building retreats. Can you provide a detailed template that covers all these specific requirements?",,,,False

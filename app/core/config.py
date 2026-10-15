@@ -30,8 +30,16 @@ class Config:
             if qdrant_consistency and qdrant_consistency.strip().isdigit()
             else None
         )
-        self.DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///sqlite3.db")
+        self.DATABASE_URL = os.getenv(
+            "DATABASE_URL",
+            "postgresql+psycopg://echo_gate_app:echo_gate_app@localhost:5432/echo_gate",
+        )
         self.DATABASE_URL_READ = os.getenv("DATABASE_URL_READ", self.DATABASE_URL)
+        # Non-superuser role the application connects as. Postgres RLS policies
+        # only apply to non-owner roles, so migrations run as the owner
+        # (see MIGRATION_DATABASE_URL) and the app runs as this role.
+        self.DB_APP_ROLE = os.getenv("DB_APP_ROLE", "echo_gate_app")
+        self.DB_APP_PASSWORD = os.getenv("DB_APP_PASSWORD", "echo_gate_app")
         self.CELERY_BROKER_URL = os.getenv(
             "CELERY_BROKER_URL", "redis://localhost:6379/1"
         )
