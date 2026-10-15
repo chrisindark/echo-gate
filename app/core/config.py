@@ -143,7 +143,7 @@ class Config:
         if thresholds_env:
             try:
                 self.CACHE_CONFIDENCE_THRESHOLDS = json.loads(thresholds_env)
-            except json.JSONDecodeError, TypeError:
+            except (json.JSONDecodeError, TypeError):
                 self.CACHE_CONFIDENCE_THRESHOLDS = default_thresholds
         else:
             self.CACHE_CONFIDENCE_THRESHOLDS = default_thresholds
@@ -170,7 +170,7 @@ class Config:
         if ttls_env:
             try:
                 self.INTENT_TTL_SECONDS = json.loads(ttls_env)
-            except json.JSONDecodeError, TypeError:
+            except (json.JSONDecodeError, TypeError):
                 self.INTENT_TTL_SECONDS = default_intent_ttls
         else:
             self.INTENT_TTL_SECONDS = default_intent_ttls

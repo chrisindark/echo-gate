@@ -237,7 +237,7 @@ class RerankerService:
                     else:
                         try:
                             candidate_temperature = float(candidate_temperature)
-                        except ValueError, TypeError:
+                        except (ValueError, TypeError):
                             candidate_temperature = 0.0
 
                     logger.debug(f"candidate temperature: {candidate_temperature}")

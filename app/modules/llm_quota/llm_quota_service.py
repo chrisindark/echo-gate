@@ -123,7 +123,7 @@ class LlmQuotaService:
         try:
             budget, rpm, tpm = await asyncio.gather(
                 self.redis_service.get(f"budget:{api_key}"),
-                self.redis_service.incr(rpm_key),
+                self.redis_service.incr_with_ttl(rpm_key, 60),
                 self.redis_service.get(tpm_key),
             )
         except Exception as e:
@@ -133,9 +133,6 @@ class LlmQuotaService:
 
         if rpm is None:
             rpm = 0
-
-        if rpm == 1:
-            await self.redis_service.expire(rpm_key, 60)
 
         if rpm > max_rpm:
             raise HTTPException(
@@ -181,8 +178,6 @@ class LlmQuotaService:
         )
         tpm_key = f"tpm:{redis_suffix}"
 
-        tpm = await self.redis_service.incrby(tpm_key, total_tokens)
-
-        # If it's the first time setting this key, expire it in 60 seconds
-        if tpm == total_tokens:
-            await self.redis_service.expire(tpm_key, 60)
+        # INCRBY + EXPIRE (NX) are pipelined so the key can never be left with no
+        # TTL, which would otherwise let the token window grow unbounded forever.
+        await self.redis_service.incrby_with_ttl(tpm_key, total_tokens, 60)

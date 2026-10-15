@@ -1,4 +1,3 @@
-import asyncio
 import json
 import logging
 from collections import OrderedDict
@@ -300,24 +299,20 @@ class IntentClassifierService:
                 if len(self._cache) > self._max_cache_size:
                     self._cache.popitem(last=False)
             return result
-        except (TimeoutError, asyncio.TimeoutError):
+        except TimeoutError:
             logger.warning(
                 f"Intent classifier timed out after {self.timeout_seconds}s for service {self.service_name}. Degrading to miss."
             )
-            if cache_key:
-                self._cache[cache_key] = None
-                if len(self._cache) > self._max_cache_size:
-                    self._cache.popitem(last=False)
+            # Do not cache the failure: timeouts are transient and caching None
+            # would suppress future cache lookups for this prompt indefinitely.
             return None
         except Exception as e:
             logger.warning(
                 f"Error classifying intent with service {self.service_name}: {e}. Degrading to miss.",
                 exc_info=True,
             )
-            if cache_key:
-                self._cache[cache_key] = None
-                if len(self._cache) > self._max_cache_size:
-                    self._cache.popitem(last=False)
+            # Do not cache the failure: provider/network errors are transient and
+            # caching None would poison the cache for this prompt.
             return None
 
     def calculate_ttl(self, intent: IntentEnum, time_sensitivity: float) -> int | None:

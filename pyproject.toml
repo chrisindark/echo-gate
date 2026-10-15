@@ -45,7 +45,11 @@ dev = [
 
 [tool.ruff]
 line-length = 88
-target-version = "py314"
+# Match the declared floor in [tool.poetry.dependencies].python ("^3.11") and
+# Dockerfile (python:3.11-slim) so lint rejects syntax that only runs on newer
+# interpreters (bare `except A, B:`, `type X = ...`), rather than silently
+# accepting it as it did at py314.
+target-version = "py311"
 
 [tool.ruff.lint]
 select = [

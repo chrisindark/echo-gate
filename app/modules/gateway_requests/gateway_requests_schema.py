@@ -18,6 +18,7 @@ class EvaluationStatus(str, Enum):
     IN_PROGRESS = "IN_PROGRESS"
     EVALUATED = "EVALUATED"
     SKIPPED = "SKIPPED"
+    FAILED = "FAILED"
 
 
 class LatencyBreakdown(BaseModel):

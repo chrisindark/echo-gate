@@ -39,13 +39,13 @@ def is_celery_broker_online(force_refresh: bool = False) -> bool:
         )
         client.ping()
         online = True
-    except redis.RedisError, OSError:
+    except (redis.RedisError, OSError):
         online = False
     finally:
         if client is not None:
             try:
                 client.close()
-            except redis.RedisError, OSError:
+            except (redis.RedisError, OSError):
                 pass
 
     _broker_status_cache[cache_key] = (online, now)

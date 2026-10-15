@@ -17,15 +17,22 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
+# Upstream failures that are worth retrying: rate limits, request timeouts and
+# transient server errors. Deterministic 4xx codes must fail fast instead.
+RETRYABLE_STATUS_CODES = frozenset({408, 429, 500, 502, 503, 504})
+RETRYABLE_EXCEPTIONS = (asyncio.TimeoutError, TimeoutError, ConnectionError, OSError)
+
 
 def is_retryable_exception(exc: BaseException) -> bool:
     if isinstance(exc, asyncio.CancelledError):
         return False
-    if isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
+    if isinstance(exc, RETRYABLE_EXCEPTIONS):
         return True
     if isinstance(exc, HTTPException):
-        return exc.status_code not in (400, 401, 403, 500, 502, 503, 504)
-    return True
+        return exc.status_code in RETRYABLE_STATUS_CODES
+    # Unknown exception types are assumed non-transient (programming errors,
+    # validation failures, etc.) and are surfaced immediately.
+    return False
 
 
 async def execute_with_retry(

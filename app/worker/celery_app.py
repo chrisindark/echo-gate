@@ -13,6 +13,29 @@ from app.core.logger import setup_logger
 
 logger = logging.getLogger(__name__)
 
+# The event loop used by each prefork worker child. The shared async clients
+# (Redis, Qdrant, httpx) are bound to the loop on which the DependencyContainer
+# was initialized, so task bodies must run on this same loop.
+_worker_loop: asyncio.AbstractEventLoop | None = None
+
+
+def get_worker_loop() -> asyncio.AbstractEventLoop | None:
+    return _worker_loop
+
+
+def run_async(coro):
+    """
+    Run a coroutine on the worker-owned event loop.
+
+    Celery task bodies are synchronous. Using ``asyncio.run`` would create a new
+    loop per invocation, causing the container's loop-bound async clients to be
+    reused across loops and raising ``... attached to a different loop``.
+    """
+    loop = _worker_loop
+    if loop is None or loop.is_closed():
+        return asyncio.run(coro)
+    return loop.run_until_complete(coro)
+
 
 # Initialize logger
 @setup_logging.connect
@@ -22,18 +45,22 @@ def config_loggers(*args, **kwargs):
 
 @worker_process_init.connect
 def init_worker(**kwargs):
+    global _worker_loop
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
+    _worker_loop = loop
     loop.run_until_complete(DependencyContainer.initialize())
     logger.info("DependencyContainer initialized in Celery worker.")
 
 
 @worker_process_shutdown.connect
 def shutdown_worker(**kwargs):
-    loop = asyncio.get_event_loop()
-    if loop and not loop.is_closed():
+    global _worker_loop
+    loop = _worker_loop
+    if loop is not None and not loop.is_closed():
         loop.run_until_complete(DependencyContainer.shutdown())
         loop.close()
+    _worker_loop = None
     logger.info("DependencyContainer shut down in Celery worker.")
 
 
