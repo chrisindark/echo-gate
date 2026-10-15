@@ -1544,6 +1544,7 @@ class LlmRouterService:
         subject_modifier: str | None = None
         action_modifier: str | None = None
         provider_error: str | None = None
+        provider_exception: BaseException | None = None
         response: ChatCompletionResponse | None = None
 
         try:
@@ -1614,6 +1615,7 @@ class LlmRouterService:
                 )
             except Exception as e:
                 provider_error = str(e)
+                provider_exception = e
                 if (
                     config.USE_FALLBACK_LLM == "true"
                     and config.FALLBACK_LLM_SERVICE
@@ -1692,6 +1694,7 @@ class LlmRouterService:
         except Exception as e:
             if not provider_error:
                 provider_error = str(e)
+                provider_exception = e
             raise
         finally:
             end_time = time.perf_counter()
@@ -1733,16 +1736,16 @@ class LlmRouterService:
                         latency_breakdown=breakdown,
                     )
                 )
-            elif provider_error:
+            elif provider_exception is not None:
                 status_code = (
-                    provider_error.status_code
-                    if isinstance(provider_error, HTTPException)
+                    provider_exception.status_code
+                    if isinstance(provider_exception, HTTPException)
                     else 500
                 )
                 error_detail = (
-                    str(provider_error.detail)
-                    if isinstance(provider_error, HTTPException)
-                    else str(provider_error)
+                    str(provider_exception.detail)
+                    if isinstance(provider_exception, HTTPException)
+                    else (provider_error or str(provider_exception))
                 )
                 self._create_background_task(
                     self._log_usage(

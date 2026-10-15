@@ -18,7 +18,9 @@ ENV/
 env/
 
 # IDE and OS configs
-.vscode/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
 .idea/
 .DS_Store
 

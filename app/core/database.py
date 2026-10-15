@@ -1,6 +1,7 @@
 import logging
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
+from typing import TypeAlias
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.ext.declarative import declarative_base
@@ -52,7 +53,7 @@ def _create_db_engine(url: str):
 
 engine = _create_db_engine(SQLALCHEMY_DATABASE_URL)
 
-type SessionFactory = sessionmaker[Session] | Callable[[], Session]
+SessionFactory: TypeAlias = sessionmaker[Session] | Callable[[], Session]
 
 SessionLocal: sessionmaker[Session] = sessionmaker(
     autocommit=False, autoflush=False, bind=engine, expire_on_commit=False

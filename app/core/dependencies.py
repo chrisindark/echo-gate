@@ -79,6 +79,8 @@ class DependencyContainer:
             cls._reranker_service = None
             cls._intent_classifier_service = None
             cls._entity_extractor_service = None
+            cls._llm_usage_service = None
+            cls._llm_quota_service = None
             cls._cross_encoder_service = None
             cls._judge_service = None
             cls._instruction_service = None
@@ -176,15 +178,14 @@ class DependencyContainer:
     @classmethod
     def get_llm_quota_service(cls) -> LlmQuotaService:
         if cls._llm_quota_service is None:
-            import asyncio
-
-            redis = (
-                asyncio.run(cls.get_redis_service())
-                if not cls._redis_service
-                else cls._redis_service
-            )
+            if cls._redis_service is None:
+                raise RuntimeError(
+                    "DependencyContainer.initialize() must run before "
+                    "get_llm_quota_service() so the Redis-backed quota service can "
+                    "bind to the container's Redis connection."
+                )
             cls._llm_quota_service = LlmQuotaService(
-                redis_service=redis, session_factory=SessionLocal
+                redis_service=cls._redis_service, session_factory=SessionLocal
             )
         return cls._llm_quota_service
 

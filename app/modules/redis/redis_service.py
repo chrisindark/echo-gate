@@ -78,11 +78,45 @@ class RedisService:
 
         return None
 
+    async def incr_with_ttl(self, key: str, ttl: int) -> int | None:
+        """
+        Increment a counter and guarantee the key always has a TTL.
+
+        INCR and EXPIRE (NX) are sent in a single pipeline so a counter can never
+        be left permanent (which would otherwise lock out a rate-limited key
+        forever) if the process dies between the two commands.
+        """
+        try:
+            pipe = self.redis.pipeline()
+            pipe.incr(key)
+            pipe.expire(key, ttl, nx=True)
+            results = await pipe.execute()
+            return results[0]
+        except Exception as e:
+            logger.error(f"Failed to increment {key} with TTL in Redis: {e}")
+
+        return None
+
     async def incrby(self, key: str, amount: int):
         try:
             return await self.redis.incrby(key, amount)
         except Exception as e:
             logger.error(f"Failed to increment key in Redis: {e}")
+
+        return None
+
+    async def incrby_with_ttl(self, key: str, amount: int, ttl: int) -> int | None:
+        """Increment a counter by ``amount`` and guarantee the key has a TTL."""
+        try:
+            pipe = self.redis.pipeline()
+            pipe.incrby(key, amount)
+            pipe.expire(key, ttl, nx=True)
+            results = await pipe.execute()
+            return results[0]
+        except Exception as e:
+            logger.error(
+                f"Failed to increment {key} by {amount} with TTL in Redis: {e}"
+            )
 
         return None
 

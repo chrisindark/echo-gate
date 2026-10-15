@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import JSON, Boolean, Column, DateTime, Integer, Numeric, String, Text
 
@@ -9,13 +9,11 @@ class GatewayRequestLog(Base):
     __tablename__ = "gateway_requests"
 
     id = Column(Integer, primary_key=True, index=True)
-    created_at = Column(
-        DateTime, default=lambda: datetime.now(timezone.utc), index=True
-    )
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC), index=True)
     updated_at = Column(
         DateTime,
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
     )
 
     query_text = Column(Text, nullable=False)
@@ -50,7 +48,7 @@ class GatewayRequestLog(Base):
     # Evaluation Fields
     evaluation_status = Column(
         String(20), default="PENDING", index=True
-    )  # 'PENDING', 'IN_PROGRESS', 'EVALUATED', 'SKIPPED'
+    )  # 'PENDING', 'IN_PROGRESS', 'EVALUATED', 'SKIPPED', 'FAILED'
     llm_relevance_score = Column(Numeric(precision=5, scale=4), nullable=True)
     llm_contradiction_score = Column(Numeric(precision=5, scale=4), nullable=True)
     llm_entailment_score = Column(Numeric(precision=5, scale=4), nullable=True)

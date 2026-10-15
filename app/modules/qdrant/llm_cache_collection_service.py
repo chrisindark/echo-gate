@@ -163,33 +163,37 @@ class LlmCacheCollectionService:
         try:
             if not self.client_service.collection_exists(self.collection_name):
                 self._create_collection()
-            else:
-                logger.info(
-                    f"Qdrant collection '{self.collection_name}' already exists. Checking vector dimensions."
-                )
-                collection_info = self.client_service.get_collection(
-                    self.collection_name
-                )
-                vectors_config = collection_info.config.params.vectors
-                existing_size = None
+                return
 
-                if (
-                    isinstance(vectors_config, dict)
-                    and "prompt_embedding" in vectors_config
-                ):
-                    existing_size = vectors_config["prompt_embedding"].size
-                elif hasattr(vectors_config, "size"):
-                    existing_size = vectors_config.size
-
-                if existing_size is not None and existing_size != self.vector_size:
-                    logger.warning(
-                        f"Vector dimension mismatch! Existing collection has size {existing_size}, "
-                        f"but current config expects {self.vector_size}."
-                    )
-                    raise ValueError("Vector dimension mismatch")
-                self.ensure_indexes()
+            logger.info(
+                f"Qdrant collection '{self.collection_name}' already exists. Checking vector dimensions."
+            )
+            collection_info = self.client_service.get_collection(self.collection_name)
+            vectors_config = collection_info.config.params.vectors
         except Exception:
             logger.exception("Failed to initialize Qdrant collection")
+            return
+
+        existing_size = None
+        if isinstance(vectors_config, dict) and "prompt_embedding" in vectors_config:
+            existing_size = vectors_config["prompt_embedding"].size
+        elif hasattr(vectors_config, "size"):
+            existing_size = vectors_config.size
+
+        if existing_size is not None and existing_size != self.vector_size:
+            raise ValueError(
+                f"Vector dimension mismatch! Existing collection '{self.collection_name}' "
+                f"has size {existing_size}, but current config expects {self.vector_size}. "
+                "The semantic cache would silently fail; recreate the collection or fix "
+                "EMBEDDING_MODEL_NAME."
+            )
+
+        try:
+            self.ensure_indexes()
+        except Exception:
+            logger.exception(
+                f"Failed to ensure payload indexes on Qdrant collection '{self.collection_name}'"
+            )
 
     def close(self) -> None:
         """Close Qdrant connection."""

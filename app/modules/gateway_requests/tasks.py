@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import time
 import uuid
@@ -18,7 +17,7 @@ from app.modules.llm.llm_provider_service import LlmProviderService
 from app.modules.verifier.cross_encoder_service import CrossEncoderService
 from app.modules.verifier.instruction_service import InstructionVerifier
 from app.modules.verifier.judge_service import JudgeService
-from app.worker.celery_app import celery_app
+from app.worker.celery_app import celery_app, run_async
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +73,23 @@ async def _evaluate_single_request(
         user_prompt_text, gateway_request.response_text
     )
     logger.debug(f"llm_scores: {llm_scores}")
+
+    # The judge returns an empty mapping when every model call failed. Mark the
+    # request as FAILED instead of EVALUATED so a crashing judge is not recorded
+    # as a clean (false-positive-free) evaluation.
+    if not llm_scores:
+        logger.warning(
+            f"[{task_id}] Judge produced no scores for request {gateway_request.id}. "
+            "Marking evaluation as FAILED."
+        )
+        gateway_service.update_evaluation(
+            gateway_request.id,
+            GatewayRequestLogUpdate(
+                evaluation_status=EvaluationStatus.FAILED,
+                error_message="evaluation_failed: judge returned no scores",
+            ),
+        )
+        return
 
     rel_score = llm_scores.get("llm_relevance_score")
     con_score = llm_scores.get("llm_contradiction_score")
@@ -162,8 +178,9 @@ def evaluate_pending_requests(self=None):
     logger.info(f"[{task_id}] Starting evaluate_pending_requests task")
     start_time = time.time()
 
-    # Use asyncio.run to execute the async evaluation function in the sync celery context
-    evaluated_count = asyncio.run(_evaluate_batch_async(task_id))
+    # Run on the worker-owned loop so the container's loop-bound async clients
+    # (Redis/Qdrant) are not reused across different event loops.
+    evaluated_count = run_async(_evaluate_batch_async(task_id))
 
     end_time = time.time()
     latency_ms = int((end_time - start_time) * 1000)
