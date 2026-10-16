@@ -31,6 +31,20 @@ ALLOWED_MODELS = {
         "google/gemma-4-26b-a4b-it:free",
         "google/gemma-4-31b-it:free",
     ],
+    "claude": [
+        "claude-3-7-sonnet-20250219",
+        "claude-3-5-sonnet-20241022",
+        "claude-3-5-haiku-20241022",
+        "claude-3-opus-20240229",
+        "claude-3-haiku-20240307",
+    ],
+    "anthropic": [
+        "claude-3-7-sonnet-20250219",
+        "claude-3-5-sonnet-20241022",
+        "claude-3-5-haiku-20241022",
+        "claude-3-opus-20240229",
+        "claude-3-haiku-20240307",
+    ],
 }
 
 

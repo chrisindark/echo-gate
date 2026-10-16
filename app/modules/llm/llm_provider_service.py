@@ -58,6 +58,9 @@ class LlmProviderService:
         self.openrouter_api_key: str | None = config.OPENROUTER_API_KEY
         self.openrouter_base_url: str = config.OPENROUTER_BASE_URL
 
+        self.claude_api_key: str | None = config.CLAUDE_API_KEY
+        self.claude_base_url: str = config.CLAUDE_BASE_URL
+
         self.gemini_client = None
         if genai and self.gemini_api_key:
             self.gemini_client = genai.Client(api_key=self.gemini_api_key)
@@ -489,6 +492,267 @@ class LlmProviderService:
             logger.error(f"Failed to call OpenRouter LLM: {e}")
             raise HTTPException(status_code=502, detail=f"Bad Gateway: {e}")
 
+    @log_latency()
+    async def generate_claude_completion(
+        self, request: ChatCompletionRequest
+    ) -> ChatCompletionResponse:
+        if not self.claude_api_key:
+            logger.error("Claude API key is not configured.")
+            raise HTTPException(
+                status_code=503, detail="Claude API key is not configured"
+            )
+
+        url = self.claude_base_url.rstrip("/")
+        if not url.endswith("/messages"):
+            if url.endswith("/v1"):
+                url = f"{url}/messages"
+            else:
+                url = f"{url}/v1/messages"
+
+        headers: dict[str, str] = {
+            "x-api-key": self.claude_api_key,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+        }
+
+        system_prompts: list[str] = []
+        anthropic_messages: list[dict[str, Any]] = []
+
+        for msg in request.messages:
+            if msg.role == "system":
+                if msg.content:
+                    system_prompts.append(msg.content)
+            elif msg.role == "tool":
+                tool_result_block = {
+                    "type": "tool_result",
+                    "tool_use_id": msg.tool_call_id or "",
+                    "content": msg.content or "",
+                }
+                if anthropic_messages and anthropic_messages[-1]["role"] == "user":
+                    content = anthropic_messages[-1]["content"]
+                    if isinstance(content, list):
+                        content.append(tool_result_block)
+                    else:
+                        anthropic_messages[-1]["content"] = [
+                            {"type": "text", "text": str(content)},
+                            tool_result_block,
+                        ]
+                else:
+                    anthropic_messages.append(
+                        {"role": "user", "content": [tool_result_block]}
+                    )
+            elif msg.role == "assistant":
+                blocks: list[dict[str, Any]] = []
+                if msg.content:
+                    blocks.append({"type": "text", "text": msg.content})
+                if msg.tool_calls:
+                    for tc in msg.tool_calls:
+                        parsed_input: Any = {}
+                        if tc.function.arguments:
+                            try:
+                                parsed = json.loads(tc.function.arguments)
+                                parsed_input = (
+                                    parsed
+                                    if isinstance(parsed, dict)
+                                    else {"value": parsed}
+                                )
+                            except Exception:
+                                parsed_input = {}
+                        blocks.append(
+                            {
+                                "type": "tool_use",
+                                "id": tc.id,
+                                "name": tc.function.name,
+                                "input": parsed_input,
+                            }
+                        )
+                if not blocks:
+                    blocks.append({"type": "text", "text": ""})
+
+                if anthropic_messages and anthropic_messages[-1]["role"] == "assistant":
+                    content = anthropic_messages[-1]["content"]
+                    if isinstance(content, list):
+                        content.extend(blocks)
+                    else:
+                        anthropic_messages[-1]["content"] = [
+                            {"type": "text", "text": str(content)}
+                        ] + blocks
+                else:
+                    anthropic_messages.append({"role": "assistant", "content": blocks})
+            else:
+                user_text_block = {"type": "text", "text": msg.content or ""}
+                if anthropic_messages and anthropic_messages[-1]["role"] == "user":
+                    content = anthropic_messages[-1]["content"]
+                    if isinstance(content, list):
+                        content.append(user_text_block)
+                    else:
+                        anthropic_messages[-1]["content"] = [
+                            {"type": "text", "text": str(content)},
+                            user_text_block,
+                        ]
+                else:
+                    anthropic_messages.append(
+                        {"role": "user", "content": [user_text_block]}
+                    )
+
+        if not anthropic_messages:
+            anthropic_messages.append(
+                {"role": "user", "content": [{"type": "text", "text": ""}]}
+            )
+        elif anthropic_messages[0]["role"] != "user":
+            anthropic_messages.insert(
+                0, {"role": "user", "content": [{"type": "text", "text": ""}]}
+            )
+
+        payload_data: dict[str, Any] = {
+            "model": request.model,
+            "messages": anthropic_messages,
+            "max_tokens": (
+                request.max_tokens if request.max_tokens is not None else 4096
+            ),
+        }
+
+        if system_prompts:
+            payload_data["system"] = "\n\n".join(system_prompts)
+
+        if request.temperature is not None:
+            payload_data["temperature"] = request.temperature
+
+        if request.top_p is not None:
+            payload_data["top_p"] = request.top_p
+
+        if request.stop:
+            payload_data["stop_sequences"] = request.stop
+
+        if request.tools and request.tool_choice != "none":
+            anthropic_tools = []
+            for t in request.tools:
+                fn = t.function
+                tool_dict: dict[str, Any] = {
+                    "name": fn.name,
+                    "description": fn.description or "",
+                    "input_schema": (
+                        fn.parameters
+                        if fn.parameters
+                        else {"type": "object", "properties": {}}
+                    ),
+                }
+                anthropic_tools.append(tool_dict)
+            if anthropic_tools:
+                payload_data["tools"] = anthropic_tools
+
+        if request.tool_choice and "tools" in payload_data:
+            tc = request.tool_choice
+            if isinstance(tc, str):
+                tc_lower = tc.lower()
+                if tc_lower == "auto":
+                    payload_data["tool_choice"] = {"type": "auto"}
+                elif tc_lower in ["required", "any"]:
+                    payload_data["tool_choice"] = {"type": "any"}
+            elif isinstance(tc, dict):
+                fn_dict = tc.get("function", {})
+                fn_name = fn_dict.get("name") if isinstance(fn_dict, dict) else None
+                if fn_name:
+                    payload_data["tool_choice"] = {"type": "tool", "name": fn_name}
+                elif tc.get("type") in ["auto", "any", "tool"]:
+                    payload_data["tool_choice"] = tc
+
+        try:
+            async with httpx.AsyncClient() as client:
+                logger.info(
+                    f"Forwarding request to upstream Claude ({request.model})..."
+                )
+                response = await client.post(
+                    url,
+                    json=payload_data,
+                    headers=headers,
+                    timeout=config.HTTP_CLIENT_TIMEOUT_SECONDS,
+                )
+                response.raise_for_status()
+                data = response.json()
+
+                text_pieces: list[str] = []
+                tool_calls: list[ToolCall] = []
+
+                for block in data.get("content", []):
+                    block_type = block.get("type")
+                    if block_type == "text":
+                        text_pieces.append(block.get("text", ""))
+                    elif block_type == "tool_use":
+                        call_id = block.get("id") or f"call_{uuid.uuid4().hex[:12]}"
+                        fn_name = block.get("name", "")
+                        input_args = block.get("input", {})
+                        try:
+                            args_str = (
+                                json.dumps(input_args)
+                                if isinstance(input_args, (dict, list))
+                                else str(input_args)
+                            )
+                        except Exception:
+                            args_str = "{}"
+                        tool_calls.append(
+                            ToolCall(
+                                id=call_id,
+                                type="function",
+                                function=FunctionCall(
+                                    name=fn_name,
+                                    arguments=args_str,
+                                ),
+                            )
+                        )
+
+                stop_reason = data.get("stop_reason")
+                if tool_calls:
+                    finish_reason = "tool_calls"
+                elif stop_reason == "end_turn":
+                    finish_reason = "stop"
+                elif stop_reason == "max_tokens":
+                    finish_reason = "length"
+                elif stop_reason == "stop_sequence":
+                    finish_reason = "stop"
+                elif stop_reason == "tool_use":
+                    finish_reason = "tool_calls"
+                else:
+                    finish_reason = stop_reason or "stop"
+
+                content_text = "".join(text_pieces) if text_pieces else None
+
+                usage_data = data.get("usage", {})
+                prompt_tokens = usage_data.get("input_tokens", 0)
+                completion_tokens = usage_data.get("output_tokens", 0)
+                total_tokens = prompt_tokens + completion_tokens
+
+                return ChatCompletionResponse(
+                    id=data.get("id") or f"chatcmpl-{uuid.uuid4().hex[:12]}",
+                    created=int(time.time()),
+                    model=data.get("model", request.model),
+                    choices=[
+                        Choice(
+                            index=0,
+                            message=ChatMessage(
+                                role="assistant",
+                                content=content_text,
+                                tool_calls=tool_calls if tool_calls else None,
+                            ),
+                            finish_reason=finish_reason,
+                        )
+                    ],
+                    usage=Usage(
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                        total_tokens=total_tokens,
+                    ),
+                )
+        except httpx.HTTPStatusError as e:
+            detail = _extract_http_error_detail(e.response, "Claude LLM error")
+            logger.error(
+                f"Claude API returned HTTP error: {e.response.status_code} - {e.response.text}"
+            )
+            raise HTTPException(status_code=e.response.status_code, detail=detail)
+        except Exception as e:
+            logger.error(f"Failed to call Claude LLM: {e}")
+            raise HTTPException(status_code=502, detail=f"Bad Gateway: {e}")
+
     def generate_mock_response(
         self, request: ChatCompletionRequest
     ) -> ChatCompletionResponse:
@@ -560,6 +824,8 @@ class LlmProviderService:
             return await self.generate_openrouter_completion(request)
         elif service == "ollama":
             return await self.generate_ollama_completion(request)
+        elif service in ["claude", "anthropic"]:
+            return await self.generate_claude_completion(request)
         else:
             logger.error(f"Unsupported LLM service: {service}")
             raise HTTPException(

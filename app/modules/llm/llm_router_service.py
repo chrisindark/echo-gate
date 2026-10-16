@@ -170,6 +170,10 @@ class LlmRouterService:
                 return await self.llm_provider_service.generate_ollama_completion(
                     llm_req
                 )
+            elif svc in ["claude", "anthropic"]:
+                return await self.llm_provider_service.generate_claude_completion(
+                    llm_req
+                )
             else:
                 logger.error(f"Unsupported LLM service: {svc}")
                 raise HTTPException(

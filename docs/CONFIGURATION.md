@@ -1,0 +1,184 @@
+# Configuration
+
+## How configuration is loaded
+
+1. `app/main.py` reads `PYTHON_ENV` (default `local`) and, if
+   `app/.env.<PYTHON_ENV>` exists, loads it with `python-dotenv`. It then calls
+   `load_dotenv()` for a generic `.env` search.
+2. `app/core/config.py` instantiates a single module-level `config` object that
+   reads from the environment. `config.load()` is called again in the FastAPI
+   lifespan, so values from the env file are in effect at startup. The Celery app
+   (`app/worker/celery_app.py`) performs the same env-file load.
+
+Because values are read from the environment, anything not set falls back to the
+default in `config.py`. Copy `app/.env.example` to `app/.env.local` (or
+`app/.env.<PYTHON_ENV>`) to start.
+
+> **Enabled-by-default flags are strings.** `USE_REDIS_EXACT_MATCHING`,
+> `USE_QDRANT_EXACT_MATCHING`, and `USE_QDRANT_SEMANTIC_MATCHING` default to
+> `"false"`, so **all cache layers are off unless you set them to the literal
+> string `"true"`** (case-insensitive). `USE_FALLBACK_LLM` defaults to `"true"`.
+
+## App
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PYTHON_ENV` | `local` | Selects `app/.env.<PYTHON_ENV>`; also affects log level/format. |
+| `PROJECT_NAME` | `""` | App title. |
+| `VERSION` | `0.1.0` | Reported version. |
+| `SERVICE_NAME` | `""` | Added to structured log records. |
+| `LOG_LEVEL` | env-dependent | Explicit log level override. |
+| `LOG_FORMAT` | `json` | `json` or colored text. |
+| `COLORIZE_JSON` | unset | Force colorization. |
+
+## Provider endpoints and keys
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `OPENAI_API_KEY` | unset | OpenAI auth. |
+| `GEMINI_API_KEY` | unset | Google GenAI auth. |
+| `GROQ_API_KEY` | unset | Groq auth. |
+| `OPENROUTER_API_KEY` | unset | OpenRouter auth. |
+| `CLAUDE_API_KEY` | unset | Claude (Anthropic) auth. |
+| `OLLAMA_URL` | `http://localhost:11434` | Local Ollama base URL. |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1/chat/completions` | OpenAI endpoint. |
+| `GROQ_BASE_URL` | `https://api.groq.com/openai/v1/chat/completions` | Groq endpoint. |
+| `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1/chat/completions` | OpenRouter endpoint. |
+| `CLAUDE_BASE_URL` | `https://api.anthropic.com/v1/messages` | Claude (Anthropic) messages endpoint. |
+
+## Storage connections
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `DATABASE_URL` | `postgresql+psycopg://echo_gate_app:echo_gate_app@localhost:5432/echo_gate` | Write connection. **Must be the non-owner app role** so RLS applies. |
+| `DATABASE_URL_READ` | `DATABASE_URL` | Read connection. |
+| `MIGRATION_DATABASE_URL` | none in config | Owner credentials used **only by Alembic**. Not read by the app. |
+| `DB_APP_ROLE` | `echo_gate_app` | Role the baseline migration provisions; used by Alembic. |
+| `DB_APP_PASSWORD` | `echo_gate_app` | Password for that role. |
+| `REDIS_URL` | `redis://localhost:6379/0` | Redis (exact cache + quota counters). |
+| `QDRANT_URL` | `http://localhost:6333` | Qdrant HTTP endpoint. |
+| `QDRANT_API_KEY` | unset | Qdrant Cloud auth. |
+| `QDRANT_REPLICATION_FACTOR` | unset | Collection replication factor (int). |
+| `QDRANT_WRITE_CONSISTENCY_FACTOR` | unset | Write consistency factor (int). |
+| `CELERY_BROKER_URL` | `redis://localhost:6379/1` | Celery broker. |
+| `CELERY_RESULT_BACKEND` | `redis://localhost:6379/1` | Celery result backend. |
+
+### Database pool
+
+| Variable | Default |
+| --- | --- |
+| `DB_POOL_SIZE` | `20` |
+| `DB_MAX_OVERFLOW` | `10` |
+| `DB_POOL_TIMEOUT` | `30` |
+| `DB_POOL_RECYCLE` | `1800` |
+| `DB_POOL_PRE_PING` | `true` |
+
+## Routing, fallback, and retries
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `DEFAULT_LLM_SERVICE` | `google-genai` | Provider when the request omits one. |
+| `USE_FALLBACK_LLM` | `true` | Enable fallback provider on primary failure. |
+| `FALLBACK_LLM_SERVICE` | `google-genai` | Fallback provider. |
+| `FALLBACK_LLM_MODEL` | `gemini-3.1-flash-lite` | Fallback model. |
+| `LLM_PROVIDER_TIMEOUT_SECONDS` | `15.0` | Per provider attempt timeout. |
+| `HTTP_CLIENT_TIMEOUT_SECONDS` | `120.0` | Shared HTTP client timeout. |
+| `LLM_MAX_RETRIES` | `0` | Retries per provider call (`stop_after_attempt(max_retries + 1)`). |
+| `RETRY_BACKOFF_INITIAL_SECONDS` | `1` | Initial exponential-jitter backoff. |
+| `RETRY_BACKOFF_MAX_SECONDS` | `10` | Max backoff. |
+
+Retries apply only to timeouts/connection errors and HTTP 408/429/500/502/503/504
+(`app/core/retry.py`). HTTP 400/401/403/500 are fatal and short-circuit the
+fallback entirely.
+
+## Cache layers
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `USE_REDIS_EXACT_MATCHING` | `false` | Enable the Redis exact cache (layer 1). |
+| `REDIS_TTL` | `3600` | Default Redis TTL (seconds). |
+| `USE_QDRANT_EXACT_MATCHING` | `false` | Enable the Qdrant exact cache (layer 2). |
+| `USE_QDRANT_SEMANTIC_MATCHING` | `false` | Enable the semantic cache (layer 3). |
+
+## Semantic search tuning
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `QDRANT_DENSE_SEARCH_HIGH_THRESHOLD` | `0.98` | Dense score at/above which the fast path serves immediately. |
+| `QDRANT_SPARSE_SEARCH_HIGH_THRESHOLD` | `0.33` | Minimum RRF score for a candidate to be reranked. |
+| `QDRANT_SEARCH_LIMIT` | `10` | Candidate pool size for the RRF query. |
+| `DEFAULT_CACHE_TTL_SECONDS` | `86400` | Fallback TTL when a specific TTL is unavailable. |
+| `CACHE_CONFIDENCE_THRESHOLDS` | see below | JSON map of intent → `{high, moderate}` acceptance thresholds. |
+| `INTENT_TTL_SECONDS` | see below | JSON map of intent → TTL seconds. |
+
+Default `CACHE_CONFIDENCE_THRESHOLDS` (`high` / `moderate`):
+
+```text
+code_generation 0.95/0.88 · data_extraction 0.96/0.90 · summarization 0.95/0.88
+general_query 0.95/0.88 · code_explanation 0.94/0.85 · debugging 0.95/0.88
+error_analysis 0.95/0.88 · refactoring 0.94/0.85 · optimization 0.94/0.85
+test_generation 0.94/0.85 · chitchat 0.85/0.75 · greeting 0.85/0.75
+weather 0.95/0.88 · finance_market 0.98/0.92 · product_info 0.95/0.88
+factual_static 0.95/0.88
+```
+
+Default `INTENT_TTL_SECONDS`: `weather` 300 · `product_info` 3600 ·
+`code_generation`/`code_explanation`/`debugging`/`error_analysis`/`refactoring`/
+`optimization`/`test_generation`/`data_extraction`/`summarization`/`chitchat`
+86400 · `greeting` 604800 · `factual_static` 2592000 · `general_query` 604800.
+
+`time_sensitivity >= 0.9` or intent `finance_market` is never cached.
+
+## Models and ML services
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `EMBEDDING_MODEL_NAME` | `all-MiniLM-L6-v2` | Dense embedding model (384-dim). |
+| `RERANKER_MODEL_NAME` | `BAAI/bge-reranker-base` | Declared reranker model name. |
+| `CROSS_ENCODER_RELEVANCE_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Relevance cross-encoder. |
+| `CROSS_ENCODER_NLI_MODEL` | `cross-encoder/nli-deberta-v3-small` | NLI cross-encoder for contradiction/entailment. |
+| `USE_RERANKER_MODEL` | `true` | Load the reranker. |
+| `USE_RELEVANCE_MODEL` | `true` | Load the relevance model. |
+| `USE_NLI_MODEL` | `true` | Load the NLI model. |
+| `HF_HOME` | `./.model_cache` | Hugging Face cache dir (read directly in services). |
+| `BM25_MODEL_PATH` | `""` | Optional local BM25 model path (read directly). |
+
+### Intent classifier
+
+| Variable | Default |
+| --- | --- |
+| `INTENT_CLASSIFIER_SERVICE` | `ollama` |
+| `INTENT_CLASSIFIER_MODEL` | `qwen2.5-coder:3b` |
+| `INTENT_CLASSIFIER_TEMPERATURE` | `0.0` |
+| `INTENT_CLASSIFIER_TIMEOUT_SECONDS` | `2.5` |
+| `INTENT_CLASSIFIER_MAX_TOKENS` | `500` |
+| `INTENT_CLASSIFIER_REASONING_EFFORT` | `low` |
+| `INTENT_CLASSIFIER_MAX_RETRIES` | `0` |
+
+### Core query extractor and judge
+
+| Variable | Default |
+| --- | --- |
+| `CORE_QUERY_EXTRACTOR_SERVICE` | `ollama` |
+| `CORE_QUERY_EXTRACTOR_MODEL` | `qwen2.5-coder:1.5b` |
+| `CORE_QUERY_EXTRACTOR_TEMPERATURE` | `0.0` |
+| `CORE_QUERY_EXTRACTOR_MAX_TOKENS` | `200` |
+| `EVALUATION_BATCH_SIZE` | `50` |
+| `LLM_JUDGE_SERVICE` | `google-genai` |
+| `LLM_JUDGE_MODEL` | `gemini-3.5-flash-lite` |
+| `LLM_JUDGE_TEMPERATURE` | `0.0` |
+| `LLM_JUDGE_MAX_TOKENS` | `200` |
+
+## Not read by anything
+
+These appear in `app/.env.example` but are never read by the code:
+
+- `EMBEDDING_DIMENSION`
+- `EMBEDDING_DEVICE`
+- `CROSS_ENCODER_VERIFIER_MODEL`
+
+Conversely, `CROSS_ENCODER_RELEVANCE_MODEL` is read by the code but is **not** in
+`app/.env.example` (its default still applies).
+
+`MIGRATION_DATABASE_URL` is consumed by Alembic's `env.py`/`alembic.ini`, not by
+the application.

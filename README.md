@@ -4,13 +4,22 @@
 
 Echo Gate accepts OpenAI-compatible `chat/completions` requests and routes them dynamically across local and cloud providers (**Ollama**, **Google GenAI / Gemini**, **OpenAI**, **Groq**, and **OpenRouter**). Its core capability is an enterprise-grade **Multi-Level Semantic Caching & Verification Pipeline** combining Redis, Qdrant hybrid search, cross-encoder reranking, intent classification, and asynchronous judge evaluations to maximize cache hit rates, eliminate hallucinations, protect user privacy, and drastically cut latency and inference costs.
 
+## 📚 Documentation
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — components, request lifecycle, cache pipeline, background workers, multi-tenant RLS.
+- [docs/API_REFERENCE.md](docs/API_REFERENCE.md) — every endpoint, request/response shape, headers, errors.
+- [docs/CONFIGURATION.md](docs/CONFIGURATION.md) — every environment variable and its default.
+- [docs/DATA_MODEL.md](docs/DATA_MODEL.md) — Postgres tables, RLS policies, Qdrant collection schema.
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — setup, commands, tests, migrations, conventions.
+- [AGENTS.md](AGENTS.md) — concise guide for coding agents working in this repo.
+
 ---
 
 ## 🚀 Key Features
 
 ### 1. Multi-Provider Routing & Resiliency
 - Standardized OpenAI chat completion endpoint routing to:
-  - **Ollama**: Local models (`qwen2.5-coder`, `qwen3`, `deepseek-r1`, etc.)
+  - **Ollama**: Local models (`qwen3:8b`, `qwen2.5-coder:{1.5b,3b,7b,14b}`)
   - **Google GenAI**: Gemini models (`gemini-3.1-flash-lite`, `gemini-3.5-flash-lite`, `gemini-3.8-flash`)
   - **OpenAI**: `gpt-4o-mini`, etc.
   - **Groq**: High-throughput open-weights (`openai/gpt-oss-20b`, `openai/gpt-oss-safeguard-20b`)
@@ -24,15 +33,15 @@ Echo Gate accepts OpenAI-compatible `chat/completions` requests and routes them 
 - **Layer 2: Qdrant Exact Hash Match**:
   - Serves as a persistent secondary exact cache if Redis keys expire or are evicted.
 - **Layer 3: Qdrant Hybrid Semantic Search**:
-  - **Dual-Vector Architecture**: Indexes both dense vectors (`prompt_embedding` via `nomic-embed-text` or `SentenceTransformers`) and sparse lexical tokens (BM25/SPLADE) for robust semantic and keyword matching.
+  - **Dual-Vector Architecture**: Indexes both dense vectors (`prompt_embedding` via `sentence-transformers`, default `all-MiniLM-L6-v2`) and sparse lexical tokens (BM25) for robust semantic and keyword matching.
   - **Reciprocal Rank Fusion (RRF)**: Merges dense and sparse vector queries over system and user prompt segments.
-  - **Fast-Path Dense Bypass**: Bypasses expensive reranking and intent pipelines when dense cosine similarity exceeds high confidence thresholds (e.g., $\ge 0.99$).
+  - **Fast-Path Dense Bypass**: Bypasses expensive reranking and intent pipelines when dense cosine similarity exceeds the high-confidence threshold (`QDRANT_DENSE_SEARCH_HIGH_THRESHOLD`, default `0.98`).
   - **Asynchronous Background Persistence**: Responses are returned to the client immediately on cache misses; cache vectorization and database insertion run out-of-band via background tasks.
   - **Toggleable Infrastructure**: Ability to independently disable Redis or Qdrant search layers via environment configuration.
 
 ### 3. Semantic Verification & Request Intelligence
 - **Intent Classification & Analysis**:
-  - Classifies query intent (`GENERAL_QUERY`, `CODE_GENERATION`, `CREATIVE_WRITING`, `MATH_REASONING`, `FACTUAL_SEARCH`, etc.).
+  - Classifies query intent (e.g. `general_query`, `code_generation`, `code_explanation`, `debugging`, `summarization`, `chitchat`, `weather`, `finance_market`, `factual_static`, …).
   - Extracts extended semantic attributes: `time_sensitivity`, `core_operation`, `core_subject`, `subject_modifier`, and `action_modifier`.
   - Dynamically calculates cache TTLs and confidence thresholds based on query time-sensitivity and domain volatility.
 - **Entity Extraction & Cache Scope Hierarchy**:
@@ -97,9 +106,9 @@ Echo Gate accepts OpenAI-compatible `chat/completions` requests and routes them 
                                                 ▼
                                     ┌───────────────────────┐
                                     │  Dense Hybrid Search  │
-                                    │    (Qdrant Fast Path) │──(Score >= 0.99)──► Return Cached JSON
+                                    │    (Qdrant Fast Path) │──(Score >= 0.98)──► Return Cached JSON
                                     └───────────┬───────────┘
-                                                │ (< 0.99)
+                                                │ (< 0.98)
                                                 ▼
                        ┌─────────────────────────────────────────────────┐
                        │ Hybrid Search (Dense + Sparse BM25 RRF Candidates│
@@ -154,13 +163,21 @@ Echo Gate accepts OpenAI-compatible `chat/completions` requests and routes them 
 - [Ollama](https://ollama.ai/) installed and running locally on port `11434` (if using local models)
 
 ### 2. Prepare Local Models (Ollama)
-Ensure required models are installed locally:
+
+The gateway enforces a per-provider model allowlist
+(`ALLOWED_MODELS` in `app/modules/chat/chat_schema.py`). For Ollama that list is
+`qwen3:8b` and `qwen2.5-coder:{1.5b,3b,7b,14b}`. Pull the ones you need:
+
 ```bash
-ollama pull nomic-embed-text:latest
+ollama pull qwen3:8b
 ollama pull qwen2.5-coder:1.5b
+ollama pull qwen2.5-coder:3b
 ollama pull qwen2.5-coder:7b
-ollama pull deepseek-r1:14b
+ollama pull qwen2.5-coder:14b
 ```
+
+Embeddings are computed locally with `sentence-transformers`
+(`EMBEDDING_MODEL_NAME`, default `all-MiniLM-L6-v2`), not via Ollama.
 
 ### 3. Environment Configuration
 Create your environment file in `app/`:
@@ -198,6 +215,11 @@ USE_QDRANT_EXACT_MATCHING=true
 USE_QDRANT_SEMANTIC_MATCHING=true
 DEFAULT_LLM_SERVICE=ollama
 ```
+
+> The `USE_*_MATCHING` flags default to `"false"`, so caching is off until you set
+> them to the literal string `true`. `DEFAULT_LLM_SERVICE` otherwise defaults to
+> `google-genai`. See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for the full
+> list, including the semantic-search thresholds and model settings.
 
 ### 4. Start Infrastructure Containers
 Start PostgreSQL, Redis, and Qdrant:
@@ -310,10 +332,33 @@ curl -X POST "http://localhost:8000/api/v1/chat/completions/semantic-search" \
 ```
 
 ### 4. Fetching Request Traces & Analytics
-- **List Traces**: `GET /api/v1/gateway-requests/logs?page=1&page_size=20`
-- **Trace Details with Latency Breakdown**: `GET /api/v1/gateway-requests/logs/{id}`
-- **KPI Summary**: `GET /api/v1/analytics/kpis`
-- **Cache Performance Breakdown**: `GET /api/v1/analytics/cache-performance`
+- **List Traces**: `GET /api/v1/gateway-requests/?skip=0&limit=20`
+- **Trace Details with Latency Breakdown**: `GET /api/v1/gateway-requests/{log_id}`
+- **Trace by Exact Hash**: `GET /api/v1/gateway-requests/by-hash/{exact_hash}`
+- **Analytics Dashboard** (KPIs + cache performance + model breakdown + latency):
+  `GET /api/v1/analytics/dashboard`
+- **Latency Metrics Detail**: `GET /api/v1/analytics/latency`
+
+### 5. Other Endpoints
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `POST` | `/api/v1/chat/completions/exact-search` | Test the exact-cache lookup only. |
+| `POST` | `/api/v1/chat/completions/cache-save` | Write a `{request, response}` pair into the cache directly. |
+| `POST` | `/api/v1/qdrant/search` | Dense vector search against the cache collection. |
+| `POST` | `/api/v1/qdrant/search/rrf` | Hybrid dense + sparse RRF cache search. |
+| `POST` | `/api/v1/verifier/predict/rerank` | Cross-encoder rerank of candidate strings. |
+| `GET`/`POST` | `/api/v1/llm-usage/` | List / create token-usage logs. |
+| `POST` | `/api/v1/llm-usage/calculate-costs` | Queue background cost calculation. |
+| `GET`/`POST`/`DEL` | `/api/v1/admin/api-keys/` | Create, list, and revoke API keys. |
+| `GET` | `/api/v1/health` | Basic health; see `/live`, `/ready`, `/worker`, `/celery`. |
+
+Conversation endpoints (`/api/v1/conversations`) exist in code but are **not
+mounted** and return 404 today. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#known-gaps-and-discrepancies).
+
+The full, authoritative endpoint reference is in
+[docs/API_REFERENCE.md](docs/API_REFERENCE.md); the API contract is also snapshotted
+in `tests/snapshots/openapi.json`.
 
 ---
 

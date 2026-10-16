@@ -32,6 +32,52 @@ PRICING_CONFIG = {
         "google/gemma-4-31b-it:free": {"prompt": 0.0, "completion": 0.0},
         "default": {"prompt": 0.0, "completion": 0.0},
     },
+    "claude": {
+        "claude-3-7-sonnet-20250219": {
+            "prompt": 3.0 / 1_000_000,
+            "completion": 15.0 / 1_000_000,
+        },
+        "claude-3-5-sonnet-20241022": {
+            "prompt": 3.0 / 1_000_000,
+            "completion": 15.0 / 1_000_000,
+        },
+        "claude-3-5-haiku-20241022": {
+            "prompt": 0.80 / 1_000_000,
+            "completion": 4.0 / 1_000_000,
+        },
+        "claude-3-opus-20240229": {
+            "prompt": 15.0 / 1_000_000,
+            "completion": 75.0 / 1_000_000,
+        },
+        "claude-3-haiku-20240307": {
+            "prompt": 0.25 / 1_000_000,
+            "completion": 1.25 / 1_000_000,
+        },
+        "default": {"prompt": 3.0 / 1_000_000, "completion": 15.0 / 1_000_000},
+    },
+    "anthropic": {
+        "claude-3-7-sonnet-20250219": {
+            "prompt": 3.0 / 1_000_000,
+            "completion": 15.0 / 1_000_000,
+        },
+        "claude-3-5-sonnet-20241022": {
+            "prompt": 3.0 / 1_000_000,
+            "completion": 15.0 / 1_000_000,
+        },
+        "claude-3-5-haiku-20241022": {
+            "prompt": 0.80 / 1_000_000,
+            "completion": 4.0 / 1_000_000,
+        },
+        "claude-3-opus-20240229": {
+            "prompt": 15.0 / 1_000_000,
+            "completion": 75.0 / 1_000_000,
+        },
+        "claude-3-haiku-20240307": {
+            "prompt": 0.25 / 1_000_000,
+            "completion": 1.25 / 1_000_000,
+        },
+        "default": {"prompt": 3.0 / 1_000_000, "completion": 15.0 / 1_000_000},
+    },
 }
 
 

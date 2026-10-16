@@ -55,6 +55,10 @@ class Config:
         self.OPENROUTER_BASE_URL = os.getenv(
             "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1/chat/completions"
         )
+        self.CLAUDE_BASE_URL = os.getenv(
+            "CLAUDE_BASE_URL",
+            os.getenv("CLAUDE_BASE_URL", "https://api.anthropic.com/v1/messages"),
+        )
 
         # Database Connection Pool
         self.DB_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "20"))
@@ -79,6 +83,10 @@ class Config:
             openrouter_key.strip()
             if openrouter_key and openrouter_key.strip()
             else None
+        )
+        claude_key = os.getenv("CLAUDE_API_KEY")
+        self.CLAUDE_API_KEY = (
+            claude_key.strip() if claude_key and claude_key.strip() else None
         )
 
         # Redis
