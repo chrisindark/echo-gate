@@ -950,6 +950,7 @@ class LlmRouterService:
                         "top_1_rerank_score": rerank_score,
                         "top_1_prompt": top_prompt,
                         "accepted": is_accepted,
+                        "score_breakdown": top_match.get("score_breakdown"),
                     }
                     if len(matches_reranked) > 1:
                         base_cache_info["top_2_score"] = matches_reranked[1]["score"]
@@ -1632,6 +1633,13 @@ class LlmRouterService:
                 EvaluationStatus.SKIPPED if error_message else EvaluationStatus.PENDING
             )
 
+            # Semantic hits set `rerank_score`; semantic misses only set the best
+            # candidate's `top_1_rerank_score`. Fall back so the trace always
+            # records the composite score that drove the accept/reject decision.
+            rerank_score = cache_info.get("rerank_score")
+            if rerank_score is None:
+                rerank_score = cache_info.get("top_1_rerank_score")
+
             log_data = GatewayRequestLogCreate(
                 query_text=prompt_text,
                 response_text=output_text,
@@ -1645,7 +1653,8 @@ class LlmRouterService:
                 core_subject=cache_info.get("core_subject") or core_subject,
                 subject_modifier=cache_info.get("subject_modifier") or subject_modifier,
                 action_modifier=cache_info.get("action_modifier") or action_modifier,
-                rerank_score=cache_info.get("rerank_score", None),
+                rerank_score=rerank_score,
+                score_breakdown=cache_info.get("score_breakdown"),
                 latency_ms=latency_ms,
                 provider_latency_ms=provider_latency_ms,
                 cache_lookup_latency_ms=cache_lookup_latency_ms,

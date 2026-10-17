@@ -1678,6 +1678,18 @@
           "routing_decision": {
             "$ref": "#/components/schemas/RoutingDecision"
           },
+          "score_breakdown": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score Breakdown"
+          },
           "session_id": {
             "anyOf": [
               {
@@ -1975,6 +1987,18 @@
           },
           "routing_decision": {
             "$ref": "#/components/schemas/RoutingDecision"
+          },
+          "score_breakdown": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score Breakdown"
           },
           "session_id": {
             "anyOf": [

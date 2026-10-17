@@ -37,6 +37,7 @@ class GatewayRequestLog(Base):
     action_modifier = Column(String(255), index=True, nullable=True)
 
     rerank_score = Column(Numeric(precision=5, scale=4), nullable=True)
+    score_breakdown = Column(JSON, nullable=True)
     latency_ms = Column(Integer, nullable=True)
     provider_latency_ms = Column(Integer, nullable=True, index=True)
     cache_lookup_latency_ms = Column(Integer, nullable=True)

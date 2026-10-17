@@ -136,6 +136,7 @@ Default `INTENT_TTL_SECONDS`: `weather` 300 · `product_info` 3600 ·
 | --- | --- | --- |
 | `EMBEDDING_MODEL_NAME` | `all-MiniLM-L6-v2` | Dense embedding model (384-dim). |
 | `RERANKER_MODEL_NAME` | `BAAI/bge-reranker-base` | Declared reranker model name. |
+| `RERANKER_SCORING_MODE` | `multiplicative` | How reranker signals combine: `multiplicative` (bounded factors multiplied into the cross-encoder score) or `additive` (symmetric bounded deltas). |
 | `CROSS_ENCODER_RELEVANCE_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Relevance cross-encoder. |
 | `CROSS_ENCODER_NLI_MODEL` | `cross-encoder/nli-deberta-v3-small` | NLI cross-encoder for contradiction/entailment. |
 | `USE_RERANKER_MODEL` | `true` | Load the reranker. |

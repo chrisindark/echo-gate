@@ -30,6 +30,33 @@ export interface LatencyBreakdown {
   total_ms?: number | null;
 }
 
+export interface MetadataComparison {
+  judged?: boolean;
+  reason?: string;
+  mismatch?: boolean;
+  overlap?: number;
+  request?: string | null;
+  candidate?: string | null;
+}
+
+export interface ScoreBreakdownDetails {
+  metadata_mismatches?: string[];
+  metadata_comparisons?: Record<string, MetadataComparison>;
+  entity_conflict?: boolean;
+  entity_overlap?: number;
+  system_prompt_jaccard?: number;
+  temperature_delta?: number;
+  instruction_score?: number;
+}
+
+export interface ScoreBreakdown {
+  scoring_mode?: string;
+  base_score?: number;
+  final_score?: number;
+  factors?: Record<string, number>;
+  details?: ScoreBreakdownDetails;
+}
+
 export interface TraceLog {
   id: number;
   created_at: string;
@@ -47,6 +74,7 @@ export interface TraceLog {
   subject_modifier?: string | null;
   action_modifier?: string | null;
   rerank_score?: number | null;
+  score_breakdown?: ScoreBreakdown | null;
   latency_ms?: number | null;
   provider_latency_ms?: number | null;
   cache_lookup_latency_ms?: number | null;
@@ -215,6 +243,34 @@ export function TraceDetailView({
         : trace.routing_decision === 'QDRANT_SEMANTIC'
           ? 'border-purple-500/40 bg-purple-500/10 text-purple-500'
           : 'border-amber-500/40 bg-amber-500/10 text-amber-500';
+
+  const breakdownDetails = trace.score_breakdown?.details;
+  const factorEntries = Object.entries(trace.score_breakdown?.factors ?? {});
+  const metadataComparisons = Object.entries(
+    breakdownDetails?.metadata_comparisons ?? {}
+  );
+  const metadataMismatches = breakdownDetails?.metadata_mismatches ?? [];
+
+  const factorTone = (value: number) =>
+    value < 0.999
+      ? 'border-red-500/30 bg-red-500/10 text-red-500'
+      : value > 1.001
+        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500'
+        : 'border-border/60 bg-muted/40 text-muted-foreground';
+
+  const formatFactorName = (name: string) =>
+    name
+      .split('_')
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
+
+  const hasScoreBreakdown = Boolean(trace.score_breakdown);
+  const baseScore = trace.score_breakdown?.base_score;
+  const finalScore = trace.score_breakdown?.final_score;
+  const scoreDelta =
+    baseScore !== undefined && finalScore !== undefined
+      ? parseFloat((finalScore - baseScore).toFixed(6))
+      : null;
 
   return (
     <div className={cn('space-y-6', compact ? 'p-1' : 'p-2')}>
@@ -669,6 +725,230 @@ export function TraceDetailView({
           </div>
         </Card>
       </div>
+
+      {/* Reranker Score Breakdown */}
+      {hasScoreBreakdown && (
+        <Card size="3">
+          <Box mb="4">
+            <Flex align="start" justify="between" gap="3" wrap="wrap">
+              <div>
+                <Heading size="3" className="flex items-center gap-2">
+                  <Gauge className="w-4 h-4 text-primary" />
+                  Reranker Score Breakdown
+                </Heading>
+                <Text size="2" color="gray">
+                  How the composite rerank score was assembled from the
+                  cross-encoder base score and the bounded similarity factors.
+                </Text>
+              </div>
+              {trace.score_breakdown?.scoring_mode && (
+                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md border border-border/60 bg-muted/40 text-muted-foreground uppercase tracking-wide">
+                  {trace.score_breakdown.scoring_mode}
+                </span>
+              )}
+            </Flex>
+          </Box>
+
+          {/* Base vs Final score */}
+          <div className="grid grid-cols-3 gap-3 mb-5">
+            <div className="p-3 rounded-xl bg-muted/40 border border-border/60">
+              <div className="text-[11px] text-muted-foreground uppercase font-medium">
+                Base Score
+              </div>
+              <div className="text-sm font-bold font-mono mt-1 text-foreground">
+                {baseScore !== undefined ? baseScore.toFixed(6) : '—'}
+              </div>
+            </div>
+            <div className="p-3 rounded-xl bg-muted/40 border border-border/60">
+              <div className="text-[11px] text-muted-foreground uppercase font-medium">
+                Final Score
+              </div>
+              <div className="text-sm font-bold font-mono mt-1 text-foreground">
+                {finalScore !== undefined ? finalScore.toFixed(6) : '—'}
+              </div>
+            </div>
+            <div className="p-3 rounded-xl bg-muted/40 border border-border/60">
+              <div className="text-[11px] text-muted-foreground uppercase font-medium">
+                Bounded Delta
+              </div>
+              {scoreDelta !== null ? (
+                <div
+                  className={cn(
+                    'text-sm font-bold font-mono mt-1',
+                    scoreDelta < 0
+                      ? 'text-red-500'
+                      : scoreDelta > 0
+                        ? 'text-emerald-500'
+                        : 'text-muted-foreground'
+                  )}
+                >
+                  {scoreDelta > 0 ? '+' : ''}
+                  {scoreDelta.toFixed(6)}
+                </div>
+              ) : (
+                <div className="text-sm font-bold font-mono mt-1 text-muted-foreground">
+                  —
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Factors */}
+          {factorEntries.length > 0 && (
+            <div className="mb-5">
+              <div className="text-[11px] text-muted-foreground uppercase font-semibold mb-2">
+                Bounded Factors
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {factorEntries.map(([name, value]) => (
+                  <div
+                    key={name}
+                    className={cn(
+                      'flex items-center gap-2 px-2.5 py-1 rounded-lg border text-xs',
+                      factorTone(value)
+                    )}
+                  >
+                    <span className="font-medium">
+                      {formatFactorName(name)}
+                    </span>
+                    <span className="font-mono font-bold">
+                      ×{value.toFixed(3)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Metadata comparisons */}
+          {metadataComparisons.length > 0 && (
+            <div className="mb-4">
+              <Flex align="center" justify="between" className="mb-2">
+                <div className="text-[11px] text-muted-foreground uppercase font-semibold">
+                  Metadata Comparisons
+                </div>
+                {metadataMismatches.length > 0 && (
+                  <span className="text-[11px] font-semibold text-red-500">
+                    {metadataMismatches.length} mismatch
+                    {metadataMismatches.length > 1 ? 'es' : ''}
+                  </span>
+                )}
+              </Flex>
+              <div className="overflow-x-auto rounded-xl border border-border/60">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-border/60 bg-muted/30 text-muted-foreground uppercase tracking-wider font-semibold text-[10px]">
+                      <th className="py-2 px-3">Field</th>
+                      <th className="py-2 px-3">Request</th>
+                      <th className="py-2 px-3">Candidate</th>
+                      <th className="py-2 px-3 text-right">Overlap</th>
+                      <th className="py-2 px-3 text-right">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/40">
+                    {metadataComparisons.map(([field, comparison]) => (
+                      <tr key={field}>
+                        <td className="py-2 px-3 font-medium text-foreground whitespace-nowrap">
+                          {formatFactorName(field)}
+                        </td>
+                        <td className="py-2 px-3 font-mono text-[11px] text-muted-foreground max-w-[180px] truncate">
+                          {comparison.request ?? '—'}
+                        </td>
+                        <td className="py-2 px-3 font-mono text-[11px] text-muted-foreground max-w-[180px] truncate">
+                          {comparison.candidate ?? '—'}
+                        </td>
+                        <td className="py-2 px-3 text-right font-mono text-foreground">
+                          {comparison.judged && comparison.overlap !== undefined
+                            ? comparison.overlap.toFixed(4)
+                            : '—'}
+                        </td>
+                        <td className="py-2 px-3 text-right whitespace-nowrap">
+                          {comparison.judged ? (
+                            comparison.mismatch ? (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-500/10 text-red-500 border border-red-500/20 text-[10px] font-semibold">
+                                <AlertTriangle className="w-3 h-3" /> Mismatch
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 text-[10px] font-semibold">
+                                <Check className="w-3 h-3" /> Match
+                              </span>
+                            )
+                          ) : (
+                            <span className="text-[10px] text-muted-foreground">
+                              skipped (
+                              {comparison.reason === 'request_empty'
+                                ? 'request empty'
+                                : comparison.reason === 'candidate_empty'
+                                  ? 'candidate empty'
+                                  : comparison.reason || 'not judged'}
+                              )
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Other signals */}
+          {breakdownDetails && (
+            <div className="flex flex-wrap gap-x-6 gap-y-2 pt-2 text-xs border-t border-border/40">
+              <div className="flex items-center gap-1.5">
+                <span className="text-muted-foreground">Entity Conflict</span>
+                <span
+                  className={cn(
+                    'font-semibold',
+                    breakdownDetails.entity_conflict
+                      ? 'text-red-500'
+                      : 'text-emerald-500'
+                  )}
+                >
+                  {breakdownDetails.entity_conflict ? 'Yes' : 'No'}
+                </span>
+              </div>
+              {breakdownDetails.entity_overlap !== undefined && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground">Entity Overlap</span>
+                  <span className="font-mono font-semibold text-foreground">
+                    {breakdownDetails.entity_overlap.toFixed(4)}
+                  </span>
+                </div>
+              )}
+              {breakdownDetails.system_prompt_jaccard !== undefined && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground">
+                    System Prompt Jaccard
+                  </span>
+                  <span className="font-mono font-semibold text-foreground">
+                    {breakdownDetails.system_prompt_jaccard.toFixed(4)}
+                  </span>
+                </div>
+              )}
+              {breakdownDetails.temperature_delta !== undefined && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground">Temperature Δ</span>
+                  <span className="font-mono font-semibold text-foreground">
+                    {breakdownDetails.temperature_delta.toFixed(4)}
+                  </span>
+                </div>
+              )}
+              {breakdownDetails.instruction_score !== undefined && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground">
+                    Instruction Score
+                  </span>
+                  <span className="font-mono font-semibold text-foreground">
+                    {breakdownDetails.instruction_score.toFixed(4)}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+        </Card>
+      )}
 
       {/* Identifiers & Context Table */}
       <Card size="2">
