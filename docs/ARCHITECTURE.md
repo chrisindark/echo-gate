@@ -212,9 +212,7 @@ These are real today; documented rather than silently changed.
    `APIRouter(prefix="/api/v1/conversations")`, but `app/main.py` never includes it,
    so every conversation route returns 404. The models/tables and RLS policies
    exist.
-2. **No streaming.** `ChatCompletionRequest.stream` is accepted and cached-keyed,
-   but no provider path or controller implements `stream=True`; responses are always
-   non-streaming JSON. `streaming_plan.md` describes it as future work.
+2. **Streaming implemented.** `ChatCompletionRequest.stream=True` is supported via Server-Sent Events (`text/event-stream`), backed by provider streams, exact/semantic cache playback, and guarded in-memory response accumulation.
 3. **UI gaps.** The Next.js app hardcodes `http://localhost:8000` (no env var), the
    sidebar links to `/cache` and `/settings` which have no routes (404), and the
    analytics page is read-only tables/cards rather than charts.

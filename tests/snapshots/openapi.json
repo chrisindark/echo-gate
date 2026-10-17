@@ -1083,6 +1083,29 @@
             ],
             "title": "Tenant Id"
           },
+          "thinking": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": false,
+            "title": "Thinking"
+          },
+          "thinking_budget": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thinking Budget"
+          },
           "tool_choice": {
             "anyOf": [
               {
@@ -1250,6 +1273,17 @@
               }
             ],
             "title": "Name"
+          },
+          "reasoning_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning Content"
           },
           "role": {
             "title": "Role",

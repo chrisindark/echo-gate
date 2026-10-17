@@ -101,7 +101,7 @@ The main gateway endpoint. OpenAI-compatible request; returns a
 | `temperature` | float | `0.7` | Part of the cache key and confidence gate. |
 | `top_p` | float | `1.0` | Cache key. |
 | `n` | int | `1` | Accepted, not separately handled by cache. |
-| `stream` | bool | `false` | **Accepted but not implemented** — see [ARCHITECTURE.md](ARCHITECTURE.md#known-gaps-and-discrepancies). |
+| `stream` | bool | `false` | When `true`, returns Server-Sent Events (`text/event-stream`) emitting `ChatCompletionChunk` SSE payloads and ending with `data: [DONE]`. |
 | `stop` | string[] | `null` | Cache key via `stop_hash`. |
 | `max_tokens` | int | `null` | Cache key; also filters candidates by completion tokens. |
 | `presence_penalty` / `frequency_penalty` | float | `0.0` | Cache key. |
@@ -109,7 +109,9 @@ The main gateway endpoint. OpenAI-compatible request; returns a
 | `user` | object/string | `null` | Falls back to middleware user. |
 | `user_id`, `tenant_id`, `session_id`, `conversation_id` | string | `null` | Cache key + scope. |
 | `response_format` | object | `null` | `{"type":"json_object"}` or `{"type":"json_schema", ...}`. Cache key via `response_format_hash`. |
-| `reasoning_effort` | string | `null` | Passed to reasoning-capable providers. |
+| `reasoning_effort` | string | `null` | Passed to reasoning-capable providers (`low`, `medium`, `high`). Cache key. |
+| `thinking` | bool | `false` | Enable extended thinking / reasoning mode across Gemini, Claude, OpenAI, and Ollama. Cache key. |
+| `thinking_budget` | int | `null` | Maximum token budget for reasoning (e.g. 1024-16384). Cache key. |
 | `tools` | array | `null` | OpenAI tool schema. **Presence bypasses the semantic cache.** |
 | `tool_choice` | string/object | `null` | Cache key. |
 
@@ -121,7 +123,7 @@ The main gateway endpoint. OpenAI-compatible request; returns a
   "object": "chat.completion",
   "created": 1710000000,
   "model": "gemini-3.5-flash-lite",
-  "choices": [{ "index": 0, "message": {"role": "assistant", "content": "..."}, "finish_reason": "stop" }],
+  "choices": [{ "index": 0, "message": {"role": "assistant", "content": "...", "reasoning_content": "..."}, "finish_reason": "stop" }],
   "usage": { "prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30 },
   "system_fingerprint": null,
   "cache_info": {

@@ -118,6 +118,11 @@ class Config:
             os.getenv("RETRY_BACKOFF_MAX_SECONDS", "10")
         )
 
+        # Streaming
+        self.STREAM_MAX_CONTENT_BYTES = int(
+            os.getenv("STREAM_MAX_CONTENT_BYTES", str(2 * 1024 * 1024))
+        )
+
         # Semantic Search & Cache Tuning
         self.USE_QDRANT_EXACT_MATCHING = os.getenv(
             "USE_QDRANT_EXACT_MATCHING", "false"

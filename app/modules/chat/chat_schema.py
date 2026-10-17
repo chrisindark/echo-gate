@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
+import time
+import uuid
 from typing import Any
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 ALLOWED_MODELS = {
     "ollama": [
@@ -74,6 +77,7 @@ class Tool(BaseModel):
 class ChatMessage(BaseModel):
     role: str
     content: str | None = None
+    reasoning_content: str | None = None
     name: str | None = None
     tool_call_id: str | None = None
     tool_calls: list[ToolCall] | None = None
@@ -99,6 +103,8 @@ class ChatCompletionRequest(BaseModel):
     conversation_id: str | None = None
     response_format: dict | None = None
     reasoning_effort: str | None = None
+    thinking: bool | None = False
+    thinking_budget: int | None = None
     tools: list[Tool] | None = None
     tool_choice: str | dict[str, Any] | None = None
 
@@ -134,3 +140,333 @@ class ChatCompletionResponse(BaseModel):
     usage: Usage | None = None
     system_fingerprint: str | None = None
     cache_info: dict[str, Any] | None = None
+
+
+# --- Streaming Schemas & Helpers (OpenAI SSE Protocol) ---
+
+SSE_DONE_EVENT = "data: [DONE]\n\n"
+
+
+class FunctionCallChunk(BaseModel):
+    name: str | None = None
+    arguments: str | None = None
+
+
+class ToolCallChunk(BaseModel):
+    index: int
+    id: str | None = None
+    type: str | None = "function"
+    function: FunctionCallChunk | None = None
+
+
+class ChunkDelta(BaseModel):
+    role: str | None = None
+    content: str | None = None
+    reasoning_content: str | None = None
+    tool_calls: list[ToolCallChunk] | None = None
+
+
+class ChunkChoice(BaseModel):
+    index: int
+    delta: ChunkDelta
+    finish_reason: str | None = None
+
+
+class ChatCompletionChunk(BaseModel):
+    id: str
+    object: str = Field(default="chat.completion.chunk")
+    created: int
+    model: str
+    choices: list[ChunkChoice]
+    usage: Usage | None = None
+    system_fingerprint: str | None = None
+    cache_info: dict[str, Any] | None = None
+
+
+def format_sse_event(data: str | BaseModel | dict[str, Any]) -> str:
+    """Format data as a Server-Sent Event (SSE) line."""
+    if isinstance(data, str):
+        payload = data
+    elif isinstance(data, BaseModel):
+        payload = data.model_dump_json(exclude_none=True)
+    else:
+        payload = json.dumps(data)
+    return f"data: {payload}\n\n"
+
+
+def response_to_stream_chunks(
+    response: ChatCompletionResponse,
+) -> list[ChatCompletionChunk]:
+    """
+    Converts a full ChatCompletionResponse into a list of ChatCompletionChunk objects
+    for SSE playback to streaming clients.
+    """
+    chunks: list[ChatCompletionChunk] = []
+    base_id = response.id
+    created = response.created
+    model = response.model
+    cache_info = response.cache_info
+
+    for choice in response.choices:
+        idx = choice.index
+        msg = choice.message
+
+        # 1. Initial role chunk
+        chunks.append(
+            ChatCompletionChunk(
+                id=base_id,
+                created=created,
+                model=model,
+                choices=[
+                    ChunkChoice(
+                        index=idx,
+                        delta=ChunkDelta(role=msg.role),
+                        finish_reason=None,
+                    )
+                ],
+                cache_info=cache_info,
+            )
+        )
+
+        # 1.5 Reasoning content chunk (if any)
+        if msg.reasoning_content:
+            chunks.append(
+                ChatCompletionChunk(
+                    id=base_id,
+                    created=created,
+                    model=model,
+                    choices=[
+                        ChunkChoice(
+                            index=idx,
+                            delta=ChunkDelta(reasoning_content=msg.reasoning_content),
+                            finish_reason=None,
+                        )
+                    ],
+                    cache_info=cache_info,
+                )
+            )
+
+        # 2. Content chunk (if any)
+        if msg.content:
+            chunks.append(
+                ChatCompletionChunk(
+                    id=base_id,
+                    created=created,
+                    model=model,
+                    choices=[
+                        ChunkChoice(
+                            index=idx,
+                            delta=ChunkDelta(content=msg.content),
+                            finish_reason=None,
+                        )
+                    ],
+                    cache_info=cache_info,
+                )
+            )
+
+        # 3. Tool calls chunk (if any)
+        if msg.tool_calls:
+            tool_chunks = [
+                ToolCallChunk(
+                    index=tc_idx,
+                    id=tc.id,
+                    type=tc.type,
+                    function=FunctionCallChunk(
+                        name=tc.function.name,
+                        arguments=tc.function.arguments,
+                    ),
+                )
+                for tc_idx, tc in enumerate(msg.tool_calls)
+            ]
+            chunks.append(
+                ChatCompletionChunk(
+                    id=base_id,
+                    created=created,
+                    model=model,
+                    choices=[
+                        ChunkChoice(
+                            index=idx,
+                            delta=ChunkDelta(tool_calls=tool_chunks),
+                            finish_reason=None,
+                        )
+                    ],
+                    cache_info=cache_info,
+                )
+            )
+
+        # 4. Final finish chunk
+        chunks.append(
+            ChatCompletionChunk(
+                id=base_id,
+                created=created,
+                model=model,
+                choices=[
+                    ChunkChoice(
+                        index=idx,
+                        delta=ChunkDelta(),
+                        finish_reason=choice.finish_reason or "stop",
+                    )
+                ],
+                usage=response.usage,
+                cache_info=cache_info,
+            )
+        )
+
+    return chunks
+
+
+class StreamAccumulator:
+    """
+    Accumulates streaming chunks (text deltas, tool call chunks, usage, finish reason)
+    to assemble a full ChatCompletionResponse upon stream completion for caching and logging.
+
+    Includes memory guardrails (max_content_bytes) to prevent unbounded memory growth / OOMs
+    during abnormally large responses.
+    """
+
+    def __init__(
+        self,
+        model: str = "",
+        request_id: str | None = None,
+        max_content_bytes: int = 2 * 1024 * 1024,
+    ):
+        self.id: str | None = request_id
+        self.model: str = model
+        self.created: int = int(time.time())
+        self.system_fingerprint: str | None = None
+        self.role: str = "assistant"
+        self.content_parts: list[str] = []
+        self.reasoning_parts: list[str] = []
+        self.tool_calls_map: dict[int, dict[str, Any]] = {}
+        self.finish_reason: str | None = None
+        self.usage: Usage | None = None
+        self.max_content_bytes: int = max_content_bytes
+        self.current_content_bytes: int = 0
+        self.overflowed: bool = False
+
+    def add_chunk(self, chunk: ChatCompletionChunk | dict[str, Any]) -> None:
+        if isinstance(chunk, dict):
+            chunk = ChatCompletionChunk.model_validate(chunk)
+        if not self.id and chunk.id:
+            self.id = chunk.id
+        if chunk.model:
+            self.model = chunk.model
+        if chunk.created:
+            self.created = chunk.created
+        if chunk.system_fingerprint:
+            self.system_fingerprint = chunk.system_fingerprint
+        if chunk.usage:
+            self.usage = chunk.usage
+
+        for choice in chunk.choices:
+            if choice.finish_reason:
+                self.finish_reason = choice.finish_reason
+            delta = choice.delta
+            if delta.role:
+                self.role = delta.role
+            if delta.reasoning_content:
+                reasoning_bytes = len(delta.reasoning_content.encode("utf-8"))
+                if (
+                    self.current_content_bytes + reasoning_bytes
+                    > self.max_content_bytes
+                ):
+                    self.overflowed = True
+                else:
+                    self.reasoning_parts.append(delta.reasoning_content)
+                    self.current_content_bytes += reasoning_bytes
+            if delta.content:
+                content_bytes = len(delta.content.encode("utf-8"))
+                if self.current_content_bytes + content_bytes > self.max_content_bytes:
+                    self.overflowed = True
+                else:
+                    self.content_parts.append(delta.content)
+                    self.current_content_bytes += content_bytes
+            if delta.tool_calls:
+                for tc in delta.tool_calls:
+                    idx = tc.index
+                    args_bytes = (
+                        len(tc.function.arguments.encode("utf-8"))
+                        if (tc.function and tc.function.arguments)
+                        else 0
+                    )
+                    if self.current_content_bytes + args_bytes > self.max_content_bytes:
+                        self.overflowed = True
+
+                    if idx not in self.tool_calls_map:
+                        self.tool_calls_map[idx] = {
+                            "id": tc.id or "",
+                            "type": tc.type or "function",
+                            "name": (
+                                tc.function.name
+                                if tc.function and tc.function.name
+                                else ""
+                            ),
+                            "arguments_parts": (
+                                [tc.function.arguments]
+                                if tc.function
+                                and tc.function.arguments
+                                and not self.overflowed
+                                else []
+                            ),
+                        }
+                    else:
+                        if tc.id:
+                            self.tool_calls_map[idx]["id"] = tc.id
+                        if tc.type:
+                            self.tool_calls_map[idx]["type"] = tc.type
+                        if tc.function:
+                            if tc.function.name:
+                                self.tool_calls_map[idx]["name"] = tc.function.name
+                            if tc.function.arguments and not self.overflowed:
+                                self.tool_calls_map[idx]["arguments_parts"].append(
+                                    tc.function.arguments
+                                )
+                    if not self.overflowed and args_bytes > 0:
+                        self.current_content_bytes += args_bytes
+
+    def build_response(self) -> ChatCompletionResponse:
+        content = "".join(self.content_parts) if self.content_parts else None
+        reasoning_content = (
+            "".join(self.reasoning_parts) if self.reasoning_parts else None
+        )
+        tool_calls = None
+        if self.tool_calls_map:
+            tool_calls = []
+            for idx in sorted(self.tool_calls_map.keys()):
+                entry = self.tool_calls_map[idx]
+                tool_calls.append(
+                    ToolCall(
+                        id=entry["id"] or f"call_{uuid.uuid4().hex}",
+                        type=entry["type"] or "function",
+                        function=FunctionCall(
+                            name=entry["name"],
+                            arguments="".join(entry["arguments_parts"]),
+                        ),
+                    )
+                )
+
+        return ChatCompletionResponse(
+            id=self.id or f"chatcmpl-{uuid.uuid4().hex}",
+            object="chat.completion",
+            created=self.created,
+            model=self.model,
+            choices=[
+                Choice(
+                    index=0,
+                    message=ChatMessage(
+                        role=self.role,
+                        content=content,
+                        reasoning_content=reasoning_content,
+                        tool_calls=tool_calls,
+                    ),
+                    finish_reason=self.finish_reason
+                    or (
+                        "length"
+                        if self.overflowed
+                        else ("tool_calls" if tool_calls else "stop")
+                    ),
+                )
+            ],
+            usage=self.usage,
+            system_fingerprint=self.system_fingerprint,
+        )

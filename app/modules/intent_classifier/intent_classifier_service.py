@@ -183,6 +183,9 @@ class IntentClassifierService:
                 for kw in ["gpt-oss", "o1", "o3", "deepseek-r1", "qwq"]
             )
             reasoning_effort = self.reasoning_effort if is_reasoning_model else None
+            effective_max_tokens = (
+                max(self.max_tokens, 1500) if is_reasoning_model else self.max_tokens
+            )
 
             classification_request = ChatCompletionRequest(
                 service_name=self.service_name,
@@ -192,7 +195,7 @@ class IntentClassifierService:
                     ChatMessage(role="user", content=prompt_text),
                 ],
                 temperature=config.INTENT_CLASSIFIER_TEMPERATURE,
-                max_tokens=self.max_tokens,
+                max_tokens=effective_max_tokens,
                 reasoning_effort=reasoning_effort,
                 response_format={
                     "type": "json_schema",

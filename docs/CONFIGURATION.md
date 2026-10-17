@@ -86,6 +86,7 @@ default in `config.py`. Copy `app/.env.example` to `app/.env.local` (or
 | `LLM_MAX_RETRIES` | `0` | Retries per provider call (`stop_after_attempt(max_retries + 1)`). |
 | `RETRY_BACKOFF_INITIAL_SECONDS` | `1` | Initial exponential-jitter backoff. |
 | `RETRY_BACKOFF_MAX_SECONDS` | `10` | Max backoff. |
+| `STREAM_MAX_CONTENT_BYTES` | `2097152` | Guardrail memory limit (bytes) on streaming response accumulator before skipping cache persistence. |
 
 Retries apply only to timeouts/connection errors and HTTP 408/429/500/502/503/504
 (`app/core/retry.py`). HTTP 400/401/403/500 are fatal and short-circuit the
