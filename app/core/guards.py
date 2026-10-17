@@ -20,13 +20,6 @@ class LlmQuotaGuard:
         x_api_key: str | None = Header(default=None),
         llm_quota_service: LlmQuotaService = Depends(get_llm_quota_service),
     ):
-        # API key missing
-        if not x_api_key:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="API Key missing",
-            )
-
         provider = None
         model = None
         # Identity is established by TenantContextMiddleware: an API key resolved
@@ -70,3 +63,42 @@ class LlmQuotaGuard:
 
 # Initialize a singleton instance for Depends
 llm_quota_guard = LlmQuotaGuard()
+
+
+class ApiKeyAuthGuard:
+    """
+    Route dependency ensuring the request includes a valid X-API-Key.
+    """
+
+    async def __call__(
+        self,
+        request: Request,
+        x_api_key: str | None = Header(default=None),
+    ) -> bool:
+        if not x_api_key:
+            tenant_id = request.headers.get("x-tenant-id")
+            if tenant_id and tenant_id != "anonymous":
+                return True
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="API Key missing. Provide a valid X-API-Key header.",
+            )
+
+        import asyncio
+
+        from app.modules.api_keys.api_keys_service import api_key_service
+
+        identity = await asyncio.to_thread(api_key_service.resolve_api_key, x_api_key)
+        if identity is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or inactive API Key.",
+            )
+
+        request.state.api_key = x_api_key
+        request.state.tenant_id = identity.tenant_id
+        request.state.user_id = identity.user_id
+        return True
+
+
+api_key_auth_guard = ApiKeyAuthGuard()

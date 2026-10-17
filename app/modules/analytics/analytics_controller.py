@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.guards import api_key_auth_guard
 from app.core.responses import BaseAPIResponse
 from app.modules.analytics.analytics_schema import (
     AnalyticsDashboardResponse,
@@ -20,6 +21,7 @@ api_v1_router = APIRouter(prefix="/api/v1/analytics", tags=["Analytics"])
 @api_v1_router.get(
     "/dashboard",
     response_model=BaseAPIResponse[AnalyticsDashboardResponse],
+    dependencies=[Depends(api_key_auth_guard)],
 )
 def get_dashboard_data(
     time_range: str | None = Query(
@@ -53,6 +55,7 @@ def get_dashboard_data(
 @api_v1_router.get(
     "/latency",
     response_model=BaseAPIResponse[LatencyMetricsResponse],
+    dependencies=[Depends(api_key_auth_guard)],
 )
 def get_latency_metrics(
     time_range: str | None = Query(

@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 
 from app.core.dependencies import get_gateway_requests_service
+from app.core.guards import api_key_auth_guard
 from app.core.responses import BaseAPIResponse
 from app.modules.analytics.analytics_service import TIME_RANGE_MAP
 from app.modules.gateway_requests.gateway_requests_schema import (
@@ -48,6 +49,7 @@ def create_gateway_request_log(
 @api_v1_router.get(
     "/",
     response_model=BaseAPIResponse[GatewayRequestLogsPaginatedResponse],
+    dependencies=[Depends(api_key_auth_guard)],
 )
 def get_gateway_request_logs(
     skip: int = Query(0, ge=0),
@@ -175,6 +177,7 @@ def update_gateway_request_log(
 @api_v1_router.get(
     "/{log_id}",
     response_model=BaseAPIResponse[GatewayRequestLogResponse],
+    dependencies=[Depends(api_key_auth_guard)],
 )
 def get_gateway_request_log(
     log_id: int,
@@ -206,6 +209,7 @@ def get_gateway_request_log(
 @api_v1_router.get(
     "/by-hash/{exact_hash}",
     response_model=BaseAPIResponse[GatewayRequestLogResponse],
+    dependencies=[Depends(api_key_auth_guard)],
 )
 def get_gateway_request_log_by_hash(
     exact_hash: str,

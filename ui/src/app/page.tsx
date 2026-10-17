@@ -28,6 +28,7 @@ import {
   Tag,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useApiKey } from '@/context/api-key-context';
 
 const SCHEMA_PRESETS = [
   {
@@ -150,10 +151,18 @@ export default function Home() {
   const [cacheInfo, setCacheInfo] = useState<CacheInfoType | null>(null);
   const [latency, setLatency] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const {
+    apiKey,
+    setApiKey,
+    userId,
+    setUserId,
+    tenantId,
+    setTenantId,
+    isSettingsOpen,
+    setIsSettingsOpen,
+  } = useApiKey();
 
   // Settings state
-  const [apiKey, setApiKey] = useState('dev');
   const [provider, setProvider] =
     useState<keyof typeof PROVIDERS>('google-genai');
   const [model, setModel] = useState(PROVIDERS['google-genai'][1]);
@@ -165,8 +174,6 @@ export default function Home() {
   const [thinkingContent, setThinkingContent] = useState<string>('');
   const [isThinking, setIsThinking] = useState<boolean>(false);
   const [isThinkingOpen, setIsThinkingOpen] = useState<boolean>(true);
-  const [userId, setUserId] = useState('');
-  const [tenantId, setTenantId] = useState('');
 
   // Structured Output state
   const [responseFormatType, setResponseFormatType] = useState<

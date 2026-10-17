@@ -1,9 +1,11 @@
+import { AppSidebar } from '@/components/app-sidebar';
+import { ApiKeyProvider } from '@/context/api-key-context';
+import { Theme } from '@radix-ui/themes';
+import '@radix-ui/themes/styles.css';
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
-import '@radix-ui/themes/styles.css';
+import React from 'react';
 import './globals.css';
-import { AppSidebar } from '@/components/app-sidebar';
-import { Theme } from '@radix-ui/themes';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -37,10 +39,14 @@ export default function RootLayout({
           radius="medium"
           className="flex-1 flex flex-row"
         >
-          <AppSidebar />
-          <main className="flex-1 flex flex-col min-h-screen overflow-x-hidden">
-            {children}
-          </main>
+          <ApiKeyProvider>
+            <React.Suspense fallback={null}>
+              <AppSidebar />
+            </React.Suspense>
+            <main className="flex-1 flex flex-col min-h-screen overflow-x-hidden">
+              {children}
+            </main>
+          </ApiKeyProvider>
         </Theme>
       </body>
     </html>

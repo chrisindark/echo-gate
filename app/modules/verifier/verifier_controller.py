@@ -9,7 +9,7 @@ from app.modules.verifier.verifier_schema import (
     VerificationResponse,
 )
 
-api_v1_router = APIRouter(prefix="/api/v1/verifier", tags=["verifier"])
+api_v1_router = APIRouter(prefix="/api/v1/verifier", tags=["Verifier"])
 
 
 def get_verifier_service():

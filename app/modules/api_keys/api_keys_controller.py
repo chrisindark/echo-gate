@@ -33,8 +33,8 @@ def create_api_key(
     """
     try:
         record, plaintext = api_key_service.create_api_key(data)
-        payload = ApiKeyCreatedResponse.model_validate(record)
-        payload.api_key = plaintext
+        base = ApiKeyResponse.model_validate(record)
+        payload = ApiKeyCreatedResponse(**base.model_dump(), api_key=plaintext)
         return BaseAPIResponse.success_response(payload)
     except Exception as e:
         logger.exception("Failed to create API key")
