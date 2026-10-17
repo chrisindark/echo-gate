@@ -1,11 +1,45 @@
 import logging
+import re
 from typing import Any
 
+from app.core.config import config
 from app.core.logger import log_latency
 from app.modules.verifier.cross_encoder_service import CrossEncoderService
 from app.modules.verifier.instruction_service import InstructionVerifier
 
 logger = logging.getLogger(__name__)
+
+_EMPTY_MODIFIERS = {"", "none", "null", "n/a", "undefined"}
+
+# `prompt_text` is decorated as `model:<name>|<role>: <content>|...`; strip the
+# model prefix so the cross-encoder never sees provider noise.
+_MODEL_PREFIX_RE = re.compile(r"^model:[^|\n]*\|\s*", re.IGNORECASE)
+
+# Token normalization for short LLM-extracted phrases: possessive "'s" removal
+# and punctuation stripping so "France's capital city" and "France capital"
+# compare on their meaningful tokens instead of apostrophes.
+_POSSESSIVE_RE = re.compile(r"'s\b")
+_NON_ALNUM_RE = re.compile(r"[^a-z0-9\s]")
+
+# Entity types whose *value* conflicts are strong evidence the cached answer is
+# about a different object (different file, version, amount, date, URL, secret).
+_CRITICAL_ENTITY_PREFIXES = {
+    "NUMBER",
+    "VERSION",
+    "CURRENCY",
+    "DATE",
+    "URL",
+    "EMAIL",
+    "UUID",
+    "ACCOUNT_ID",
+    "API_KEY",
+}
+
+# Metadata mismatch sensitivity: each semantically mismatched field costs 0.05,
+# capped at 0.15 so noisy LLM extraction can never erase a strong match.
+_METADATA_MISMATCH_UNIT = 0.05
+_METADATA_MISMATCH_CAP = 0.15
+_METADATA_MISMATCH_THRESHOLD = 0.5
 
 
 def _normalize_modifier(value: Any) -> str:
@@ -13,9 +47,55 @@ def _normalize_modifier(value: Any) -> str:
     if value is None:
         return ""
     val_str = str(value).strip().lower()
-    if val_str in ("none", "null", "n/a", "undefined", ""):
+    if val_str in _EMPTY_MODIFIERS:
         return ""
     return val_str
+
+
+def _clean_prompt(text: str | None) -> str:
+    """Strip the `model:<name>|` decoration from a prepared prompt string."""
+    if not text:
+        return ""
+    return _MODEL_PREFIX_RE.sub("", text).strip()
+
+
+def _tokenize(text: str) -> set[str]:
+    """Lowercase, drop possessives/punctuation, and split into a token set."""
+    normalized = _POSSESSIVE_RE.sub("", text.lower())
+    normalized = _NON_ALNUM_RE.sub(" ", normalized)
+    return {token for token in normalized.split() if token}
+
+
+def _token_overlap(a: str, b: str) -> float:
+    """Jaccard similarity over normalized tokens.
+
+    Returns 1.0 when both sides are empty, 0.0 when exactly one side is empty,
+    and the token-set Jaccard otherwise. Used instead of exact string equality
+    so paraphrase variability in LLM-extracted metadata does not cause a hard
+    mismatch.
+    """
+    if not a and not b:
+        return 1.0
+    if not a or not b:
+        return 0.0
+    set_a, set_b = _tokenize(a), _tokenize(b)
+    union = set_a | set_b
+    if not union:
+        return 1.0
+    return len(set_a & set_b) / len(union)
+
+
+def _entity_type(tag: str) -> str:
+    return tag.split(":", 1)[0].strip().upper()
+
+
+def _entity_value(tag: str) -> str:
+    parts = tag.split(":", 1)
+    return parts[1].strip() if len(parts) > 1 else ""
+
+
+def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
+    return max(low, min(high, value))
 
 
 class RerankerService:
@@ -30,22 +110,133 @@ class RerankerService:
     def verify(
         self, query: str, user_query: str | None, candidates: list[dict[str, Any]]
     ) -> list[float]:
-        pairs = []
+        """Score candidates with the cross-encoder.
+
+        Pairing is kept consistent across candidates: whenever both the request
+        and the candidate expose a user segment, the cross-encoder compares
+        user-to-user. Otherwise it falls back to the (decorated) full prompts,
+        with the `model:` prefix stripped.
+        """
+        cleaned_query = _clean_prompt(query)
+        normalized_user_query = _clean_prompt(user_query)
+
+        pairs: list[tuple[str, str]] = []
         for candidate in candidates:
             payload = candidate.get("payload") or {}
-            candidate_user_prompt = payload.get("user_prompt")
-            if user_query and candidate_user_prompt:
-                pairs.append((user_query, candidate_user_prompt))
+            candidate_user_prompt = _clean_prompt(payload.get("user_prompt"))
+            candidate_full_prompt = _clean_prompt(payload.get("prompt"))
+
+            if normalized_user_query and candidate_user_prompt:
+                pairs.append((normalized_user_query, candidate_user_prompt))
             else:
-                prompt = payload.get("prompt")
-                if not prompt:
+                fallback = candidate_full_prompt or candidate_user_prompt
+                if not fallback:
                     logger.warning(
                         f"Candidate payload missing prompt: {candidate.get('id', 'unknown')}"
                     )
-                    prompt = ""
-                pairs.append((query, prompt))
+                pairs.append((cleaned_query, fallback))
 
         return self.cross_encoder_service.rerank_predict(pairs)
+
+    def _metadata_similarity(
+        self,
+        request_core_operation: str | None,
+        request_core_subject: str | None,
+        request_subject_modifier: str | None,
+        request_action_modifier: str | None,
+        payload: dict[str, Any],
+    ) -> tuple[float, list[str]]:
+        """Return (factor, mismatched_fields) for the extracted metadata signals.
+
+        A field is only judged when *both* sides carry a value: a missing request
+        field means the extractor did not find it, and a missing candidate field
+        may be a legacy point stored before metadata extraction existed. Neither
+        is evidence of a real mismatch, so neither is penalized. Comparison is
+        token-overlap based, not exact-equality, so paraphrase drift in the
+        extractor does not register as a mismatch.
+        """
+        fields = (
+            ("core_operation", request_core_operation),
+            ("core_subject", request_core_subject),
+            ("subject_modifier", request_subject_modifier),
+            ("action_modifier", request_action_modifier),
+        )
+        mismatches: list[str] = []
+        for field, request_value in fields:
+            normalized_request = _normalize_modifier(request_value)
+            if not normalized_request:
+                continue
+            normalized_candidate = _normalize_modifier(payload.get(field))
+            if not normalized_candidate:
+                # Candidate predates this field (e.g. legacy point); cannot judge.
+                continue
+            if (
+                _token_overlap(normalized_request, normalized_candidate)
+                < _METADATA_MISMATCH_THRESHOLD
+            ):
+                mismatches.append(field)
+
+        penalty = min(_METADATA_MISMATCH_CAP, _METADATA_MISMATCH_UNIT * len(mismatches))
+        return 1.0 - penalty, mismatches
+
+    def _entity_similarity(
+        self, request_entity_set: set[str], candidate_entity_set: set[str]
+    ) -> tuple[float, bool, float]:
+        """Return (factor, conflict, overlap) for the entity signals."""
+        if not request_entity_set and not candidate_entity_set:
+            return 1.0, False, 1.0
+
+        intersection = request_entity_set & candidate_entity_set
+        union = request_entity_set | candidate_entity_set
+        overlap = len(intersection) / len(union) if union else 1.0
+
+        request_by_type: dict[str, set[str]] = {}
+        for tag in request_entity_set:
+            request_by_type.setdefault(_entity_type(tag), set()).add(_entity_value(tag))
+        candidate_by_type: dict[str, set[str]] = {}
+        for tag in candidate_entity_set:
+            candidate_by_type.setdefault(_entity_type(tag), set()).add(
+                _entity_value(tag)
+            )
+
+        conflict = False
+        for entity_type, request_values in request_by_type.items():
+            if entity_type not in _CRITICAL_ENTITY_PREFIXES:
+                continue
+            candidate_values = candidate_by_type.get(entity_type)
+            if candidate_values is not None and not (request_values & candidate_values):
+                conflict = True
+                break
+
+        if conflict:
+            return 0.85, True, overlap
+
+        # Bounded soft signal: never worse than 0.95, never better than 1.05.
+        return 0.95 + 0.10 * overlap, False, overlap
+
+    def _system_prompt_similarity(
+        self, request_system_prompt: str | None, candidate_system_prompt: Any
+    ) -> tuple[float, float]:
+        """Return (factor, jaccard) for the system prompt signal.
+
+        Only compared when both sides carry a system prompt. A candidate without
+        one is usually a legacy point stored before the system prompt was
+        persisted, so it is treated as "cannot judge" rather than a mismatch.
+        """
+        if request_system_prompt is None and candidate_system_prompt is None:
+            return 1.0, 1.0
+
+        request_norm = (request_system_prompt or "").strip().lower()
+        candidate_norm = str(candidate_system_prompt or "").strip().lower()
+
+        if request_norm == candidate_norm:
+            return 1.0, 1.0
+        if not request_norm or not candidate_norm:
+            return 1.0, 0.0
+
+        jaccard = _token_overlap(request_norm, candidate_norm)
+        factor = 1.0 - min(0.10, 0.10 * (1.0 - jaccard))
+        return factor, jaccard
 
     @log_latency()
     def rerank(
@@ -79,12 +270,9 @@ class RerankerService:
             if not candidates:
                 return []
 
-            request_entities = request_entities or []
-            request_entity_set = set(request_entities)
-            norm_req_operation = _normalize_modifier(request_core_operation)
-            norm_req_subject = _normalize_modifier(request_core_subject)
-            norm_req_subject_modifier = _normalize_modifier(request_subject_modifier)
-            norm_req_action_modifier = _normalize_modifier(request_action_modifier)
+            scoring_mode = (config.RERANKER_SCORING_MODE or "multiplicative").lower()
+            request_entity_set = set(request_entities or [])
+            req_temp = request_temperature if request_temperature is not None else 0.0
 
             scores = self.verify(query, user_query, candidates)
             logger.debug(f"reranker_scores: {scores}")
@@ -109,218 +297,113 @@ class RerankerService:
                         )
                         c_text = ""
 
-                    # deterministically verify json output only and apply penalty if not json
+                    # Deterministically verify JSON output only.
                     instruction_scores = self.instruction_service.verify_instruction(
                         user_query or query, [c_text], json_only=True
                     )
-                    logger.debug(f"instruction_scores: {instruction_scores}")
-                    instruction_score = instruction_scores[0]
+                    instruction_score = (
+                        _clamp(float(instruction_scores[0]))
+                        if instruction_scores
+                        else 1.0
+                    )
 
                     payload = candidate.get("payload") or {}
-                    logger.debug(f"candidate payload: {payload}")
+                    # sentence-transformers CrossEncoder for bge-reranker already
+                    # outputs probabilities in [0, 1].
+                    base_score = _clamp(float(score))
 
-                    # sentence-transformers CrossEncoder for bge-reranker already outputs probabilities in [0, 1]
-                    base_score = float(score)
+                    factors: dict[str, float] = {}
 
-                    # Compute penalties and boosts
-                    penalty_model = 0.0
+                    # Provider identity: retrieval already filters on model, but
+                    # keep a soft guard in case that ever changes.
                     candidate_model = payload.get("model")
-                    logger.debug(f"candidate model: {candidate_model}")
-                    if candidate_model != request_model:
-                        penalty_model = 0.05
-                        logger.debug(
-                            f"Applied model penalty: req={request_model}, cand={payload.get('model')}"
-                        )
-                    else:
-                        logger.debug(
-                            f"No model penalty applied: req={request_model}, cand={payload.get('model')}"
-                        )
-
-                    penalty_service = 0.0
-                    candidate_service_name = payload.get("service_name")
-                    logger.debug(f"candidate service_name: {candidate_service_name}")
-                    if candidate_service_name != request_service:
-                        penalty_service = 0.02
-                        logger.debug(
-                            f"Applied service penalty: req={request_service}, cand={payload.get('service_name')}"
-                        )
-                    else:
-                        penalty_service = 0.0
-                        logger.debug(
-                            f"No service penalty applied: req={request_service}, cand={payload.get('service_name')}"
-                        )
-
-                    # Fallback to general query if missing
-                    candidate_intent = payload.get("intent") or "general_query"
-                    logger.debug(f"candidate intent: {candidate_intent}")
-                    penalty_intent = 0.0
-                    if candidate_intent != request_intent:
-                        penalty_intent = 0.15
-                        logger.debug(
-                            f"Applied intent penalty: req={request_intent}, cand={candidate_intent}"
-                        )
-                    else:
-                        penalty_intent = 0.0
-                        logger.debug(
-                            f"No intent penalty applied: req={request_intent}, cand={candidate_intent}"
-                        )
-
-                    penalty_operation = 0.0
-                    candidate_core_operation = payload.get("core_operation")
-                    logger.debug(
-                        f"candidate core_operation: {candidate_core_operation}"
+                    factors["model"] = 1.0 if candidate_model == request_model else 0.95
+                    candidate_service = payload.get("service_name")
+                    factors["service"] = (
+                        1.0 if candidate_service == request_service else 0.98
                     )
-                    norm_cand_operation = _normalize_modifier(candidate_core_operation)
-                    if norm_req_operation != norm_cand_operation:
-                        penalty_operation = 0.15
-                        logger.debug(
-                            f"Applied core_operation penalty: req={request_core_operation}, cand={candidate_core_operation}"
-                        )
+
+                    # Intent: skip when the request has no classified intent so
+                    # offline calibration and degraded paths are not punished.
+                    if not request_intent:
+                        factors["intent"] = 1.0
                     else:
-                        logger.debug(
-                            f"No core_operation penalty applied: req={request_core_operation}, cand={candidate_core_operation}"
+                        candidate_intent = payload.get("intent")
+                        factors["intent"] = (
+                            1.0 if candidate_intent == request_intent else 0.92
                         )
 
-                    penalty_subject = 0.0
-                    candidate_core_subject = payload.get("core_subject")
-                    logger.debug(f"candidate core_subject: {candidate_core_subject}")
-                    norm_cand_subject = _normalize_modifier(candidate_core_subject)
-                    if norm_req_subject != norm_cand_subject:
-                        penalty_subject = 0.15
-                        logger.debug(
-                            f"Applied core_subject penalty: req={request_core_subject}, cand={candidate_core_subject}"
-                        )
-                    else:
-                        logger.debug(
-                            f"No core_subject penalty applied: req={request_core_subject}, cand={candidate_core_subject}"
-                        )
+                    metadata_factor, metadata_mismatches = self._metadata_similarity(
+                        request_core_operation,
+                        request_core_subject,
+                        request_subject_modifier,
+                        request_action_modifier,
+                        payload,
+                    )
+                    factors["metadata"] = metadata_factor
 
-                    penalty_subject_modifier = 0.0
-                    candidate_subject_modifier = payload.get("subject_modifier")
-                    logger.debug(
-                        f"candidate subject_modifier: {candidate_subject_modifier}"
+                    candidate_entity_set = set(payload.get("entities") or [])
+                    (
+                        entity_factor,
+                        entity_conflict,
+                        entity_overlap,
+                    ) = self._entity_similarity(
+                        request_entity_set, candidate_entity_set
                     )
-                    norm_cand_subject_modifier = _normalize_modifier(
-                        candidate_subject_modifier
-                    )
-                    if norm_req_subject_modifier != norm_cand_subject_modifier:
-                        penalty_subject_modifier = 0.15
-                        logger.debug(
-                            f"Applied subject_modifier penalty: req={request_subject_modifier}, cand={candidate_subject_modifier}"
-                        )
-                    else:
-                        logger.debug(
-                            f"No subject_modifier penalty applied: req={request_subject_modifier}, cand={candidate_subject_modifier}"
-                        )
+                    factors["entities"] = entity_factor
 
-                    penalty_action_modifier = 0.0
-                    candidate_action_modifier = payload.get("action_modifier")
-                    logger.debug(
-                        f"candidate action_modifier: {candidate_action_modifier}"
+                    system_factor, system_jaccard = self._system_prompt_similarity(
+                        system_query, payload.get("system_prompt")
                     )
-                    norm_cand_action_modifier = _normalize_modifier(
-                        candidate_action_modifier
-                    )
-                    if norm_req_action_modifier != norm_cand_action_modifier:
-                        penalty_action_modifier = 0.15
-                        logger.debug(
-                            f"Applied action_modifier penalty: req={request_action_modifier}, cand={candidate_action_modifier}"
-                        )
-                    else:
-                        logger.debug(
-                            f"No action_modifier penalty applied: req={request_action_modifier}, cand={candidate_action_modifier}"
-                        )
+                    factors["system_prompt"] = system_factor
 
                     candidate_temperature = payload.get("temperature")
-                    if candidate_temperature is None:
+                    try:
+                        candidate_temperature = float(candidate_temperature)
+                    except (ValueError, TypeError):
                         candidate_temperature = 0.0
-                    else:
-                        try:
-                            candidate_temperature = float(candidate_temperature)
-                        except (ValueError, TypeError):
-                            candidate_temperature = 0.0
+                    temperature_delta = abs(candidate_temperature - req_temp)
+                    factors["temperature"] = 1.0 - min(0.10, temperature_delta * 0.05)
 
-                    logger.debug(f"candidate temperature: {candidate_temperature}")
-                    req_temp = (
-                        request_temperature if request_temperature is not None else 0.0
+                    factors["instruction"] = 1.0 - min(
+                        0.20, 0.20 * (1.0 - instruction_score)
                     )
-                    penalty_temperature = abs(candidate_temperature - req_temp) * 0.1
 
-                    # Entity Boost / Penalty
-                    candidate_entities = set(payload.get("entities") or [])
-                    logger.debug(f"candidate entities: {candidate_entities}")
+                    details = {
+                        "metadata_mismatches": metadata_mismatches,
+                        "entity_conflict": entity_conflict,
+                        "entity_overlap": round(entity_overlap, 6),
+                        "system_prompt_jaccard": round(system_jaccard, 6),
+                        "temperature_delta": round(temperature_delta, 6),
+                        "instruction_score": round(instruction_score, 6),
+                    }
 
-                    boost_entities = 0.0
-                    penalty_entities = 0.0
-
-                    if request_entity_set == candidate_entities:
-                        if request_entity_set:
-                            boost_entities = 0.1
-                    else:
-                        penalty_entities = 0.4
-
-                    # Evaluate system prompt difference
-                    candidate_system_prompt = payload.get("system_prompt")
-                    penalty_system_prompt = 0.0
-                    if system_query != candidate_system_prompt:
-                        if system_query and candidate_system_prompt:
-                            set1 = set(system_query.split())
-                            set2 = set(candidate_system_prompt.split())
-                            if set1 or set2:
-                                jaccard = len(set1.intersection(set2)) / len(
-                                    set1.union(set2)
-                                )
-                                penalty_system_prompt = 0.5 * (1.0 - jaccard)
-                        elif system_query or candidate_system_prompt:
-                            penalty_system_prompt = 0.5
-
-                    # Evaluate instruction following penalty
-                    penalty_instruction = 0
-                    penalty_instruction = 0.5 * (1.0 - instruction_score)
-                    if penalty_instruction > 0:
-                        logger.debug(
-                            f"Applied instruction penalty: {penalty_instruction}"
+                    if scoring_mode == "additive":
+                        # Symmetric additive combine: factors are bounded around
+                        # 1.0, so the base score keeps its ordering.
+                        final_score = base_score + sum(
+                            f - 1.0 for f in factors.values()
                         )
-
-                    # Compute final cache confidence score
-                    final_score = (
-                        base_score
-                        - penalty_model
-                        - penalty_service
-                        - penalty_intent
-                        - penalty_temperature
-                        - penalty_entities
-                        - penalty_operation
-                        - penalty_subject
-                        - penalty_subject_modifier
-                        - penalty_action_modifier
-                        - penalty_system_prompt
-                        - penalty_instruction
-                        + boost_entities
-                    )
-                    # Clamp between 0 and 1
-                    final_score = max(0.0, min(1.0, final_score))
+                    else:
+                        # Multiplicative combine keeps ordering and never drives a
+                        # strong base score to zero through penalty stacking.
+                        final_score = base_score
+                        for factor in factors.values():
+                            final_score *= factor
+                    final_score = _clamp(final_score)
 
                     result = candidate.copy()
                     result["raw_cross_encoder_score"] = float(score)
                     result["base_normalized_score"] = base_score
                     result["rerank_score"] = final_score
 
-                    # attach details for debugging/cache_info
+                    # Attached for debugging, cache_info, and the gateway trace payload.
                     result["score_breakdown"] = {
-                        "base": base_score,
-                        "penalty_model": penalty_model,
-                        "penalty_service": penalty_service,
-                        "penalty_intent": penalty_intent,
-                        "penalty_temperature": penalty_temperature,
-                        "penalty_entities": penalty_entities,
-                        "penalty_operation": penalty_operation,
-                        "penalty_subject": penalty_subject,
-                        "penalty_subject_modifier": penalty_subject_modifier,
-                        "penalty_action_modifier": penalty_action_modifier,
-                        "penalty_system_prompt": penalty_system_prompt,
-                        "penalty_instruction": penalty_instruction,
-                        "boost_entities": boost_entities,
+                        "scoring_mode": scoring_mode,
+                        "base_score": round(base_score, 6),
+                        "final_score": round(final_score, 6),
+                        "factors": {k: round(v, 6) for k, v in factors.items()},
+                        "details": details,
                     }
                     reranked.append(result)
                 except Exception:

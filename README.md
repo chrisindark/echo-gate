@@ -48,8 +48,9 @@ Echo Gate accepts OpenAI-compatible `chat/completions` requests and routes them 
   - Named entity and keyword extraction determine privacy boundaries.
   - Enforces strict cache isolation levels: `GLOBAL` $\rightarrow$ `TENANT` $\rightarrow$ `USER` $\rightarrow$ `SESSION` $\rightarrow$ `CONVERSATION`.
 - **Cross-Encoder Reranking (`RerankerService`)**:
-  - Scores candidate semantic matches using `ms-marco-MiniLM-L-6-v2` cross-encoders.
-  - Enforces strict parameter matching (temperature compatibility, stop tokens, formatting constraints).
+  - Scores candidate semantic matches with a `BAAI/bge-reranker-base` cross-encoder (`RERANKER_MODEL_NAME`), comparing request and candidate user segments.
+  - Combines the base score with bounded signal factors (model, service, intent, extracted metadata, entities, system prompt, temperature, instruction constraints) via `RERANKER_SCORING_MODE` (`multiplicative` by default, or `additive`).
+  - Persists the top candidate's `score_breakdown` (scoring mode, base/final scores, per-signal factors, details) on the `gateway_requests` trace for calibration.
 - **Multi-Dimensional Judge Evaluation (`JudgeService`)**:
   - Evaluates cache quality across **Relevance (1-5)**, **Contradiction (0/1)**, and **Entailment (1-5)**.
   - Employs local DeBERTa-v3 NLI cross-encoders alongside optional LLM judges (Gemini, OpenAI, Groq) to identify false positive cache hits.

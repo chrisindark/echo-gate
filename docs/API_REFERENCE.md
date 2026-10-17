@@ -132,6 +132,13 @@ The main gateway endpoint. OpenAI-compatible request; returns a
     "source": "qdrant_semantic_path",
     "score": 0.97,
     "rerank_score": 0.96,
+    "score_breakdown": {
+      "scoring_mode": "multiplicative",
+      "base_score": 0.991,
+      "final_score": 0.96,
+      "factors": { "intent": 1.0, "metadata": 1.0, "entities": 1.0, "...": 1.0 },
+      "details": { "entity_conflict": false, "...": "..." }
+    },
     "intent": "code_generation",
     "point_id": "...",
     "exact_hash": "...",
@@ -142,8 +149,11 @@ The main gateway endpoint. OpenAI-compatible request; returns a
 
 `cache_info.source` is one of `redis`, `qdrant_exact_path`, `qdrant_fast_path`,
 `qdrant_semantic_path`, `llm`, or `mock`. `cache_info.cache_hit` distinguishes
-served-from-cache from a fresh provider call. The response header `X-Cache` also
-reflects cache status.
+served-from-cache from a fresh provider call. For `QDRANT_SEMANTIC` decisions,
+`cache_info.score_breakdown` exposes the reranker's composite decomposition
+(`scoring_mode`, `base_score`, `final_score`, per-signal `factors`, `details`);
+it is also persisted on the corresponding `gateway_requests` trace row. The
+response header `X-Cache` also reflects cache status.
 
 ```bash
 curl -X POST "http://localhost:8000/api/v1/chat/completions" \

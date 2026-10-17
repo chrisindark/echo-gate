@@ -112,6 +112,7 @@ alters the API, also regenerate the OpenAPI snapshot (above).
 | `app/scripts/seed_prompts.py` | Seeds prompts and checks cache-threshold behavior; writes `send_prompt_results.csv`. Env: `ECHO_GATE_URL`, `ECHO_GATE_RESULTS_CSV`. |
 | `app/scripts/migrate_embeddings.py` | Re-embeds points between collections (`embeddings_multivector` → `..._v2`). Hardcodes `QDRANT_URL` and `EMBEDDING_DIM` — edit before use. |
 | `app/scripts/test_dataset.py` | The labelled prompt dataset (canonical id + `expected_match`) used by the runners. |
+| `app/scripts/calibrate_reranker.py` | Replays `TEST_DATASET` through `RerankerService` offline (no Redis/Qdrant/API) and sweeps acceptance thresholds, writing `reranker_calibration.{csv,json}` with precision/recall/F1 and a recommended threshold. Flags: `--limit`, `--max-candidates`, `--scoring-mode`, `--score-source`. |
 | `create_qdrant.py` | Re-initializes the Qdrant collection via the DI container. |
 | `check_qdrant.py` | Scrolls the first 5 points to inspect scope/tenant/user. |
 | `wipe_qdrant.py` | Drops the `embeddings_multivector` collection. |

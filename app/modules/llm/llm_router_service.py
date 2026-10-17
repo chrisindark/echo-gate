@@ -950,6 +950,7 @@ class LlmRouterService:
                         "top_1_rerank_score": rerank_score,
                         "top_1_prompt": top_prompt,
                         "accepted": is_accepted,
+                        "score_breakdown": top_match.get("score_breakdown"),
                     }
                     if len(matches_reranked) > 1:
                         base_cache_info["top_2_score"] = matches_reranked[1]["score"]
@@ -1646,6 +1647,7 @@ class LlmRouterService:
                 subject_modifier=cache_info.get("subject_modifier") or subject_modifier,
                 action_modifier=cache_info.get("action_modifier") or action_modifier,
                 rerank_score=cache_info.get("rerank_score", None),
+                score_breakdown=cache_info.get("score_breakdown"),
                 latency_ms=latency_ms,
                 provider_latency_ms=provider_latency_ms,
                 cache_lookup_latency_ms=cache_lookup_latency_ms,

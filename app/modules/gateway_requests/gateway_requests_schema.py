@@ -49,6 +49,7 @@ class GatewayRequestLogBase(BaseModel):
     subject_modifier: str | None = None
     action_modifier: str | None = None
     rerank_score: float | None = None
+    score_breakdown: dict[str, Any] | None = None
     latency_ms: int | None = None
     provider_latency_ms: int | None = None
     cache_lookup_latency_ms: int | None = None

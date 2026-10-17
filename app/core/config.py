@@ -203,6 +203,13 @@ class Config:
         self.RERANKER_MODEL_NAME = os.getenv(
             "RERANKER_MODEL_NAME", "BAAI/bge-reranker-base"
         )
+        # How reranker signals are combined: "multiplicative" (bounded factors
+        # multiplied into the cross-encoder score) or "additive" (symmetric
+        # bounded deltas). Multiplicative preserves candidate ordering and never
+        # collapses a strong base score to zero through penalty stacking.
+        self.RERANKER_SCORING_MODE = (
+            os.getenv("RERANKER_SCORING_MODE", "multiplicative").strip().lower()
+        )
         self.INTENT_CLASSIFIER_SERVICE = os.getenv(
             "INTENT_CLASSIFIER_SERVICE", "ollama"
         )

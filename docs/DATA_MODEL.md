@@ -46,6 +46,7 @@ The trace log: one row per chat request, whether served from cache or provider.
 | `intent` | varchar(100) | Classified intent. |
 | `core_operation` / `core_subject` / `subject_modifier` / `action_modifier` | varchar(255) | Intent analysis fields. |
 | `rerank_score` | numeric(5,4) | Composite rerank score. |
+| `score_breakdown` | json | Reranker decomposition: `scoring_mode`, `base_score`, `final_score`, per-signal `factors`, and `details`. |
 | `latency_ms` / `provider_latency_ms` / `cache_lookup_latency_ms` | int | Timing. |
 | `latency_breakdown` | json | Per-stage ms map. |
 | `user_id` / `tenant_id` / `session_id` / `conversation_id` | varchar | Scope. |

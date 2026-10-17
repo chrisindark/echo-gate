@@ -96,7 +96,14 @@ identity from the middleware and calls
      candidates scoring ≥ `QDRANT_SPARSE_SEARCH_HIGH_THRESHOLD` (default `0.33`)
      become eligible.
    - If there are eligible candidates, run **intent classification** (LLM) and
-     **entity extraction** (regex), then **cross-encoder reranking**.
+     **entity extraction** (regex), then **cross-encoder reranking**
+     (`RerankerService`). The cross-encoder compares the request user segment to
+     each candidate's user segment. Its base score is combined with bounded
+     signal **factors** (model, service, intent, extracted metadata, entities,
+     system prompt, temperature, instruction) — multiplied under the default
+     `RERANKER_SCORING_MODE=multiplicative`, so a strong match can never collapse
+     to zero through penalty stacking. The decomposition is attached to the top
+     candidate as `score_breakdown` and persisted on the trace row.
    - The best candidate is passed to `CacheConfidenceEvaluator.evaluate`, which
      applies per-intent high/moderate thresholds and temperature rules. Accepted
      matches (`QDRANT_SEMANTIC`) are returned and cached in Redis; rejected matches
