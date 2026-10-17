@@ -137,7 +137,7 @@ The main gateway endpoint. OpenAI-compatible request; returns a
       "base_score": 0.991,
       "final_score": 0.96,
       "factors": { "intent": 1.0, "metadata": 1.0, "entities": 1.0, "...": 1.0 },
-      "details": { "entity_conflict": false, "...": "..." }
+      "details": { "entity_conflict": false, "metadata_mismatches": [], "metadata_comparisons": { "...": "..." } }
     },
     "intent": "code_generation",
     "point_id": "...",

@@ -343,6 +343,52 @@ class TestRerankerService(unittest.TestCase):
         self.assertGreaterEqual(factor, 0.90)
         self.assertLess(factor, 1.0)
 
+    def test_metadata_comparisons_record_both_sides(self):
+        # The trace must let a near-boundary rejection be reconstructed, which
+        # requires the candidate-side value and the overlap, not just the field
+        # name in `metadata_mismatches`.
+        service, _ = self._service([0.99])
+        candidates = [
+            _candidate("a", user_prompt="q", core_subject="capital of france")
+        ]
+
+        reranked = service.rerank(
+            query="q",
+            candidates=candidates,
+            request_core_subject="France capital city",
+            user_query="q",
+        )
+
+        comparisons = reranked[0]["score_breakdown"]["details"]["metadata_comparisons"]
+        subject = comparisons["core_subject"]
+        self.assertTrue(subject["judged"])
+        self.assertEqual(subject["request"], "France capital city")
+        self.assertEqual(subject["candidate"], "capital of france")
+        self.assertIn("overlap", subject)
+        self.assertIn("mismatch", subject)
+
+    def test_metadata_comparison_skip_reasons_are_recorded(self):
+        service, _ = self._service([0.9])
+        candidates = [_candidate("a", user_prompt="q", core_operation=None)]
+
+        reranked = service.rerank(
+            query="q",
+            candidates=candidates,
+            request_core_operation="ask",
+            user_query="q",
+        )
+
+        comparisons = reranked[0]["score_breakdown"]["details"]["metadata_comparisons"]
+        self.assertEqual(
+            comparisons["core_operation"],
+            {"judged": False, "reason": "candidate_empty", "request": "ask"},
+        )
+        # A field the request never carried is not judged either.
+        self.assertEqual(
+            comparisons["core_subject"],
+            {"judged": False, "reason": "request_empty"},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

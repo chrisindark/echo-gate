@@ -145,8 +145,8 @@ class RerankerService:
         request_subject_modifier: str | None,
         request_action_modifier: str | None,
         payload: dict[str, Any],
-    ) -> tuple[float, list[str]]:
-        """Return (factor, mismatched_fields) for the extracted metadata signals.
+    ) -> tuple[float, list[str], dict[str, Any]]:
+        """Return (factor, mismatched_fields, comparisons) for extracted metadata.
 
         A field is only judged when *both* sides carry a value: a missing request
         field means the extractor did not find it, and a missing candidate field
@@ -154,6 +154,12 @@ class RerankerService:
         is evidence of a real mismatch, so neither is penalized. Comparison is
         token-overlap based, not exact-equality, so paraphrase drift in the
         extractor does not register as a mismatch.
+
+        `comparisons` records, per field, the two raw values and the overlap that
+        drove the decision (including why an undecided field was skipped). This
+        is emitted in `score_breakdown.details` so the live calibration pass can
+        see exactly what a near-boundary rejection was based on; without the
+        candidate-side value the decision is not reproducible from the trace.
         """
         fields = (
             ("core_operation", request_core_operation),
@@ -162,22 +168,36 @@ class RerankerService:
             ("action_modifier", request_action_modifier),
         )
         mismatches: list[str] = []
+        comparisons: dict[str, Any] = {}
         for field, request_value in fields:
             normalized_request = _normalize_modifier(request_value)
             if not normalized_request:
+                comparisons[field] = {"judged": False, "reason": "request_empty"}
                 continue
-            normalized_candidate = _normalize_modifier(payload.get(field))
+            candidate_value = payload.get(field)
+            normalized_candidate = _normalize_modifier(candidate_value)
             if not normalized_candidate:
                 # Candidate predates this field (e.g. legacy point); cannot judge.
+                comparisons[field] = {
+                    "judged": False,
+                    "reason": "candidate_empty",
+                    "request": request_value,
+                }
                 continue
-            if (
-                _token_overlap(normalized_request, normalized_candidate)
-                < _METADATA_MISMATCH_THRESHOLD
-            ):
+            overlap = _token_overlap(normalized_request, normalized_candidate)
+            is_mismatch = overlap < _METADATA_MISMATCH_THRESHOLD
+            comparisons[field] = {
+                "judged": True,
+                "mismatch": is_mismatch,
+                "overlap": round(overlap, 4),
+                "request": request_value,
+                "candidate": candidate_value,
+            }
+            if is_mismatch:
                 mismatches.append(field)
 
         penalty = min(_METADATA_MISMATCH_CAP, _METADATA_MISMATCH_UNIT * len(mismatches))
-        return 1.0 - penalty, mismatches
+        return 1.0 - penalty, mismatches, comparisons
 
     def _entity_similarity(
         self, request_entity_set: set[str], candidate_entity_set: set[str]
@@ -333,7 +353,11 @@ class RerankerService:
                             1.0 if candidate_intent == request_intent else 0.92
                         )
 
-                    metadata_factor, metadata_mismatches = self._metadata_similarity(
+                    (
+                        metadata_factor,
+                        metadata_mismatches,
+                        metadata_comparisons,
+                    ) = self._metadata_similarity(
                         request_core_operation,
                         request_core_subject,
                         request_subject_modifier,
@@ -371,6 +395,7 @@ class RerankerService:
 
                     details = {
                         "metadata_mismatches": metadata_mismatches,
+                        "metadata_comparisons": metadata_comparisons,
                         "entity_conflict": entity_conflict,
                         "entity_overlap": round(entity_overlap, 6),
                         "system_prompt_jaccard": round(system_jaccard, 6),

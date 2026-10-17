@@ -103,7 +103,17 @@ identity from the middleware and calls
      system prompt, temperature, instruction) — multiplied under the default
      `RERANKER_SCORING_MODE=multiplicative`, so a strong match can never collapse
      to zero through penalty stacking. The decomposition is attached to the top
-     candidate as `score_breakdown` and persisted on the trace row.
+     candidate as `score_breakdown` and persisted on the trace row. Its `details`
+     records, per judged metadata field, the request and candidate values and the
+     token overlap that produced the decision (`metadata_comparisons`), so a
+     near-boundary rejection can be reconstructed from the trace alone.
+     The extracted-metadata mismatch penalty (`0.05`/field, capped at `0.15`) is
+     precision-load-bearing: near-duplicate prompts that differ only by one
+     attribute (e.g. "check if a **key** exists" vs "…a **value** exists") score
+     near-1.0 on the cross-encoder and are rejected *only* by this factor. Do not
+     weaken it or the `CACHE_CONFIDENCE_THRESHOLDS` high bounds from an offline
+     sweep; tune them from live traces with
+     `app/scripts/inspect_semantic_cache.py`.
    - The best candidate is passed to `CacheConfidenceEvaluator.evaluate`, which
      applies per-intent high/moderate thresholds and temperature rules. Accepted
      matches (`QDRANT_SEMANTIC`) are returned and cached in Redis; rejected matches
