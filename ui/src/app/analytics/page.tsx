@@ -1,5 +1,7 @@
 'use client';
 
+import { useApiKey } from '@/context/api-key-context';
+import { cn } from '@/lib/utils';
 import { Box, Card, Flex, Heading, Text } from '@radix-ui/themes';
 import { motion } from 'framer-motion';
 import {
@@ -16,7 +18,6 @@ import {
   Zap,
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
-import { cn } from '@/lib/utils';
 
 type TimeRange =
   '1h' | '3h' | '6h' | '12h' | '1d' | '3d' | '7d' | '14d' | '30d';
@@ -125,6 +126,7 @@ interface AnalyticsData {
 }
 
 export default function AnalyticsPage() {
+  const { apiKey } = useApiKey();
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [isFetching, setIsFetching] = useState(false);
@@ -135,11 +137,22 @@ export default function AnalyticsPage() {
     setLoading(true);
     setError(null);
     const params = new URLSearchParams({ time_range: timeRange });
+    const headers: Record<string, string> = {};
+    if (apiKey) headers['X-API-Key'] = apiKey;
+
     fetch(
-      `http://localhost:8000/api/v1/analytics/dashboard?${params.toString()}`
+      `http://localhost:8000/api/v1/analytics/dashboard?${params.toString()}`,
+      { headers }
     )
       .then((res) => {
-        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+        if (!res.ok) {
+          if (res.status === 401) {
+            throw new Error(
+              'Unauthorized (401): Valid API key required. Go to Settings to configure your key.'
+            );
+          }
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
         return res.json();
       })
       .then((result) => {
@@ -151,7 +164,7 @@ export default function AnalyticsPage() {
       .finally(() => {
         setLoading(false);
       });
-  }, [timeRange]);
+  }, [timeRange, apiKey]);
 
   useEffect(() => {
     let ignore = false;
@@ -160,11 +173,21 @@ export default function AnalyticsPage() {
         const params = new URLSearchParams({
           time_range: timeRange,
         });
+        const headers: Record<string, string> = {};
+        if (apiKey) headers['X-API-Key'] = apiKey;
 
         const res = await fetch(
-          `http://localhost:8000/api/v1/analytics/dashboard?${params.toString()}`
+          `http://localhost:8000/api/v1/analytics/dashboard?${params.toString()}`,
+          { headers }
         );
-        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+        if (!res.ok) {
+          if (res.status === 401) {
+            throw new Error(
+              'Unauthorized (401): Valid API key required. Go to Settings to configure your key.'
+            );
+          }
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
         const result = await res.json();
         if (!ignore) {
           setData(result.response || result);
@@ -188,7 +211,7 @@ export default function AnalyticsPage() {
     return () => {
       ignore = true;
     };
-  }, [timeRange]);
+  }, [timeRange, apiKey]);
 
   const container = {
     hidden: { opacity: 0 },
@@ -1000,7 +1023,7 @@ export default function AnalyticsPage() {
             <Box mb="4">
               <Heading size="4" className="flex items-center gap-2">
                 <BrainCircuit className="w-5 h-5 text-purple-500" />
-                LLM-as-a-Judge Evaluations
+                Judge Evaluations
               </Heading>
               <Text size="2" color="gray">
                 Based on {evals?.evaluated_count || 0} evaluated requests

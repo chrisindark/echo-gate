@@ -298,8 +298,8 @@ export function TraceDetailView({
               Semantic Cache False Positive
             </div>
             <div className="text-xs text-amber-400">
-              The LLM-as-a-Judge determined that this cached response did not
-              properly answer the user prompt.
+              The Judge determined that this cached response did not properly
+              answer the user prompt.
             </div>
           </div>
         </div>
@@ -605,12 +605,12 @@ export function TraceDetailView({
           </div>
         </Card>
 
-        {/* LLM-as-a-Judge Evaluation */}
+        {/* Judge Evaluation */}
         <Card size="3">
           <Box mb="4">
             <Heading size="3" className="flex items-center gap-2">
               <BrainCircuit className="w-4 h-4 text-emerald-500" />
-              LLM-as-a-Judge Evaluation
+              Judge Evaluation
             </Heading>
           </Box>
           <div className="space-y-4">

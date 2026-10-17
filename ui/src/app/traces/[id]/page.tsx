@@ -1,14 +1,16 @@
 'use client';
 
+import { TraceDetailView, TraceLog } from '@/components/trace-detail-view';
+import { useApiKey } from '@/context/api-key-context';
+import { cn } from '@/lib/utils';
 import { Card, Heading, Text } from '@radix-ui/themes';
 import { Activity, ArrowLeft, Clock, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import { TraceDetailView, TraceLog } from '@/components/trace-detail-view';
-import { cn } from '@/lib/utils';
+import { Suspense, useEffect, useState } from 'react';
 
-export default function TraceDetailPage() {
+function TraceDetailContent() {
+  const { apiKey } = useApiKey();
   const params = useParams();
   const id = params?.id as string;
 
@@ -23,12 +25,19 @@ export default function TraceDetailPage() {
     let ignore = false;
     const load = async () => {
       try {
+        const headers: Record<string, string> = {};
+        if (apiKey) headers['X-API-Key'] = apiKey;
+
         const res = await fetch(
-          `http://localhost:8000/api/v1/gateway-requests/${id}`
+          `http://localhost:8000/api/v1/gateway-requests/${id}`,
+          { headers }
         );
         if (!res.ok) {
           if (res.status === 404) {
             throw new Error(`Trace with ID #${id} not found.`);
+          }
+          if (res.status === 401) {
+            throw new Error('Unauthorized (401): Valid API key required.');
           }
           throw new Error(`HTTP error! status: ${res.status}`);
         }
@@ -55,7 +64,7 @@ export default function TraceDetailPage() {
     return () => {
       ignore = true;
     };
-  }, [id, refreshKey]);
+  }, [id, apiKey, refreshKey]);
 
   return (
     <div className="flex-1 overflow-y-auto p-6 md:p-8 bg-background">
@@ -143,5 +152,20 @@ export default function TraceDetailPage() {
         ) : null}
       </div>
     </div>
+  );
+}
+
+export default function TraceDetailPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex-1 flex items-center justify-center p-12 text-muted-foreground">
+          <Clock className="w-6 h-6 animate-spin mr-2" />
+          <span>Loading trace...</span>
+        </div>
+      }
+    >
+      <TraceDetailContent />
+    </Suspense>
   );
 }

@@ -1,5 +1,8 @@
 'use client';
 
+import { TraceDetailView, TraceLog } from '@/components/trace-detail-view';
+import { useApiKey } from '@/context/api-key-context';
+import { cn } from '@/lib/utils';
 import { Card, Heading, Text } from '@radix-ui/themes';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
@@ -17,8 +20,6 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { TraceDetailView, TraceLog } from '@/components/trace-detail-view';
-import { cn } from '@/lib/utils';
 
 type RoutingFilter =
   'ALL' | 'LLM' | 'REDIS_EXACT' | 'QDRANT_EXACT' | 'QDRANT_SEMANTIC';
@@ -29,6 +30,7 @@ type TimeRangeFilter =
   '1h' | '3h' | '6h' | '12h' | '1d' | '3d' | '7d' | '14d' | '30d' | 'ALL';
 
 export default function TracesPage() {
+  const { apiKey } = useApiKey();
   const [traces, setTraces] = useState<TraceLog[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -77,10 +79,21 @@ export default function TracesPage() {
         if (errorsOnly) params.append('has_error', 'true');
         if (falsePositivesOnly) params.append('is_false_positive', 'true');
 
+        const headers: Record<string, string> = {};
+        if (apiKey) headers['X-API-Key'] = apiKey;
+
         const res = await fetch(
-          `http://localhost:8000/api/v1/gateway-requests/?${params.toString()}`
+          `http://localhost:8000/api/v1/gateway-requests/?${params.toString()}`,
+          { headers }
         );
-        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+        if (!res.ok) {
+          if (res.status === 401) {
+            throw new Error(
+              'Unauthorized (401): Valid API key required. Go to Settings to configure your key.'
+            );
+          }
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
         const data = await res.json();
         const responsePayload = data.response || data.data || {};
 
@@ -126,6 +139,7 @@ export default function TracesPage() {
     timeRange,
     errorsOnly,
     falsePositivesOnly,
+    apiKey,
     refreshKey,
   ]);
 
