@@ -78,6 +78,10 @@ class JudgeService:
                 response = await self.llm_provider_service.generate_groq_completion(
                     request
                 )
+            elif config.LLM_JUDGE_SERVICE in ["claude", "anthropic"]:
+                response = await self.llm_provider_service.generate_claude_completion(
+                    request
+                )
             else:
                 logger.warning(
                     f"Unsupported LLM_JUDGE_SERVICE {config.LLM_JUDGE_SERVICE}. Returning 0.0."

@@ -29,8 +29,17 @@ class LlmQuotaGuard:
 
         provider = None
         model = None
-        user = getattr(request.state, "user", None)
-        tenant_id = request.headers.get("x-tenant-id") or "anonymous"
+        # Identity is established by TenantContextMiddleware: an API key resolved
+        # to a tenant/user, or trusted internal headers. Fall back to headers so
+        # the guard keeps working if the middleware is not installed.
+        user = getattr(request.state, "user_id", None) or getattr(
+            request.state, "user", None
+        )
+        tenant_id = (
+            getattr(request.state, "tenant_id", None)
+            or request.headers.get("x-tenant-id")
+            or "anonymous"
+        )
 
         try:
             # Safely read body. FastAPI caches request.body() so it's safe to read multiple times

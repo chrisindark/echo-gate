@@ -27,6 +27,11 @@ services:
       - POSTGRES_DB=echo_gate
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d echo_gate"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     restart: always
     networks:
       - app-network
@@ -40,9 +45,15 @@ services:
       - QDRANT_URL=http://qdrant:6333
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1
+      - DATABASE_URL=postgresql+psycopg://echo_gate_app:echo_gate_app@postgres:5432/echo_gate
+      - DATABASE_URL_READ=postgresql+psycopg://echo_gate_app:echo_gate_app@postgres:5432/echo_gate
     depends_on:
-      - qdrant
-      - redis
+      qdrant:
+        condition: service_started
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
     restart: always
     networks:
       - app-network
@@ -54,9 +65,15 @@ services:
       - QDRANT_URL=http://qdrant:6333
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1
+      - DATABASE_URL=postgresql+psycopg://echo_gate_app:echo_gate_app@postgres:5432/echo_gate
+      - DATABASE_URL_READ=postgresql+psycopg://echo_gate_app:echo_gate_app@postgres:5432/echo_gate
     depends_on:
-      - redis
-      - qdrant
+      redis:
+        condition: service_started
+      qdrant:
+        condition: service_started
+      postgres:
+        condition: service_healthy
     command: poetry run celery -A app.worker.celery_app worker --loglevel=info
     restart: always
     networks:

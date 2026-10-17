@@ -22,36 +22,24 @@ DB_POOL_PRE_PING = config.DB_POOL_PRE_PING
 
 
 def _create_db_engine(url: str):
-    connect_args = {}
-    engine_kwargs = {
-        "pool_pre_ping": DB_POOL_PRE_PING,
-    }
-    if url.startswith("sqlite"):
-        connect_args["check_same_thread"] = False
-        if not url.endswith(":memory:") and url != "sqlite://":
-            engine_kwargs.update(
-                {
-                    "pool_size": DB_POOL_SIZE,
-                    "max_overflow": DB_MAX_OVERFLOW,
-                    "pool_timeout": DB_POOL_TIMEOUT,
-                    "pool_recycle": DB_POOL_RECYCLE,
-                    "pool_pre_ping": True,
-                }
-            )
-    else:
-        engine_kwargs.update(
-            {
-                "pool_size": DB_POOL_SIZE,
-                "max_overflow": DB_MAX_OVERFLOW,
-                "pool_timeout": DB_POOL_TIMEOUT,
-                "pool_recycle": DB_POOL_RECYCLE,
-                "pool_pre_ping": True,
-            }
-        )
-    return create_engine(url, connect_args=connect_args, **engine_kwargs)
+    return create_engine(
+        url,
+        pool_size=DB_POOL_SIZE,
+        max_overflow=DB_MAX_OVERFLOW,
+        pool_timeout=DB_POOL_TIMEOUT,
+        pool_recycle=DB_POOL_RECYCLE,
+        pool_pre_ping=DB_POOL_PRE_PING,
+    )
 
 
 engine = _create_db_engine(SQLALCHEMY_DATABASE_URL)
+
+# Reuse the primary pool when no dedicated read replica is configured.
+read_engine = (
+    engine
+    if SQLALCHEMY_DATABASE_URL_READ == SQLALCHEMY_DATABASE_URL
+    else _create_db_engine(SQLALCHEMY_DATABASE_URL_READ)
+)
 
 SessionFactory: TypeAlias = sessionmaker[Session] | Callable[[], Session]
 
@@ -59,24 +47,11 @@ SessionLocal: sessionmaker[Session] = sessionmaker(
     autocommit=False, autoflush=False, bind=engine, expire_on_commit=False
 )
 
+SessionLocalRead: sessionmaker[Session] = sessionmaker(
+    autocommit=False, autoflush=False, bind=read_engine, expire_on_commit=False
+)
+
 Base = declarative_base()
-
-
-@event.listens_for(engine, "connect")
-def receive_connect(dbapi_connection, connection_record):
-    """Fired when a physical database connection is established."""
-    if config.DATABASE_URL.startswith("sqlite"):
-        try:
-            cursor = dbapi_connection.cursor()
-            cursor.execute("PRAGMA journal_mode=WAL")
-            cursor.execute("PRAGMA synchronous=NORMAL")
-            cursor.execute("PRAGMA busy_timeout=10000")
-            cursor.close()
-        except Exception as e:
-            logger.warning("Failed to configure SQLite PRAGMAs: %s", e)
-    logger.debug(
-        "Successfully connected to database and initialized connection pool entry."
-    )
 
 
 @event.listens_for(engine, "checkout")
@@ -101,12 +76,6 @@ def receive_invalidate(dbapi_connection, connection_record, exception):
 def receive_close(dbapi_connection, connection_record):
     """Fired when a connection is closed during pool cleanup, recycle, or shutdown."""
     logger.debug("Database connection closed by pool.")
-
-
-# Create DB schemas
-def init_db():
-    # This checks if the tables exist, and creates them if they don't
-    Base.metadata.create_all(bind=engine)
 
 
 def get_db():
@@ -137,24 +106,32 @@ def get_task_db_session():
 def task_db_session(
     db_session: Session | None = None,
 ) -> Generator[Session]:
-    """Retrieve database session for background/Celery tasks, respecting FastAPI dependency overrides and connection pool checkins without dropping in-flight HTTP connections."""
-    is_external = db_session is not None
-    session = db_session if is_external else get_task_db_session()
-    try:
-        yield session
-    finally:
-        if not is_external:
-            try:
-                import sys
+    """Retrieve database session for background/Celery tasks, respecting FastAPI dependency overrides and connection pool checkins without dropping in-flight HTTP connections.
 
-                main_mod = sys.modules.get("app.main")
-                fastapi_app = getattr(main_mod, "app", None) if main_mod else None
-                is_overridden = bool(
-                    fastapi_app
-                    and hasattr(fastapi_app, "dependency_overrides")
-                    and get_db in fastapi_app.dependency_overrides
-                )
-                if not is_overridden:
+    Background tasks run in system mode: they are trusted jobs (evaluation,
+    cost backfill, cache maintenance) that intentionally operate across every
+    tenant, so the Postgres RLS context is set to system mode for the duration.
+    """
+    from app.core.rls import system_rls_context
+
+    is_external = db_session is not None
+    with system_rls_context():
+        session = db_session if is_external else get_task_db_session()
+        try:
+            yield session
+        finally:
+            if not is_external:
+                try:
+                    import sys
+
+                    main_mod = sys.modules.get("app.main")
+                    fastapi_app = getattr(main_mod, "app", None) if main_mod else None
+                    is_overridden = bool(
+                        fastapi_app
+                        and hasattr(fastapi_app, "dependency_overrides")
+                        and get_db in fastapi_app.dependency_overrides
+                    )
+                    if not is_overridden:
+                        session.close()
+                except Exception:
                     session.close()
-            except Exception:
-                session.close()

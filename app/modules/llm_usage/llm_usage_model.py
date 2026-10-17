@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import JSON, Boolean, Column, DateTime, Integer, Numeric, String, Text
 
@@ -10,12 +10,12 @@ class LlmUsageLog(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     created_at = Column(
-        DateTime, default=lambda: datetime.now(timezone.utc), index=True
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), index=True
     )
     updated_at = Column(
-        DateTime,
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
     )
 
     service_name = Column(
@@ -42,7 +42,7 @@ class LlmUsageLog(Base):
     cache_creation_tokens = Column(Integer, default=0)  # Tokens written to cache
 
     cost = Column(Numeric(precision=12, scale=6), default=0.000000)
-    cost_calculated = Column(Boolean, default=False, server_default="0", index=True)
+    cost_calculated = Column(Boolean, default=False, server_default="false", index=True)
 
     latency_ms = Column(
         Integer, nullable=True

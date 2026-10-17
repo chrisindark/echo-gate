@@ -3,8 +3,9 @@ import hashlib
 import json
 import logging
 import time
+import uuid
 from collections import OrderedDict
-from collections.abc import Coroutine
+from collections.abc import AsyncIterator, Coroutine
 from typing import Any
 
 from fastapi import HTTPException
@@ -25,7 +26,13 @@ from app.core.constants import (
 )
 from app.core.logger import log_latency
 from app.core.retry import execute_with_retry
-from app.modules.chat.chat_schema import ChatCompletionRequest, ChatCompletionResponse
+from app.modules.chat.chat_schema import (
+    ChatCompletionChunk,
+    ChatCompletionRequest,
+    ChatCompletionResponse,
+    StreamAccumulator,
+    response_to_stream_chunks,
+)
 from app.modules.embedding.embedding_service import EmbeddingService
 from app.modules.gateway_requests.gateway_requests_schema import (
     EvaluationStatus,
@@ -170,6 +177,10 @@ class LlmRouterService:
                 return await self.llm_provider_service.generate_ollama_completion(
                     llm_req
                 )
+            elif svc in ["claude", "anthropic"]:
+                return await self.llm_provider_service.generate_claude_completion(
+                    llm_req
+                )
             else:
                 logger.error(f"Unsupported LLM service: {svc}")
                 raise HTTPException(
@@ -251,6 +262,128 @@ class LlmRouterService:
                     detail=f"Primary service {service_name} failed: {e}",
                 )
 
+    async def _stream_from_provider_with_fallback(
+        self,
+        request: ChatCompletionRequest,
+        service_name: str,
+        fallback_service: str | None = None,
+        fallback_model: str | None = None,
+        api_key: str | None = None,
+        exact_hash: str | None = None,
+    ) -> AsyncIterator[tuple[ChatCompletionChunk, str, str]]:
+        """
+        Streams chunks from the primary provider.
+        If the primary provider fails before any chunks are yielded (e.g. connection/handshake failure),
+        and fallback is enabled, transparently switches to the fallback provider.
+        Yields (chunk, actual_service_name, actual_model_name).
+        """
+        fallback_service = (
+            fallback_service
+            if fallback_service is not None
+            else config.FALLBACK_LLM_SERVICE
+        )
+        fallback_model = (
+            fallback_model if fallback_model is not None else config.FALLBACK_LLM_MODEL
+        )
+        fallback = config.USE_FALLBACK_LLM
+
+        def clean_req(
+            req: ChatCompletionRequest, model: str | None = None
+        ) -> ChatCompletionRequest:
+            llm_req = req.model_copy(deep=True)
+            if model:
+                llm_req.model = model
+            for key in ["user_id", "tenant_id", "session_id", "conversation_id"]:
+                if hasattr(llm_req, key):
+                    delattr(llm_req, key)
+            return llm_req
+
+        t_primary_start = time.perf_counter()
+        primary_req = clean_req(request)
+        actual_service = service_name
+        actual_model = request.model
+
+        primary_stream = self.llm_provider_service.generate_stream(
+            primary_req, service_name=service_name
+        )
+        primary_iter = primary_stream.__aiter__()
+        first_chunk = None
+
+        try:
+            first_chunk = await primary_iter.__anext__()
+        except StopAsyncIteration:
+            return
+        except Exception as e:
+            if isinstance(e, HTTPException) and e.status_code in (400, 401, 403, 500):
+                logger.error(
+                    f"Fatal error {e.status_code} from streaming {service_name}. Failing immediately."
+                )
+                raise e
+
+            if fallback == "true" and fallback_service:
+                logger.warning(
+                    f"Primary stream {service_name} failed before first chunk: {e}. Attempting fallback {fallback_service}."
+                )
+                primary_status = e.status_code if isinstance(e, HTTPException) else 500
+                primary_err = str(e.detail) if isinstance(e, HTTPException) else str(e)
+                self._create_background_task(
+                    self._log_usage(
+                        request=request,
+                        response=None,
+                        service_name=service_name,
+                        start_time=t_primary_start,
+                        exact_hash=exact_hash or self._generate_cache_key(request),
+                        api_key=api_key,
+                        model=request.model,
+                        is_success=False,
+                        status_code=primary_status,
+                        error_message=primary_err,
+                    )
+                )
+
+                fallback_req = clean_req(request, model=fallback_model)
+                actual_service = fallback_service
+                actual_model = fallback_model or request.model
+                try:
+                    fallback_stream = self.llm_provider_service.generate_stream(
+                        fallback_req, service_name=fallback_service
+                    )
+                    async for chunk in fallback_stream:
+                        if chunk.model:
+                            actual_model = chunk.model
+                        yield chunk, actual_service, actual_model
+                    return
+                except Exception as fallback_e:
+                    logger.error(
+                        f"Fallback streaming service {fallback_service} failed: {fallback_e}"
+                    )
+                    if isinstance(fallback_e, HTTPException):
+                        raise fallback_e
+                    raise HTTPException(
+                        status_code=503,
+                        detail=f"Fallback streaming service {fallback_service} failed: {fallback_e}",
+                    )
+            else:
+                logger.error(
+                    f"Primary stream {service_name} failed and no fallback configured: {e}"
+                )
+                if isinstance(e, HTTPException):
+                    raise e
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Primary stream {service_name} failed: {e}",
+                )
+
+        if first_chunk:
+            if first_chunk.model:
+                actual_model = first_chunk.model
+            yield first_chunk, actual_service, actual_model
+
+        async for chunk in primary_iter:
+            if chunk.model:
+                actual_model = chunk.model
+            yield chunk, actual_service, actual_model
+
     def _generate_cache_key(self, request: ChatCompletionRequest) -> str:
         # use the version keys in the cache key in future to invalidate older cache keys
         # embedding version
@@ -261,6 +394,8 @@ class LlmRouterService:
                 "role": msg.role,
                 "content": msg.content,
             }
+            if msg.reasoning_content:
+                msg_dict["reasoning_content"] = msg.reasoning_content
             if msg.name:
                 msg_dict["name"] = msg.name
             if msg.tool_call_id:
@@ -278,6 +413,9 @@ class LlmRouterService:
             "session_id": request.session_id,
             "conversation_id": request.conversation_id,
             "response_format": request.response_format,
+            "reasoning_effort": request.reasoning_effort,
+            "thinking": request.thinking,
+            "thinking_budget": request.thinking_budget,
             "max_tokens": request.max_tokens,
             "stop": request.stop,
             "top_p": request.top_p,
@@ -1691,6 +1829,288 @@ class LlmRouterService:
                 response.cache_info = cache_info
 
             return response
+        except Exception as e:
+            if not provider_error:
+                provider_error = str(e)
+                provider_exception = e
+            raise
+        finally:
+            end_time = time.perf_counter()
+            total_duration = round((end_time - start_time) * 1000, 2)
+            breakdown["total_ms"] = total_duration
+
+            cache_lookup_total = (
+                breakdown.get("redis_exact_ms", 0.0)
+                + breakdown.get("qdrant_exact_ms", 0.0)
+                + breakdown.get("cache_lookup_total_ms", 0.0)
+            )
+            breakdown["cache_lookup_total_ms"] = round(cache_lookup_total, 2)
+
+            if response:
+                if not hasattr(response, "cache_info") or response.cache_info is None:
+                    response.cache_info = {}
+                response.cache_info["exact_hash"] = exact_hash
+                response.cache_info["latency_breakdown"] = breakdown
+
+                self._create_background_task(
+                    self._log_usage(
+                        request=request,
+                        response=response,
+                        service_name=actual_service,
+                        start_time=start_time,
+                        exact_hash=exact_hash,
+                        api_key=api_key,
+                        model=actual_model,
+                    )
+                )
+                self._create_background_task(
+                    self._log_gateway_request(
+                        request=request,
+                        response=response,
+                        service_name=actual_service,
+                        start_time=start_time,
+                        exact_hash=exact_hash,
+                        model=actual_model,
+                        latency_breakdown=breakdown,
+                    )
+                )
+            elif provider_exception is not None:
+                status_code = (
+                    provider_exception.status_code
+                    if isinstance(provider_exception, HTTPException)
+                    else 500
+                )
+                error_detail = (
+                    str(provider_exception.detail)
+                    if isinstance(provider_exception, HTTPException)
+                    else (provider_error or str(provider_exception))
+                )
+                self._create_background_task(
+                    self._log_usage(
+                        request=request,
+                        response=None,
+                        service_name=actual_service,
+                        start_time=start_time,
+                        exact_hash=exact_hash,
+                        api_key=api_key,
+                        model=actual_model,
+                        is_success=False,
+                        status_code=status_code,
+                        error_message=error_detail,
+                    )
+                )
+                self._create_background_task(
+                    self._log_gateway_request(
+                        request=request,
+                        response=None,
+                        service_name=actual_service,
+                        start_time=start_time,
+                        exact_hash=exact_hash,
+                        model=actual_model,
+                        latency_breakdown=breakdown,
+                        error_message=error_detail,
+                        routing_decision=RoutingDecision.LLM,
+                        intent=intent.value
+                        if (intent and hasattr(intent, "value"))
+                        else None,
+                        core_operation=core_operation,
+                        core_subject=core_subject,
+                        subject_modifier=subject_modifier,
+                        action_modifier=action_modifier,
+                    )
+                )
+
+    async def generate_stream(
+        self, request: ChatCompletionRequest, api_key: str | None = None
+    ) -> AsyncIterator[ChatCompletionChunk]:
+        start_time = time.perf_counter()
+        breakdown: dict[str, Any] = {}
+        service_name = request.service_name or config.DEFAULT_LLM_SERVICE
+        logger.info(f"Generating streaming completion for service {service_name}")
+
+        prompt_text, _, _ = self._prepare_prompts(request)
+        exact_hash = self._generate_cache_key(request)
+        tenant_id = request.tenant_id
+
+        actual_service = service_name
+        actual_model = request.model
+        intent: IntentEnum | None = None
+        core_operation: str | None = None
+        core_subject: str | None = None
+        subject_modifier: str | None = None
+        action_modifier: str | None = None
+        provider_error: str | None = None
+        provider_exception: BaseException | None = None
+        response: ChatCompletionResponse | None = None
+
+        try:
+            # 1. Try exact match from Redis first
+            t_redis_start = time.perf_counter()
+            response = await self._get_redis_exact_match(exact_hash, service_name)
+            t_redis_end = time.perf_counter()
+            breakdown["redis_exact_ms"] = round((t_redis_end - t_redis_start) * 1000, 2)
+            if response:
+                for chunk in response_to_stream_chunks(response):
+                    yield chunk
+                return
+
+            # 2. Try Exact Match in Qdrant
+            t_qdrant_exact_start = time.perf_counter()
+            response, point_id, remaining_ttl = await self._get_qdrant_exact_match(
+                exact_hash, tenant_id, prompt_text
+            )
+            t_qdrant_exact_end = time.perf_counter()
+            breakdown["qdrant_exact_ms"] = round(
+                (t_qdrant_exact_end - t_qdrant_exact_start) * 1000, 2
+            )
+            if response:
+                use_redis_exact_matching = config.USE_REDIS_EXACT_MATCHING == "true"
+                if use_redis_exact_matching:
+                    await self._save_to_redis_cache(
+                        exact_hash,
+                        response,
+                        "Saving Qdrant exact search query matched response in Redis",
+                        ttl=remaining_ttl,
+                        save_to_redis=use_redis_exact_matching,
+                        point_id=point_id,
+                    )
+                for chunk in response_to_stream_chunks(response):
+                    yield chunk
+                return
+
+            # 3. Try Semantic Match if Exact misses
+            semantic_result = await self.evaluate_semantic_cache(request)
+            if "latency_breakdown" in semantic_result:
+                breakdown.update(semantic_result["latency_breakdown"])
+
+            if semantic_result.get("response"):
+                response = semantic_result["response"]
+                for chunk in response_to_stream_chunks(response):
+                    yield chunk
+                return
+
+            # Extract intent and other metadata if intent classification has been called already
+            intent = semantic_result.get("intent", None)
+            time_sensitivity = semantic_result.get("time_sensitivity", 0.0)
+            core_operation = semantic_result.get("core_operation", None)
+            core_subject = semantic_result.get("core_subject", None)
+            subject_modifier = semantic_result.get("subject_modifier", None)
+            action_modifier = semantic_result.get("action_modifier", None)
+            miss_cache_info = semantic_result.get("miss_cache_info")
+            embeddings = semantic_result.get("embeddings")
+
+            # 4. Stream from provider with guarded accumulator
+            accumulator = StreamAccumulator(
+                model=request.model,
+                request_id=f"chatcmpl-{uuid.uuid4().hex}",
+                max_content_bytes=config.STREAM_MAX_CONTENT_BYTES,
+            )
+
+            t_provider_start = time.perf_counter()
+            try:
+                stream = self._stream_from_provider_with_fallback(
+                    request=request,
+                    service_name=service_name,
+                    fallback_service=config.FALLBACK_LLM_SERVICE,
+                    fallback_model=config.FALLBACK_LLM_MODEL,
+                    api_key=api_key,
+                    exact_hash=exact_hash,
+                )
+                async for chunk, chunk_svc, chunk_model in stream:
+                    actual_service = chunk_svc
+                    actual_model = chunk_model
+                    accumulator.add_chunk(chunk)
+                    yield chunk
+            except Exception as e:
+                provider_error = str(e)
+                provider_exception = e
+                if (
+                    config.USE_FALLBACK_LLM == "true"
+                    and config.FALLBACK_LLM_SERVICE
+                    and not (
+                        isinstance(e, HTTPException)
+                        and e.status_code in (400, 401, 403, 500)
+                    )
+                ):
+                    actual_service = config.FALLBACK_LLM_SERVICE
+                    if config.FALLBACK_LLM_MODEL:
+                        actual_model = config.FALLBACK_LLM_MODEL
+                raise
+            finally:
+                t_provider_end = time.perf_counter()
+                breakdown["provider_ms"] = round(
+                    (t_provider_end - t_provider_start) * 1000, 2
+                )
+
+            # Build full response from accumulator
+            response = accumulator.build_response()
+            if actual_model:
+                response.model = actual_model
+
+            if response and response.choices and not is_mock_response(response):
+                cache_info = {
+                    "matched": False,
+                    "score": 0.0,
+                    "source": "llm",
+                    "cache_hit": False,
+                    "point_id": None,
+                    "intent": intent.value if intent else IntentEnum.EMPTY.value,
+                    "query": prompt_text,
+                    "accepted": False,
+                    "core_operation": core_operation,
+                    "core_subject": core_subject,
+                    "subject_modifier": subject_modifier,
+                    "action_modifier": action_modifier,
+                }
+                if miss_cache_info:
+                    cache_info.update(miss_cache_info)
+
+                if accumulator.overflowed:
+                    logger.warning(
+                        f"Stream content exceeded memory guardrail ({accumulator.max_content_bytes} bytes). Skipping cache persistence."
+                    )
+                    cache_info["overflowed"] = True
+                    response.cache_info = cache_info
+                else:
+                    response.cache_info = cache_info
+                    breakdown["cache_write_ms"] = 0.0
+
+                    # Offload cache persistence to background task so client latency is unaffected
+                    self._create_background_task(
+                        self._background_save_cache(
+                            request=request,
+                            response=response.model_copy(deep=True),
+                            exact_hash=exact_hash,
+                            service_name=actual_service,
+                            model=actual_model,
+                            intent=intent,
+                            time_sensitivity=time_sensitivity,
+                            core_operation=core_operation,
+                            core_subject=core_subject,
+                            subject_modifier=subject_modifier,
+                            action_modifier=action_modifier,
+                            embeddings=embeddings,
+                        )
+                    )
+            elif response and is_mock_response(response):
+                logger.warning(
+                    f"Mock response generated for {exact_hash}. Skipping cache writes."
+                )
+                cache_info = {
+                    "matched": False,
+                    "score": 0.0,
+                    "source": "mock",
+                    "cache_hit": False,
+                    "point_id": None,
+                    "intent": intent.value if intent else IntentEnum.EMPTY.value,
+                    "query": prompt_text,
+                    "accepted": False,
+                }
+                if miss_cache_info:
+                    cache_info.update(miss_cache_info)
+                response.cache_info = cache_info
+
+            return
         except Exception as e:
             if not provider_error:
                 provider_error = str(e)

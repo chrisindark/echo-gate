@@ -1,7 +1,7 @@
 import json
 import logging
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import case, func
@@ -67,9 +67,9 @@ class AnalyticsService:
         end_time: datetime | None = None,
     ) -> tuple[datetime, datetime, str | None]:
         if not end_time:
-            end_time = datetime.now(timezone.utc)
+            end_time = datetime.now(UTC)
         elif end_time.tzinfo is None:
-            end_time = end_time.replace(tzinfo=timezone.utc)
+            end_time = end_time.replace(tzinfo=UTC)
 
         resolved_range = time_range.lower() if time_range else None
         if resolved_range in TIME_RANGE_MAP:
@@ -78,7 +78,7 @@ class AnalyticsService:
             start_time = end_time - timedelta(days=7)
             resolved_range = "7d"
         elif start_time.tzinfo is None:
-            start_time = start_time.replace(tzinfo=timezone.utc)
+            start_time = start_time.replace(tzinfo=UTC)
 
         return start_time, end_time, resolved_range
 
@@ -242,8 +242,8 @@ class AnalyticsService:
     def _calculate_time_series(
         self, start_time: datetime, end_time: datetime, tenant_id: str | None
     ) -> list[TimeSeriesDataPoint]:
-        # Fetching raw fields to do an in-memory group to avoid issues with Date casting
-        # across different SQL dialects (SQLite vs Postgres).
+        # Fetch raw fields and bucket in memory so the same code works whether the
+        # time-series step is sub-hour or multi-day, independent of DB date functions.
         gw_query = self.db_session_read.query(GatewayRequestLog.created_at).filter(
             GatewayRequestLog.created_at >= start_time,
             GatewayRequestLog.created_at <= end_time,
@@ -292,7 +292,7 @@ class AnalyticsService:
             for row in gw_query.all():
                 if row.created_at:
                     cat = (
-                        row.created_at.replace(tzinfo=timezone.utc)
+                        row.created_at.replace(tzinfo=UTC)
                         if row.created_at.tzinfo is None
                         else row.created_at
                     )
@@ -304,7 +304,7 @@ class AnalyticsService:
             for row in llm_query.all():
                 if row.created_at:
                     cat = (
-                        row.created_at.replace(tzinfo=timezone.utc)
+                        row.created_at.replace(tzinfo=UTC)
                         if row.created_at.tzinfo is None
                         else row.created_at
                     )
@@ -739,7 +739,7 @@ class AnalyticsService:
                 continue
             cat = row.created_at
             if cat.tzinfo is None:
-                cat = cat.replace(tzinfo=timezone.utc)
+                cat = cat.replace(tzinfo=UTC)
 
             for b in buckets:
                 if b["start"] <= cat < b["end"]:

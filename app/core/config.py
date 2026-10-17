@@ -30,8 +30,16 @@ class Config:
             if qdrant_consistency and qdrant_consistency.strip().isdigit()
             else None
         )
-        self.DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///sqlite3.db")
+        self.DATABASE_URL = os.getenv(
+            "DATABASE_URL",
+            "postgresql+psycopg://echo_gate_app:echo_gate_app@localhost:5432/echo_gate",
+        )
         self.DATABASE_URL_READ = os.getenv("DATABASE_URL_READ", self.DATABASE_URL)
+        # Non-superuser role the application connects as. Postgres RLS policies
+        # only apply to non-owner roles, so migrations run as the owner
+        # (see MIGRATION_DATABASE_URL) and the app runs as this role.
+        self.DB_APP_ROLE = os.getenv("DB_APP_ROLE", "echo_gate_app")
+        self.DB_APP_PASSWORD = os.getenv("DB_APP_PASSWORD", "echo_gate_app")
         self.CELERY_BROKER_URL = os.getenv(
             "CELERY_BROKER_URL", "redis://localhost:6379/1"
         )
@@ -46,6 +54,10 @@ class Config:
         )
         self.OPENROUTER_BASE_URL = os.getenv(
             "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1/chat/completions"
+        )
+        self.CLAUDE_BASE_URL = os.getenv(
+            "CLAUDE_BASE_URL",
+            os.getenv("CLAUDE_BASE_URL", "https://api.anthropic.com/v1/messages"),
         )
 
         # Database Connection Pool
@@ -71,6 +83,10 @@ class Config:
             openrouter_key.strip()
             if openrouter_key and openrouter_key.strip()
             else None
+        )
+        claude_key = os.getenv("CLAUDE_API_KEY")
+        self.CLAUDE_API_KEY = (
+            claude_key.strip() if claude_key and claude_key.strip() else None
         )
 
         # Redis
@@ -100,6 +116,11 @@ class Config:
         )
         self.RETRY_BACKOFF_MAX_SECONDS = int(
             os.getenv("RETRY_BACKOFF_MAX_SECONDS", "10")
+        )
+
+        # Streaming
+        self.STREAM_MAX_CONTENT_BYTES = int(
+            os.getenv("STREAM_MAX_CONTENT_BYTES", str(2 * 1024 * 1024))
         )
 
         # Semantic Search & Cache Tuning

@@ -15,7 +15,9 @@ import {
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   Braces,
+  Brain,
   Check,
+  ChevronDown,
   Clock,
   Code2,
   Copy,
@@ -116,6 +118,20 @@ const PROVIDERS = {
     'google/gemma-4-26b-a4b-it:free',
     'google/gemma-4-31b-it:free',
   ],
+  claude: [
+    'claude-3-7-sonnet-20250219',
+    'claude-3-5-sonnet-20241022',
+    'claude-3-5-haiku-20241022',
+    'claude-3-opus-20240229',
+    'claude-3-haiku-20240307',
+  ],
+  anthropic: [
+    'claude-3-7-sonnet-20250219',
+    'claude-3-5-sonnet-20241022',
+    'claude-3-5-haiku-20241022',
+    'claude-3-opus-20240229',
+    'claude-3-haiku-20240307',
+  ],
 };
 
 interface CacheInfoType {
@@ -140,9 +156,15 @@ export default function Home() {
   const [apiKey, setApiKey] = useState('dev');
   const [provider, setProvider] =
     useState<keyof typeof PROVIDERS>('google-genai');
-  const [model, setModel] = useState(PROVIDERS['google-genai'][0]);
+  const [model, setModel] = useState(PROVIDERS['google-genai'][1]);
   const [temperature, setTemperature] = useState<number>(0.7);
   const [maxTokens, setMaxTokens] = useState<number>(8192);
+  const [stream, setStream] = useState<boolean>(true);
+  const [thinking, setThinking] = useState<boolean>(false);
+  const [thinkingBudget, setThinkingBudget] = useState<number>(2048);
+  const [thinkingContent, setThinkingContent] = useState<string>('');
+  const [isThinking, setIsThinking] = useState<boolean>(false);
+  const [isThinkingOpen, setIsThinkingOpen] = useState<boolean>(true);
   const [userId, setUserId] = useState('');
   const [tenantId, setTenantId] = useState('');
 
@@ -182,6 +204,8 @@ export default function Home() {
   const loadHash = async (hash: string) => {
     setLoading(true);
     setResponse('');
+    setThinkingContent('');
+    setIsThinking(false);
     setCacheStatus(null);
     setCacheInfo(null);
     setLatency(null);
@@ -240,6 +264,8 @@ export default function Home() {
 
     setLoading(true);
     setResponse('');
+    setThinkingContent('');
+    setIsThinking(false);
     setCacheStatus(null);
     setCacheInfo(null);
     setLatency(null);
@@ -261,6 +287,9 @@ export default function Home() {
         messages: [{ role: 'user', content: prompt }],
         temperature: temperature,
         max_tokens: maxTokens,
+        stream: stream,
+        thinking: thinking,
+        thinking_budget: thinking ? thinkingBudget : undefined,
       };
 
       if (responseFormatType === 'json_object') {
@@ -292,28 +321,151 @@ export default function Home() {
         body: JSON.stringify(bodyPayload),
       });
 
+      const cacheHeader = res.headers.get('X-Cache');
+      if (cacheHeader) {
+        setCacheStatus(cacheHeader);
+      }
+
+      if (!res.ok) {
+        let errorMsg = `HTTP ${res.status}`;
+        try {
+          const errData = await res.json();
+          errorMsg = errData.detail || errData.error_message || errorMsg;
+        } catch {
+          // ignore json parse error
+        }
+        throw new Error(errorMsg);
+      }
+
+      const contentType = res.headers.get('content-type') || '';
+      if (stream && contentType.includes('text/event-stream') && res.body) {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+        let accumulatedText = '';
+        let accumulatedReasoning = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || !trimmed.startsWith('data:')) continue;
+
+            const payloadStr = trimmed.slice(5).trim();
+            if (payloadStr === '[DONE]') {
+              break;
+            }
+
+            try {
+              const chunk = JSON.parse(payloadStr);
+
+              if (chunk.error) {
+                throw new Error(chunk.error.message || 'Stream error');
+              }
+
+              if (chunk.cache_info) {
+                setCacheInfo(chunk.cache_info);
+                setCacheStatus(chunk.cache_info.cache_hit ? 'HIT' : 'MISS');
+                if (chunk.cache_info.exact_hash) {
+                  window.history.replaceState(
+                    {},
+                    '',
+                    `/?hash=${chunk.cache_info.exact_hash}`
+                  );
+                }
+              }
+
+              const delta = chunk.choices?.[0]?.delta;
+              if (delta) {
+                if (delta.reasoning_content) {
+                  accumulatedReasoning += delta.reasoning_content;
+                  setThinkingContent(accumulatedReasoning);
+                  setIsThinking(true);
+                }
+                if (delta.content) {
+                  accumulatedText += delta.content;
+
+                  // Handle models returning <think>...</think> in content (e.g. DeepSeek-R1 / Ollama)
+                  if (accumulatedText.startsWith('<think>')) {
+                    const closeIndex = accumulatedText.indexOf('</think>');
+                    if (closeIndex !== -1) {
+                      const extractedReasoning = accumulatedText
+                        .slice(7, closeIndex)
+                        .trim();
+                      const finalContent = accumulatedText
+                        .slice(closeIndex + 8)
+                        .trimStart();
+                      setThinkingContent(extractedReasoning);
+                      setResponse(finalContent);
+                      setIsThinking(false);
+                    } else {
+                      const ongoingReasoning = accumulatedText.slice(7);
+                      setThinkingContent(ongoingReasoning);
+                      setIsThinking(true);
+                    }
+                  } else {
+                    setResponse(accumulatedText);
+                    setIsThinking(false);
+                  }
+                }
+              }
+            } catch (jsonErr: unknown) {
+              if (
+                jsonErr instanceof Error &&
+                jsonErr.message.includes('Stream error')
+              ) {
+                throw jsonErr;
+              }
+            }
+          }
+        }
+
+        setIsThinking(false);
+        const endTime = performance.now();
+        setLatency(Math.round(endTime - startTime));
+        return;
+      }
+
       const endTime = performance.now();
       setLatency(Math.round(endTime - startTime));
 
-      const cacheHeader = res.headers.get('X-Cache');
-      setCacheStatus(cacheHeader || 'UNKNOWN');
-
       const data = await res.json();
 
-      if (!res.ok) {
-        throw new Error(
-          data.detail || data.error_message || `HTTP ${res.status}`
-        );
-      }
+      const extractAndSetContent = (rawText: string, reasoning?: string) => {
+        if (reasoning) {
+          setThinkingContent(reasoning);
+        }
+        if (
+          rawText &&
+          rawText.startsWith('<think>') &&
+          rawText.includes('</think>')
+        ) {
+          const closeIndex = rawText.indexOf('</think>');
+          const extractedReasoning = rawText.slice(7, closeIndex).trim();
+          const cleanText = rawText.slice(closeIndex + 8).trim();
+          setThinkingContent(extractedReasoning);
+          setResponse(cleanText);
+        } else {
+          setResponse(rawText);
+        }
+      };
 
       if (data.choices && data.choices.length > 0) {
-        setResponse(data.choices[0].message.content);
+        const msg = data.choices[0].message;
+        extractAndSetContent(msg.content || '', msg.reasoning_content);
       } else if (
         data.response &&
         data.response.choices &&
         data.response.choices.length > 0
       ) {
-        setResponse(data.response.choices[0].message.content);
+        const msg = data.response.choices[0].message;
+        extractAndSetContent(msg.content || '', msg.reasoning_content);
         if (data.response.cache_info) {
           setCacheInfo(data.response.cache_info);
           setCacheStatus(data.response.cache_info.cache_hit ? 'HIT' : 'MISS');
@@ -452,6 +604,61 @@ export default function Home() {
                       onChange={(e) => setMaxTokens(parseInt(e.target.value))}
                     />
                   </Flex>
+
+                  <Flex align="center" gap="2" pt="1">
+                    <Checkbox
+                      checked={stream}
+                      onCheckedChange={(val) => setStream(Boolean(val))}
+                      id="stream-check"
+                    />
+                    <Text
+                      as="label"
+                      size="2"
+                      weight="bold"
+                      htmlFor="stream-check"
+                      className="cursor-pointer select-none"
+                    >
+                      Stream Responses (SSE)
+                    </Text>
+                  </Flex>
+
+                  <Flex align="center" gap="2" pt="1">
+                    <Checkbox
+                      checked={thinking}
+                      onCheckedChange={(val) => setThinking(Boolean(val))}
+                      id="thinking-check"
+                    />
+                    <Text
+                      as="label"
+                      size="2"
+                      weight="bold"
+                      htmlFor="thinking-check"
+                      className="cursor-pointer select-none flex items-center gap-1.5"
+                    >
+                      <Brain className="w-4 h-4 text-violet-400" />
+                      Thinking / Reasoning Mode
+                    </Text>
+                  </Flex>
+
+                  {thinking && (
+                    <div className="pl-6 space-y-2 pt-1 pb-1">
+                      <Flex justify="between">
+                        <Text size="1" color="gray">
+                          Reasoning Budget (Tokens)
+                        </Text>
+                        <Text size="1" weight="bold">
+                          {thinkingBudget}
+                        </Text>
+                      </Flex>
+                      <Slider
+                        value={[thinkingBudget]}
+                        onValueChange={(val) => setThinkingBudget(val[0])}
+                        min={1024}
+                        max={16384}
+                        step={512}
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -718,6 +925,20 @@ export default function Home() {
                           </div>
                         )}
 
+                        {stream && (
+                          <div className="px-2 py-1 rounded-md bg-teal-500/10 text-teal-400 border border-teal-500/20 flex items-center gap-1.5">
+                            <Sparkles className="w-3.5 h-3.5" />
+                            STREAM
+                          </div>
+                        )}
+
+                        {thinking && (
+                          <div className="px-2 py-1 rounded-md bg-violet-500/10 text-violet-400 border border-violet-500/20 flex items-center gap-1.5">
+                            <Brain className="w-3.5 h-3.5" />
+                            THINKING
+                          </div>
+                        )}
+
                         {responseFormatType !== 'text' && (
                           <div className="px-2 py-1 rounded-md bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 flex items-center gap-1.5">
                             <Braces className="w-3.5 h-3.5" />
@@ -799,7 +1020,79 @@ export default function Home() {
                       </div>
                     )}
 
-                    {loading ? (
+                    {/* Thinking Process Accordion */}
+                    {thinkingContent && (
+                      <div className="mb-4 rounded-xl border border-violet-500/20 bg-violet-950/20 backdrop-blur-sm overflow-hidden transition-all">
+                        <button
+                          type="button"
+                          onClick={() => setIsThinkingOpen(!isThinkingOpen)}
+                          className="w-full px-4 py-2.5 flex items-center justify-between text-xs font-medium text-violet-300 hover:bg-violet-500/10 transition-colors cursor-pointer select-none"
+                        >
+                          <div className="flex items-center gap-2">
+                            <Brain
+                              className={cn(
+                                'w-4 h-4 text-violet-400',
+                                isThinking && 'animate-pulse text-violet-300'
+                              )}
+                            />
+                            <span>
+                              {isThinking
+                                ? 'Thinking in progress...'
+                                : 'Thinking Process'}
+                            </span>
+                            {isThinking && (
+                              <span className="flex h-2 w-2 relative">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-violet-500"></span>
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1.5 text-violet-400/80">
+                            <span className="text-[11px] opacity-75">
+                              {
+                                thinkingContent
+                                  .trim()
+                                  .split(/\s+/)
+                                  .filter(Boolean).length
+                              }{' '}
+                              words
+                            </span>
+                            <ChevronDown
+                              className={cn(
+                                'w-3.5 h-3.5 transition-transform duration-200',
+                                isThinkingOpen && 'rotate-180'
+                              )}
+                            />
+                          </div>
+                        </button>
+                        <AnimatePresence initial={false}>
+                          {isThinkingOpen && (
+                            <motion.div
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: 'auto', opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              transition={{ duration: 0.2 }}
+                            >
+                              <div className="px-4 py-3 border-t border-violet-500/15 text-xs text-violet-200/90 whitespace-pre-wrap font-mono leading-relaxed bg-violet-950/10 max-h-64 overflow-y-auto">
+                                {thinkingContent}
+                                {isThinking && (
+                                  <motion.span
+                                    animate={{ opacity: [1, 0, 1] }}
+                                    transition={{
+                                      repeat: Infinity,
+                                      duration: 0.8,
+                                    }}
+                                    className="inline-block w-1.5 h-3 ml-0.5 bg-violet-400 align-middle"
+                                  />
+                                )}
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    )}
+
+                    {loading && !response && !thinkingContent ? (
                       <div className="flex gap-1.5 items-center text-muted-foreground py-2">
                         <motion.div
                           animate={{ opacity: [0.4, 1, 0.4] }}
@@ -832,6 +1125,13 @@ export default function Home() {
                     ) : (
                       <div className="leading-relaxed whitespace-pre-wrap text-lg">
                         {response}
+                        {loading && (
+                          <motion.span
+                            animate={{ opacity: [1, 0, 1] }}
+                            transition={{ repeat: Infinity, duration: 0.8 }}
+                            className="inline-block w-2 h-4 ml-1 bg-primary align-middle rounded-sm"
+                          />
+                        )}
                       </div>
                     )}
                   </div>

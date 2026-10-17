@@ -10,9 +10,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import config
 from app.core.dependencies import DependencyContainer
 from app.core.logger import setup_logger
-from app.core.middlewares import CorrelationIdMiddleware, UserMiddleware
+from app.core.middlewares import (
+    CorrelationIdMiddleware,
+    TenantContextMiddleware,
+    UserMiddleware,
+)
 from app.core.responses import BaseAPIResponse
 from app.modules.analytics.analytics_controller import api_v1_router as analytics_router
+from app.modules.api_keys.api_keys_controller import api_v1_router as api_keys_router
 from app.modules.chat.chat_controller import api_v1_router as chat_router
 from app.modules.gateway_requests.gateway_requests_controller import (
     api_v1_router as gateway_requests_router,
@@ -65,6 +70,7 @@ app = FastAPI(
 
 app.add_middleware(CorrelationIdMiddleware)
 app.add_middleware(UserMiddleware)
+app.add_middleware(TenantContextMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # For testing, allow all origins
@@ -95,3 +101,4 @@ app.include_router(llm_usage_router)
 app.include_router(verifier_router)
 app.include_router(gateway_requests_router)
 app.include_router(analytics_router)
+app.include_router(api_keys_router)
