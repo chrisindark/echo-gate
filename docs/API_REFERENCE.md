@@ -31,9 +31,10 @@ The chat completion endpoint is the exception: it returns a bare
 
 | Header | Used by | Effect |
 | --- | --- | --- |
-| `X-API-Key` | all (required by chat) | Resolved server-side to a `tenant_id`/`user_id`; establishes the Postgres RLS context. |
-| `X-Tenant-ID` | trusted/internal | Tenant when no API key is supplied. |
-| `X-User-ID` | trusted/internal | User when no API key is supplied. |
+| `X-API-Key` | analytics, gateway-requests, chat | Resolved server-side to a `tenant_id`/`user_id`; establishes the Postgres RLS context. **Required** by analytics and gateway-requests; **optional but validated** on chat. |
+| `X-Admin-Key` | `/api/v1/admin/*` | Scoped operator credential. Required by every admin route; see [Admin authentication](#admin-authentication--x-admin-key). |
+| `X-Tenant-ID` | trusted/internal | Tenant when no API key is supplied. Selects the RLS context but does **not** authenticate. |
+| `X-User-ID` | trusted/internal | User when no API key is supplied. Selects the RLS context but does **not** authenticate. |
 | `X-Session-ID` | chat | Binds the request to a session cache scope. |
 | `X-Conversation-ID` | chat | Binds the request to a conversation cache scope. |
 | `X-Request-ID` / `X-Correlation-ID` | all | Accepted and echoed back for tracing. |
@@ -42,10 +43,31 @@ The chat controller also accepts `tenant_id`, `user_id`, `session_id`, and
 `conversation_id` in the JSON body; body values win, then middleware/header values
 apply.
 
+`X-Tenant-ID` / `X-User-ID` are **not** credentials. They choose which tenant a
+request is scoped to; they no longer stand in for authentication on any route.
+
+### Chat authentication
+
+`POST /api/v1/chat/completions` runs two guards, in order:
+
+1. **Optional API key auth.** If an `X-API-Key` is supplied it must resolve to an
+   active tenant key, otherwise the request is a `401`. If no key is supplied the
+   request proceeds as the `anonymous` tenant — anonymous access is an intended
+   feature of the chat endpoint, and those callers fall under the default quota
+   limits.
+2. **`llm_quota_guard`** — RPM/TPM/budget enforcement.
+
+Auth runs first so an invalid key is rejected without consuming a request from
+the rate-limit bucket. Supplying an unusable key is always an error; only
+*omitting* one is anonymous.
+
 ### Error behavior
 
-- `401` — `llm_quota_guard` requires `X-API-Key` on `POST /chat/completions`;
-  missing key → `{"detail": "API Key missing"}`.
+- `401` — missing or invalid key. On `/api/v1/admin/*` this means a missing,
+  unknown, revoked, or expired `X-Admin-Key`; on analytics/gateway-requests it
+  means a missing or invalid `X-API-Key`; on chat it means an `X-API-Key` that
+  was supplied but did not resolve.
+- `403` — an admin key that is valid but lacks the scope the route requires.
 - `429` — RPM or TPM quota exceeded (see `llm_quota`).
 - `402` — prepaid budget exhausted (`budget:<api_key>` ≤ 0 in Redis).
 - `400` — validation error, unsupported service, or a model not in the
@@ -277,7 +299,62 @@ Diagnostic vector-search endpoints.
 
 ---
 
+## Admin authentication — `X-Admin-Key`
+
+Every route under `/api/v1/admin/*` requires an **admin API key** sent as the
+`X-Admin-Key` header. A tenant `X-API-Key` is **not** accepted there, and an
+admin key is not accepted anywhere else.
+
+Admin keys are stored separately from tenant keys (`admin_api_keys`) and carry
+**scopes** rather than a tenant/user pair. They exist because the admin surface
+runs in `system_rls_context()`, which disables Postgres Row-Level Security and
+lets a caller read and write every tenant's rows.
+
+### Creating a key
+
+There is **no HTTP endpoint that mints an admin key.** Keys are created only on
+the gateway host:
+
+```bash
+python -m app.scripts.create_admin_key create \
+  --name ops --scopes quota:read,quota:write [--expires-in-days 90]
+python -m app.scripts.create_admin_key list
+python -m app.scripts.create_admin_key revoke --id 3
+```
+
+The plaintext (`ega_...`) is printed **once**; only its SHA-256 hash is stored.
+
+| Scope | Grants |
+| --- | --- |
+| `quota:read` | Read quota rules, tenants, effective limits. |
+| `quota:write` | Create/update/delete quota rules. Implies `quota:read`. |
+| `keys:read` | List tenant API keys. |
+| `keys:write` | Create/revoke tenant API keys. Implies `keys:read`. |
+| `admin:*` | Everything. |
+
+Unknown scopes are rejected at mint time (a typo like `quota:reed` fails
+loudly rather than silently granting nothing).
+
+### Behaviour
+
+- **Fails closed.** A missing, unknown, revoked, or expired key returns `401`,
+  including when no admin keys exist yet. The admin surface is locked until an
+  operator mints one.
+- `401` never distinguishes unknown from revoked, so the endpoint cannot be used
+  to enumerate keys.
+- Insufficient scope returns `403` naming the required scope and the scopes the
+  key carries.
+- **Revocation is not instantaneous.** Resolution is cached for 5s *per process*,
+  so a revoked key can keep working for up to that long on each running worker.
+- An admin key never becomes a tenant identity: `TenantContextMiddleware` only
+  resolves `api_keys` rows, so `X-Admin-Key` never establishes `app.current_tenant`.
+
+---
+
 ## API keys (admin) — `/api/v1/admin/api-keys`
+
+Requires `X-Admin-Key` with `keys:write` to create/revoke and `keys:read` to
+list.
 
 | Method | Path | Description |
 | --- | --- | --- |
@@ -290,8 +367,64 @@ The create response includes the plaintext `api_key` **once**:
 ```bash
 curl -X POST http://localhost:8000/api/v1/admin/api-keys/ \
   -H "Content-Type: application/json" \
+  -H "X-Admin-Key: ega_..." \
   -d '{"name": "local-dev", "tenant_id": "acme", "user_id": "dev"}'
 ```
+
+---
+
+## LLM quota (admin) — `/api/v1/admin/llm-quota`
+
+CRUD over `llm_quota_rules`, the table `llm_quota_guard` reads on every chat
+completion. A rule scopes by any combination of `tenant_id` / `user_id` /
+`provider` / `model`; a `null` in any of those is a wildcard. A rule with every
+scope field null is **global** and applies to every tenant.
+
+| Method | Path | Description |
+| --- | --- | --- |
+| `POST` | `/` | Create a rule. Body `{tenant_id?, user_id?, provider?, model?, max_rpm?, max_tpm?, is_active?}`. 201. |
+| `GET` | `/` | List rules. Query `skip`, `limit`, `tenant_id?`, `provider?`, `model?`, `is_active?`. |
+| `GET` | `/tenants` | Distinct tenant IDs that have at least one rule. |
+| `GET` | `/effective` | Most restrictive limits applying to a scope. Query `tenant_id?`, `provider?`, `model?`, `user?`. |
+| `GET` | `/{rule_id}` | Fetch one rule. |
+| `PATCH` | `/{rule_id}` | Partial update; omitted fields are untouched. |
+| `DELETE` | `/{rule_id}` | Delete a rule permanently. |
+
+At least one of `max_rpm` / `max_tpm` is required (`422` otherwise). A rule with
+neither would never restrict anything.
+
+```bash
+curl -X POST http://localhost:8000/api/v1/admin/llm-quota/ \
+  -H "Content-Type: application/json" \
+  -d '{"tenant_id": "acme", "max_rpm": 60, "max_tpm": 40000}'
+```
+
+`GET /effective` resolves against the rule table only — it does not read the
+Redis counters, so it reports configured limits rather than live usage. When
+`uses_defaults` is true, no rule matches and the gateway falls back to its
+hardcoded 10 RPM / 20000 TPM.
+
+These handlers run inside `system_rls_context()`, so they bypass Postgres
+Row-Level Security and can read and write every tenant's rules. That is what
+makes cross-tenant management possible, and it is why every route requires an
+`X-Admin-Key` with the matching `quota:*` scope — see
+[Admin authentication](#admin-authentication--x-admin-key).
+
+`LlmQuotaRuleService` additionally refuses to open a session unless it is handed
+a resolved `AdminKeyIdentity`. That is a fail-loud guard rail, not a security
+boundary (in-process Python can call the service directly), but it means a
+mis-wired or forgotten guard raises instead of silently opening an
+RLS-bypassed session.
+
+### Known Gaps
+
+- **Anonymous chat shares one rate-limit bucket.** `POST /api/v1/chat/completions`
+  intentionally allows keyless requests (see above). Because the Redis counter
+  key is built from `api_key`, every keyless caller lands in the same bucket —
+  `rpm:None:<provider>:<model>:anonymous` — so one anonymous caller can exhaust
+  the default 10 RPM and stall all other anonymous traffic. Requests carrying a
+  valid `X-API-Key` use their own bucket and are unaffected. Per-caller
+  anonymous isolation is a known follow-up, not an oversight.
 
 ---
 

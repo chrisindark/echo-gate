@@ -11,6 +11,7 @@ from app.modules.intent_classifier.intent_classifier_service import (
 )
 from app.modules.llm.llm_provider_service import LlmProviderService
 from app.modules.llm.llm_router_service import LlmRouterService
+from app.modules.llm_quota.llm_quota_rule_service import LlmQuotaRuleService
 from app.modules.llm_quota.llm_quota_service import LlmQuotaService
 from app.modules.llm_usage.llm_usage_service import LlmUsageService
 from app.modules.qdrant.llm_cache_collection_service import LlmCacheCollectionService
@@ -34,6 +35,7 @@ class DependencyContainer:
     _entity_extractor_service: EntityExtractorService | None = None
     _llm_usage_service: LlmUsageService | None = None
     _llm_quota_service: LlmQuotaService | None = None
+    _llm_quota_rule_service: LlmQuotaRuleService | None = None
     _cross_encoder_service: CrossEncoderService | None = None
     _judge_service: JudgeService | None = None
     _instruction_service: InstructionVerifier | None = None
@@ -82,6 +84,7 @@ class DependencyContainer:
             cls._entity_extractor_service = None
             cls._llm_usage_service = None
             cls._llm_quota_service = None
+            cls._llm_quota_rule_service = None
             cls._cross_encoder_service = None
             cls._judge_service = None
             cls._instruction_service = None
@@ -191,6 +194,14 @@ class DependencyContainer:
         return cls._llm_quota_service
 
     @classmethod
+    def get_llm_quota_rule_service(cls) -> LlmQuotaRuleService:
+        if cls._llm_quota_rule_service is None:
+            cls._llm_quota_rule_service = LlmQuotaRuleService(
+                session_factory=SessionLocal
+            )
+        return cls._llm_quota_rule_service
+
+    @classmethod
     def get_cross_encoder_service(cls) -> CrossEncoderService:
         if cls._cross_encoder_service is None:
             cls._cross_encoder_service = CrossEncoderService()
@@ -264,6 +275,10 @@ def get_llm_usage_service() -> LlmUsageService:
 
 def get_llm_quota_service() -> LlmQuotaService:
     return DependencyContainer.get_llm_quota_service()
+
+
+def get_llm_quota_rule_service() -> LlmQuotaRuleService:
+    return DependencyContainer.get_llm_quota_rule_service()
 
 
 def get_cross_encoder_service() -> CrossEncoderService:

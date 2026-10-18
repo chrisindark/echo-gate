@@ -446,6 +446,102 @@
         "title": "BaseAPIResponse[LatencyMetricsResponse]",
         "type": "object"
       },
+      "BaseAPIResponse_LlmQuotaRuleListResponse_": {
+        "properties": {
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "response": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LlmQuotaRuleListResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status_code": {
+            "default": 200,
+            "title": "Status Code",
+            "type": "integer"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "BaseAPIResponse[LlmQuotaRuleListResponse]",
+        "type": "object"
+      },
+      "BaseAPIResponse_LlmQuotaRuleResponse_": {
+        "properties": {
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "response": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LlmQuotaRuleResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status_code": {
+            "default": 200,
+            "title": "Status Code",
+            "type": "integer"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "BaseAPIResponse[LlmQuotaRuleResponse]",
+        "type": "object"
+      },
       "BaseAPIResponse_LlmUsageLogResponse_": {
         "properties": {
           "error_code": {
@@ -836,6 +932,58 @@
           }
         },
         "title": "BaseAPIResponse[list[LlmUsageLogResponse]]",
+        "type": "object"
+      },
+      "BaseAPIResponse_list_str__": {
+        "properties": {
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "response": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Response"
+          },
+          "status_code": {
+            "default": 200,
+            "title": "Status Code",
+            "type": "integer"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "BaseAPIResponse[list[str]]",
         "type": "object"
       },
       "CachePerformanceResponse": {
@@ -2684,6 +2832,306 @@
         "title": "LatencyTimeSeriesPoint",
         "type": "object"
       },
+      "LlmQuotaRuleCreate": {
+        "properties": {
+          "is_active": {
+            "default": true,
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "max_rpm": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Rpm"
+          },
+          "max_tpm": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Tpm"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          }
+        },
+        "title": "LlmQuotaRuleCreate",
+        "type": "object"
+      },
+      "LlmQuotaRuleListResponse": {
+        "properties": {
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/LlmQuotaRuleResponse"
+            },
+            "title": "Rules",
+            "type": "array"
+          },
+          "skip": {
+            "title": "Skip",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rules",
+          "total",
+          "skip",
+          "limit"
+        ],
+        "title": "LlmQuotaRuleListResponse",
+        "type": "object"
+      },
+      "LlmQuotaRuleResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "max_rpm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Rpm"
+          },
+          "max_tpm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Tpm"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          }
+        },
+        "required": [
+          "id",
+          "is_active",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "LlmQuotaRuleResponse",
+        "type": "object"
+      },
+      "LlmQuotaRuleUpdate": {
+        "description": "Partial update. Omitted fields are left untouched.",
+        "properties": {
+          "is_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Active"
+          },
+          "max_rpm": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Rpm"
+          },
+          "max_tpm": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Tpm"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          }
+        },
+        "title": "LlmQuotaRuleUpdate",
+        "type": "object"
+      },
       "LlmUsageLogCreate": {
         "properties": {
           "cache_creation_tokens": {
@@ -3551,6 +3999,18 @@
         "title": "VerificationResponse",
         "type": "object"
       }
+    },
+    "securitySchemes": {
+      "AdminApiKeyAuth": {
+        "in": "header",
+        "name": "X-Admin-Key",
+        "type": "apiKey"
+      },
+      "ApiKeyAuth": {
+        "in": "header",
+        "name": "X-API-Key",
+        "type": "apiKey"
+      }
     }
   },
   "info": {
@@ -3605,6 +4065,22 @@
               "title": "Limit",
               "type": "integer"
             }
+          },
+          {
+            "in": "header",
+            "name": "x-admin-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-Key"
+            }
           }
         ],
         "responses": {
@@ -3629,6 +4105,9 @@
             "description": "Validation Error"
           }
         },
+        "security": {
+          "AdminApiKeyAuth": []
+        },
         "summary": "List Api Keys",
         "tags": [
           "API Keys"
@@ -3637,6 +4116,24 @@
       "post": {
         "description": "Create an API key bound to a tenant/user.\n\nThe plaintext key is returned exactly once in this response; only its hash is\npersisted. Send it as the ``X-API-Key`` header to authenticate requests and\nestablish the Postgres RLS tenant context.",
         "operationId": "create_api_key_api_v1_admin_api_keys__post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-admin-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-Key"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -3669,6 +4166,9 @@
             "description": "Validation Error"
           }
         },
+        "security": {
+          "AdminApiKeyAuth": []
+        },
         "summary": "Create Api Key",
         "tags": [
           "API Keys"
@@ -3687,6 +4187,22 @@
             "schema": {
               "title": "Key Id",
               "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-admin-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-Key"
             }
           }
         ],
@@ -3712,9 +4228,579 @@
             "description": "Validation Error"
           }
         },
+        "security": {
+          "AdminApiKeyAuth": []
+        },
         "summary": "Revoke Api Key",
         "tags": [
           "API Keys"
+        ]
+      }
+    },
+    "/api/v1/admin/llm-quota/": {
+      "get": {
+        "description": "List quota rules across every tenant, with optional filters.",
+        "operationId": "list_quota_rules_api_v1_admin_llm_quota__get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "skip",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Skip",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Filter by tenant",
+            "in": "query",
+            "name": "tenant_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by tenant",
+              "title": "Tenant Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "provider",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Provider"
+            }
+          },
+          {
+            "in": "query",
+            "name": "model",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model"
+            }
+          },
+          {
+            "in": "query",
+            "name": "is_active",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Is Active"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-admin-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BaseAPIResponse_LlmQuotaRuleListResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": {
+          "AdminApiKeyAuth": []
+        },
+        "summary": "List Quota Rules",
+        "tags": [
+          "LLM Quota (Admin)"
+        ]
+      },
+      "post": {
+        "description": "Create a quota rule.\n\nA rule with all scope fields unset (``tenant_id``/``user_id``/``provider``/\n``model`` all null) is a global rule that applies to every tenant. Setting\n``tenant_id`` scopes the rule to that tenant.",
+        "operationId": "create_quota_rule_api_v1_admin_llm_quota__post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-admin-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LlmQuotaRuleCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BaseAPIResponse_LlmQuotaRuleResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": {
+          "AdminApiKeyAuth": []
+        },
+        "summary": "Create Quota Rule",
+        "tags": [
+          "LLM Quota (Admin)"
+        ]
+      }
+    },
+    "/api/v1/admin/llm-quota/effective": {
+      "get": {
+        "description": "Resolve the most restrictive limits currently applying to a scope.\n\nRead-only preview against the rule table; it does not consult Redis, so it\nreflects configured limits rather than live counters. When no rule matches,\nthe gateway falls back to its hardcoded defaults (10 RPM / 20000 TPM).",
+        "operationId": "get_effective_limits_api_v1_admin_llm_quota_effective_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "tenant_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tenant Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "provider",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Provider"
+            }
+          },
+          {
+            "in": "query",
+            "name": "model",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model"
+            }
+          },
+          {
+            "description": "User identity within the tenant",
+            "in": "query",
+            "name": "user",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "User identity within the tenant",
+              "title": "User"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-admin-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BaseAPIResponse_dict_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": {
+          "AdminApiKeyAuth": []
+        },
+        "summary": "Get Effective Limits",
+        "tags": [
+          "LLM Quota (Admin)"
+        ]
+      }
+    },
+    "/api/v1/admin/llm-quota/tenants": {
+      "get": {
+        "description": "Distinct tenant IDs that have at least one quota rule.\n\nGlobal rules have a NULL tenant and are not included here.",
+        "operationId": "list_quota_tenants_api_v1_admin_llm_quota_tenants_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-admin-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BaseAPIResponse_list_str__"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": {
+          "AdminApiKeyAuth": []
+        },
+        "summary": "List Quota Tenants",
+        "tags": [
+          "LLM Quota (Admin)"
+        ]
+      }
+    },
+    "/api/v1/admin/llm-quota/{rule_id}": {
+      "delete": {
+        "description": "Delete a quota rule permanently.",
+        "operationId": "delete_quota_rule_api_v1_admin_llm_quota__rule_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rule_id",
+            "required": true,
+            "schema": {
+              "title": "Rule Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-admin-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BaseAPIResponse_NoneType_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": {
+          "AdminApiKeyAuth": []
+        },
+        "summary": "Delete Quota Rule",
+        "tags": [
+          "LLM Quota (Admin)"
+        ]
+      },
+      "get": {
+        "description": "Fetch a single quota rule by ID.",
+        "operationId": "get_quota_rule_api_v1_admin_llm_quota__rule_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rule_id",
+            "required": true,
+            "schema": {
+              "title": "Rule Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-admin-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BaseAPIResponse_LlmQuotaRuleResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": {
+          "AdminApiKeyAuth": []
+        },
+        "summary": "Get Quota Rule",
+        "tags": [
+          "LLM Quota (Admin)"
+        ]
+      },
+      "patch": {
+        "description": "Partially update a quota rule. Omitted fields are left unchanged.",
+        "operationId": "update_quota_rule_api_v1_admin_llm_quota__rule_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rule_id",
+            "required": true,
+            "schema": {
+              "title": "Rule Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-admin-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LlmQuotaRuleUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BaseAPIResponse_LlmQuotaRuleResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": {
+          "AdminApiKeyAuth": []
+        },
+        "summary": "Update Quota Rule",
+        "tags": [
+          "LLM Quota (Admin)"
         ]
       }
     },
@@ -3835,6 +4921,9 @@
             },
             "description": "Validation Error"
           }
+        },
+        "security": {
+          "ApiKeyAuth": []
         },
         "summary": "Get Dashboard Data",
         "tags": [
@@ -3959,6 +5048,9 @@
             },
             "description": "Validation Error"
           }
+        },
+        "security": {
+          "ApiKeyAuth": []
         },
         "summary": "Get Latency Metrics",
         "tags": [
@@ -4447,6 +5539,9 @@
             "description": "Validation Error"
           }
         },
+        "security": {
+          "ApiKeyAuth": []
+        },
         "summary": "Get Gateway Request Logs",
         "tags": [
           "Gateway Requests"
@@ -4486,6 +5581,9 @@
             },
             "description": "Validation Error"
           }
+        },
+        "security": {
+          "ApiKeyAuth": []
         },
         "summary": "Create Gateway Request Log",
         "tags": [
@@ -4546,6 +5644,9 @@
             "description": "Validation Error"
           }
         },
+        "security": {
+          "ApiKeyAuth": []
+        },
         "summary": "Get Gateway Request Log By Hash",
         "tags": [
           "Gateway Requests"
@@ -4567,6 +5668,9 @@
             },
             "description": "Successful Response"
           }
+        },
+        "security": {
+          "ApiKeyAuth": []
         },
         "summary": "Trigger Evaluation",
         "tags": [
@@ -4612,6 +5716,9 @@
             "description": "Validation Error"
           }
         },
+        "security": {
+          "ApiKeyAuth": []
+        },
         "summary": "Get Pending Evaluations",
         "tags": [
           "Gateway Requests"
@@ -4654,6 +5761,9 @@
             },
             "description": "Validation Error"
           }
+        },
+        "security": {
+          "ApiKeyAuth": []
         },
         "summary": "Delete Gateway Request Log",
         "tags": [
@@ -4712,6 +5822,9 @@
             "description": "Validation Error"
           }
         },
+        "security": {
+          "ApiKeyAuth": []
+        },
         "summary": "Get Gateway Request Log",
         "tags": [
           "Gateway Requests"
@@ -4762,6 +5875,9 @@
             },
             "description": "Validation Error"
           }
+        },
+        "security": {
+          "ApiKeyAuth": []
         },
         "summary": "Update Gateway Request Log",
         "tags": [
@@ -5280,5 +6396,15 @@
         ]
       }
     }
-  }
+  },
+  "tags": [
+    {
+      "description": "Cross-tenant quota rule management (X-Admin-Key).",
+      "name": "LLM Quota (Admin)"
+    },
+    {
+      "description": "Tenant API key management.",
+      "name": "API Keys"
+    }
+  ]
 }

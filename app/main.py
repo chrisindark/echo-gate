@@ -6,6 +6,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
 
 from app.core.config import config
 from app.core.dependencies import DependencyContainer
@@ -23,6 +24,7 @@ from app.modules.gateway_requests.gateway_requests_controller import (
     api_v1_router as gateway_requests_router,
 )
 from app.modules.health import health_router
+from app.modules.llm_quota.llm_quota_controller import api_v1_router as llm_quota_router
 from app.modules.llm_usage.llm_usage_controller import api_v1_router as llm_usage_router
 from app.modules.qdrant.qdrant_controller import api_v1_router as qdrant_router
 from app.modules.verifier.verifier_controller import api_v1_router as verifier_router
@@ -66,7 +68,21 @@ app = FastAPI(
     version=config.VERSION,
     description="A FastAPI-based proxy for LLMs with Semantic Caching.",
     lifespan=lifespan,
+    # Declared so the OpenAPI contract documents the two credential headers.
+    # Enforcement itself lives in app.core.guards, not in OpenAPI security
+    # requirements, because the two keys carry different semantics: X-API-Key
+    # resolves a tenant/user, X-Admin-Key resolves a scoped operator.
+    openapi_tags=[
+        {
+            "name": "LLM Quota (Admin)",
+            "description": "Cross-tenant quota rule management (X-Admin-Key).",
+        },
+        {"name": "API Keys", "description": "Tenant API key management."},
+    ],
 )
+
+API_KEY_HEADER = {"type": "apiKey", "in": "header", "name": "X-API-Key"}
+ADMIN_KEY_HEADER = {"type": "apiKey", "in": "header", "name": "X-Admin-Key"}
 
 app.add_middleware(CorrelationIdMiddleware)
 app.add_middleware(UserMiddleware)
@@ -102,3 +118,48 @@ app.include_router(verifier_router)
 app.include_router(gateway_requests_router)
 app.include_router(analytics_router)
 app.include_router(api_keys_router)
+app.include_router(llm_quota_router)
+
+
+def _custom_openapi() -> dict:
+    """Attach the two credential schemes and per-path security to the schema.
+
+    The routes enforce auth with plain ``Header`` dependencies (the semantics of
+    the two keys differ enough that OpenAPI security requirements would be
+    misleading), so the schemes are recorded here to keep the published
+    contract honest about which header each surface expects.
+    """
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+        tags=app.openapi_tags,
+    )
+    components = schema.setdefault("components", {})
+    security_schemes = components.setdefault("securitySchemes", {})
+    security_schemes["ApiKeyAuth"] = API_KEY_HEADER
+    security_schemes["AdminApiKeyAuth"] = ADMIN_KEY_HEADER
+
+    for path, item in schema.get("paths", {}).items():
+        scheme = (
+            {"AdminApiKeyAuth": []}
+            if path.startswith("/api/v1/admin/")
+            else {"ApiKeyAuth": []}
+            if path.startswith(("/api/v1/analytics", "/api/v1/gateway-requests"))
+            else None
+        )
+        if scheme is None:
+            continue
+        for method, operation in item.items():
+            if method in {"get", "post", "put", "patch", "delete", "head", "options"}:
+                operation["security"] = scheme
+
+    app.openapi_schema = schema
+    return schema
+
+
+app.openapi = _custom_openapi

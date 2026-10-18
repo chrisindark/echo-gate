@@ -58,13 +58,17 @@ provider behavior, or persistence decision is genuinely unspecified.
 - `intent_classifier/` — intent LLM classification and regex entity extraction.
 - `reranking/`, `verifier/` — cross-encoder rerank plus judge/NLI evaluation.
 - `gateway_requests/`, `llm_usage/`, `analytics/` — trace log, usage log, aggregation.
-- `llm_quota/`, `api_keys/` — Redis-backed quotas and tenant identity.
+- `llm_quota/`, `api_keys/` — Redis-backed quotas and tenant identity. Admin CRUD
+  for quota rules is `llm_quota_controller.py` + `llm_quota_rule_service.py`.
+- `admin/` — scoped operator credentials (`admin_api_keys`), created only by
+  `app/scripts/create_admin_key.py`. Enforced by `AdminApiKeyGuard` in
+  `app/core/guards.py`; never mint one over HTTP.
 - `health/` — health, liveness, readiness, Celery probes.
 - `conversation/` — conversation/message code that is NOT mounted (see Known Gaps).
 
 ## Request lifecycle (the path that matters)
 
-`POST /api/v1/chat/completions` → `llm_quota_guard` → `chat_controller` →
+`POST /api/v1/chat/completions` → `api_key_auth_optional_guard` → `llm_quota_guard` → `chat_controller` →
 `LlmRouterService.generate_completion`:
 
 1. Redis exact match → 2. Qdrant exact match → 3. Qdrant semantic search
@@ -142,3 +146,9 @@ explicit task:
   `CROSS_ENCODER_VERIFIER_MODEL`) and omits `CROSS_ENCODER_RELEVANCE_MODEL`.
 - The Celery Beat comments claim 5-minute/1-minute intervals while the coded
   schedules are all 30 seconds; `docker-compose.yml` starts a worker but no Beat.
+- **Anonymous chat shares one rate-limit bucket.** `POST /api/v1/chat/completions`
+  intentionally permits keyless callers (a supplied `X-API-Key` must still
+  resolve). The Redis counter key includes `api_key`, so every keyless request
+  lands in `rpm:None:<provider>:<model>:anonymous` and one caller can exhaust the
+  default 10 RPM for all anonymous traffic. Per-caller anonymous isolation is a
+  known follow-up.

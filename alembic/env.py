@@ -8,6 +8,7 @@ from sqlalchemy import engine_from_config, pool
 
 from alembic import context
 from app.core.database import SQLALCHEMY_DATABASE_URL, Base
+from app.modules.admin.admin_api_keys_model import AdminApiKey
 from app.modules.api_keys.api_keys_model import ApiKey
 from app.modules.conversation.conversation_model import Conversation, Message
 from app.modules.gateway_requests.gateway_requests_model import GatewayRequestLog
@@ -46,7 +47,15 @@ load_dotenv()
 # connects as a separate, non-owner role (DATABASE_URL).
 MIGRATION_DATABASE_URL = os.getenv("MIGRATION_DATABASE_URL", SQLALCHEMY_DATABASE_URL)
 
-models = [LlmUsageLog, LlmQuotaRule, GatewayRequestLog, Conversation, Message, ApiKey]
+models = [
+    LlmUsageLog,
+    LlmQuotaRule,
+    GatewayRequestLog,
+    Conversation,
+    Message,
+    ApiKey,
+    AdminApiKey,
+]
 config.set_main_option("sqlalchemy.url", MIGRATION_DATABASE_URL)
 target_metadata = Base.metadata
 

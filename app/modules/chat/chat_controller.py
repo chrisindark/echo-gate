@@ -5,7 +5,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.core.dependencies import get_llm_router_service
-from app.core.guards import llm_quota_guard
+from app.core.guards import api_key_auth_optional_guard, llm_quota_guard
 from app.core.responses import BaseAPIResponse
 from app.modules.chat.chat_schema import (
     SSE_DONE_EVENT,
@@ -29,7 +29,12 @@ api_v1_router = APIRouter(prefix="/api/v1/chat", tags=["Chat"])
 @api_v1_router.post(
     "/completions",
     response_model=ChatCompletionResponse,
-    dependencies=[Depends(llm_quota_guard)],
+    # Auth runs before the quota guard so a bad key is rejected without
+    # consuming a request from the rate-limit bucket. Anonymous access is an
+    # intentional feature here: the optional guard authenticates a supplied
+    # X-API-Key and lets a keyless request through as the "anonymous" tenant,
+    # which then falls under the default quota limits.
+    dependencies=[Depends(api_key_auth_optional_guard), Depends(llm_quota_guard)],
 )
 async def create_chat_completion(
     http_request: Request,

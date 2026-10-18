@@ -6,6 +6,7 @@ import {
   Activity,
   BarChart3,
   Database,
+  GaugeCircle,
   Menu,
   MessageSquare,
   Settings,
@@ -26,6 +27,7 @@ export function AppSidebar() {
     { name: 'Chat', path: '/', icon: MessageSquare },
     { name: 'Analytics', path: '/analytics', icon: BarChart3 },
     { name: 'Traces', path: '/traces', icon: Activity },
+    { name: 'Quota', path: '/quota', icon: GaugeCircle },
     { name: 'Cache DB', path: '/cache', icon: Database },
     { name: 'Settings', path: '/settings', icon: Settings },
   ];
