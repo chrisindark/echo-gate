@@ -14,13 +14,12 @@ import {
   Copy,
   Eye,
   EyeOff,
+  GaugeCircle,
   Key,
   Lock,
   Save,
   Server,
   Shield,
-  User,
-  Users,
 } from 'lucide-react';
 import React, { useState } from 'react';
 
@@ -30,16 +29,13 @@ export default function SettingsPage() {
     setApiKey,
     adminKey,
     setAdminKey,
-    userId,
-    setUserId,
-    tenantId,
-    setTenantId,
+    quotaTenant,
+    setQuotaTenant,
   } = useApiKey();
 
   const [inputKey, setInputKey] = useState(apiKey);
   const [inputAdminKey, setInputAdminKey] = useState(adminKey);
-  const [inputUser, setInputUser] = useState(userId);
-  const [inputTenant, setInputTenant] = useState(tenantId);
+  const [inputQuotaTenant, setInputQuotaTenant] = useState(quotaTenant);
   const [showKey, setShowKey] = useState(false);
   const [showAdminKey, setShowAdminKey] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -49,8 +45,7 @@ export default function SettingsPage() {
     e.preventDefault();
     setApiKey(inputKey.trim());
     setAdminKey(inputAdminKey.trim());
-    setUserId(inputUser.trim());
-    setTenantId(inputTenant.trim());
+    setQuotaTenant(inputQuotaTenant.trim());
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   };
@@ -76,8 +71,9 @@ export default function SettingsPage() {
                 Gateway Settings
               </Heading>
               <Text color="gray" size="2" mt="1">
-                Configure your API key and tenant credentials used across Chat,
-                Traces, and Analytics.
+                Configure the credentials used across Chat, Traces, and
+                Analytics. Your tenant and user identity are resolved from the
+                API key.
               </Text>
             </div>
           </div>
@@ -89,14 +85,14 @@ export default function SettingsPage() {
             <div className="flex items-center justify-between pb-4 border-b border-border/50">
               <div className="flex items-center gap-2">
                 <Shield className="w-5 h-5 text-emerald-500" />
-                <Heading size="4">Tenant Identity & Authentication</Heading>
+                <Heading size="4">Authentication</Heading>
               </div>
               <Badge
                 color={inputKey ? 'green' : 'amber'}
                 variant="soft"
                 size="2"
               >
-                {inputKey ? 'API Key Active' : 'No Key Set'}
+                {inputKey ? 'API Key Active' : 'Anonymous'}
               </Badge>
             </div>
 
@@ -154,7 +150,8 @@ export default function SettingsPage() {
                     anonymous
                   </code>
                   tenant. Adding a valid key scopes Chat, Traces, and Analytics
-                  to that key&apos;s tenant. Traces and Analytics always require
+                  to that key&apos;s tenant and user — it is the only thing that
+                  determines your identity. Traces and Analytics always require
                   a valid key and will return 401 without one; a key that does
                   not resolve is rejected rather than silently treated as
                   anonymous.
@@ -204,39 +201,29 @@ export default function SettingsPage() {
                 </Text>
               </div>
 
-              {/* Grid for Tenant ID & User ID */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-2">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                    <Users className="w-3.5 h-3.5" /> Tenant ID
-                  </label>
-                  <TextField.Root
-                    type="text"
-                    value={inputTenant}
-                    onChange={(e) => setInputTenant(e.target.value)}
-                    placeholder="e.g. dev, acme"
-                    className="font-mono text-sm"
-                  />
-                  <Text size="1" color="gray">
-                    The tenant boundary for Row-Level Security in Postgres.
-                  </Text>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                    <User className="w-3.5 h-3.5" /> User ID (Optional)
-                  </label>
-                  <TextField.Root
-                    type="text"
-                    value={inputUser}
-                    onChange={(e) => setInputUser(e.target.value)}
-                    placeholder="e.g. dev-user"
-                    className="font-mono text-sm"
-                  />
-                  <Text size="1" color="gray">
-                    Sub-identity for per-user quotas and audit traces.
-                  </Text>
-                </div>
+              {/* Default tenant for admin quota rules */}
+              <div className="space-y-1.5 pt-2">
+                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <GaugeCircle className="w-3.5 h-3.5" /> Default Quota Rule
+                    Tenant
+                  </span>
+                  <span className="text-[11px] text-muted-foreground font-normal">
+                    Quota page only
+                  </span>
+                </label>
+                <TextField.Root
+                  type="text"
+                  value={inputQuotaTenant}
+                  onChange={(e) => setInputQuotaTenant(e.target.value)}
+                  placeholder="e.g. acme"
+                  className="font-mono text-sm"
+                />
+                <Text size="1" color="gray">
+                  A local convenience that pre-fills the tenant on new quota
+                  rules. It is not sent to the gateway and does not affect your
+                  own identity — that comes from the API key above.
+                </Text>
               </div>
             </div>
 

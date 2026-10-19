@@ -7,10 +7,8 @@ interface ApiKeyContextType {
   setApiKey: (key: string) => void;
   adminKey: string;
   setAdminKey: (key: string) => void;
-  userId: string;
-  setUserId: (id: string) => void;
-  tenantId: string;
-  setTenantId: (tenant: string) => void;
+  quotaTenant: string;
+  setQuotaTenant: (tenant: string) => void;
   isSettingsOpen: boolean;
   setIsSettingsOpen: (open: boolean) => void;
 }
@@ -19,8 +17,12 @@ const ApiKeyContext = createContext<ApiKeyContextType | undefined>(undefined);
 
 const API_KEY_STORAGE = 'echo_gate_api_key';
 const ADMIN_KEY_STORAGE = 'echo_gate_admin_key';
-const USER_ID_STORAGE = 'echo_gate_user_id';
-const TENANT_ID_STORAGE = 'echo_gate_tenant_id';
+const QUOTA_TENANT_STORAGE = 'echo_gate_quota_tenant';
+// The tenant field used to be an identity header (X-Tenant-ID). The gateway
+// ignores that header now — identity comes from the API key — so the value is
+// only a local convenience for pre-filling admin quota rules. Read the old key
+// once so an existing preference is not lost.
+const LEGACY_TENANT_STORAGE = 'echo_gate_tenant_id';
 
 // No default tenant key. It used to be a hardcoded `eg_...` value, which meant
 // shipping a real credential in the repo: on a fresh database that key does not
@@ -32,8 +34,7 @@ const TENANT_ID_STORAGE = 'echo_gate_tenant_id';
 // `anonymous` tenant). Analytics and Traces require a real key and will show a
 // 401 until one is configured.
 const DEFAULT_API_KEY = '';
-const DEFAULT_USER_ID = 'dev';
-const DEFAULT_TENANT_ID = 'dev';
+const DEFAULT_QUOTA_TENANT = '';
 
 function getInitialValue(key: string, fallback: string): string {
   if (typeof window === 'undefined') return fallback;
@@ -55,12 +56,12 @@ export function ApiKeyProvider({ children }: { children: React.ReactNode }) {
   const [adminKey, setAdminKeyState] = useState<string>(() =>
     getInitialValue(ADMIN_KEY_STORAGE, '')
   );
-  const [userId, setUserIdState] = useState<string>(() =>
-    getInitialValue(USER_ID_STORAGE, DEFAULT_USER_ID)
-  );
-  const [tenantId, setTenantIdState] = useState<string>(() =>
-    getInitialValue(TENANT_ID_STORAGE, DEFAULT_TENANT_ID)
-  );
+  const [quotaTenant, setQuotaTenantState] = useState<string>(() => {
+    const current = getInitialValue(QUOTA_TENANT_STORAGE, '');
+    return (
+      current || getInitialValue(LEGACY_TENANT_STORAGE, DEFAULT_QUOTA_TENANT)
+    );
+  });
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const setApiKey = (key: string) => {
@@ -81,19 +82,10 @@ export function ApiKeyProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const setUserId = (id: string) => {
-    setUserIdState(id);
+  const setQuotaTenant = (tenant: string) => {
+    setQuotaTenantState(tenant);
     try {
-      localStorage.setItem(USER_ID_STORAGE, id);
-    } catch {
-      // ignore
-    }
-  };
-
-  const setTenantId = (tenant: string) => {
-    setTenantIdState(tenant);
-    try {
-      localStorage.setItem(TENANT_ID_STORAGE, tenant);
+      localStorage.setItem(QUOTA_TENANT_STORAGE, tenant);
     } catch {
       // ignore
     }
@@ -106,10 +98,8 @@ export function ApiKeyProvider({ children }: { children: React.ReactNode }) {
         setApiKey,
         adminKey,
         setAdminKey,
-        userId,
-        setUserId,
-        tenantId,
-        setTenantId,
+        quotaTenant,
+        setQuotaTenant,
         isSettingsOpen,
         setIsSettingsOpen,
       }}

@@ -45,8 +45,8 @@ poetry run uvicorn app.main:app --port 8000 --reload
 
 - `src/app/layout.tsx` — root layout and providers.
 - `src/app/page.tsx` — chat playground. Provider/model pickers, temperature, max
-  tokens, structured-output modes (`text` / `json_object` / `json_schema`), API key +
-  tenant/user headers, cache-status badges. Supports `?hash=<exact_hash>` to reload a
+  tokens, structured-output modes (`text` / `json_object` / `json_schema`), API key,
+  cache-status badges. Supports `?hash=<exact_hash>` to reload a
   stored trace.
 - `src/app/traces/page.tsx` — gateway request trace table.
 - `src/app/traces/[id]/page.tsx` — trace detail (latency waterfall, intent metadata,
@@ -59,9 +59,11 @@ poetry run uvicorn app.main:app --port 8000 --reload
   Authenticates with **`X-Admin-Key`**, not the tenant `X-API-Key`; shows setup
   instructions when no admin key is configured.
 - `src/components/app-sidebar.tsx` — navigation.
-- `src/context/api-key-context.tsx` — tenant and admin credentials, persisted to
-  `localStorage`. The admin key deliberately has **no built-in default**: one must
-  never be baked into the client bundle.
+- `src/context/api-key-context.tsx` — API keys plus a local "default quota rule
+  tenant" convenience, persisted to `localStorage`. The admin key deliberately has
+  **no built-in default**: one must never be baked into the client bundle.
+  Tenant/user identity is **not** stored here — the gateway resolves it from the
+  `X-API-Key` alone and ignores the old `X-Tenant-ID`/`X-User-ID` headers.
 
 ## Rules and caveats
 
