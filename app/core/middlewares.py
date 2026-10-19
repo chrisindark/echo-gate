@@ -76,15 +76,17 @@ class CorrelationIdMiddleware(BaseHTTPMiddleware):
 
 
 class UserMiddleware(BaseHTTPMiddleware):
+    """Publish the resolved caller identity as ``request.state.user``.
+
+    ``TenantContextMiddleware`` runs first and is the only source of identity:
+    an ``X-API-Key`` resolved server-side to a tenant/user, else ``anonymous``.
+    This middleware used to read ``X-User-ID``/``X-Session-ID``/``X-Tenant-ID``
+    itself, which let a caller name themselves freely even while presenting a
+    valid key.
+    """
+
     async def dispatch(self, request: Request, call_next):
-        # Fallback to session ID from headers or tenant ID if no user ID is provided
-        user = (
-            request.headers.get("x-user-id")
-            or request.headers.get("x-session-id")
-            or request.headers.get("x-tenant-id")
-            or "anonymous"
-        )
-        request.state.user = user
+        request.state.user = getattr(request.state, "user_id", None) or ANONYMOUS_TENANT
 
         response = await call_next(request)
         return response
@@ -99,8 +101,13 @@ class TenantContextMiddleware:
 
     Resolution order:
     1. ``X-API-Key`` resolved server-side to a tenant/user (trusted).
-    2. ``X-Tenant-ID`` / ``X-User-ID`` headers (internal/trusted callers).
-    3. ``anonymous`` tenant.
+    2. ``anonymous`` tenant.
+
+    ``X-Tenant-ID``/``X-User-ID`` are deliberately **not** read here. They are
+    caller-supplied, so honouring them meant anyone who could reach the gateway
+    could pick the tenant its request ran as — and, combined with the request
+    body, read another tenant's cache. ``X-API-Key`` is now the only credential
+    that establishes identity.
     """
 
     def __init__(self, app) -> None:
@@ -111,10 +118,9 @@ class TenantContextMiddleware:
             await self.app(scope, receive, send)
             return
 
-        headers = Headers(scope=scope)
-        tenant_id = headers.get("x-tenant-id")
-        user_id = headers.get("x-user-id")
-        api_key = headers.get("x-api-key")
+        api_key = Headers(scope=scope).get("x-api-key")
+        tenant_id: str | None = None
+        user_id: str | None = None
 
         if api_key:
             # Imported lazily so the middleware module stays import-light.

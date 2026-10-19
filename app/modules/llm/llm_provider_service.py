@@ -54,12 +54,13 @@ def _prepare_openai_compatible_payload(
     request: ChatCompletionRequest, stream: bool = False
 ) -> dict[str, Any]:
     payload_data = request.model_dump(exclude_unset=True)
+    # `user_id`/`tenant_id` are private attributes on the request, so they are
+    # already absent from the dump; they are listed here only as documentation of
+    # what must never reach a provider.
     for key in [
         "service_name",
         "thinking",
         "thinking_budget",
-        "user_id",
-        "tenant_id",
         "session_id",
         "conversation_id",
         "cache_info",

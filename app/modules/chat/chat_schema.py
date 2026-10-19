@@ -5,7 +5,7 @@ import time
 import uuid
 from typing import Any
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, model_validator
 
 ALLOWED_MODELS = {
     "ollama": [
@@ -96,9 +96,11 @@ class ChatCompletionRequest(BaseModel):
     presence_penalty: float | None = 0.0
     frequency_penalty: float | None = 0.0
     logit_bias: dict[str, float] | None = None
+    # `user` is the OpenAI-compatible end-user field. It is NOT an identity:
+    # the quota guard no longer reads it, because a caller-supplied value used
+    # to overwrite the identity resolved from X-API-Key and mint a fresh
+    # rate-limit bucket per request.
     user: dict[str, Any] | str | None = None
-    user_id: str | None = None
-    tenant_id: str | None = None
     session_id: str | None = None
     conversation_id: str | None = None
     response_format: dict | None = None
@@ -107,6 +109,31 @@ class ChatCompletionRequest(BaseModel):
     thinking_budget: int | None = None
     tools: list[Tool] | None = None
     tool_choice: str | dict[str, Any] | None = None
+
+    # Resolved identity. These are deliberately *not* body fields: they are set
+    # by the chat controller from the tenant/user that ``X-API-Key`` resolved to,
+    # and they must never be settable by the caller. As private attributes they
+    # stay out of the request body and the OpenAPI schema (a body carrying
+    # ``tenant_id`` is ignored, not honoured) while internal services can still
+    # read them off the request object.
+    _tenant_id: str | None = PrivateAttr(default=None)
+    _user_id: str | None = PrivateAttr(default=None)
+
+    @property
+    def tenant_id(self) -> str | None:
+        return self._tenant_id
+
+    @tenant_id.setter
+    def tenant_id(self, value: str | None) -> None:
+        self._tenant_id = value
+
+    @property
+    def user_id(self) -> str | None:
+        return self._user_id
+
+    @user_id.setter
+    def user_id(self, value: str | None) -> None:
+        self._user_id = value
 
     @model_validator(mode="after")
     def validate_model_for_service(self) -> ChatCompletionRequest:

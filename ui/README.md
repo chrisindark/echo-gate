@@ -27,12 +27,12 @@ see below).
 
 ## Pages
 
-| Route          | Description                                                                                                                                                                                                                                                                |
-| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/`            | Chat playground. Provider/model selection, temperature, max tokens, structured-output modes (`text` / `json_object` / `json_schema` with presets), API key + tenant/user headers, and cache status badges. Supports a `?hash=<exact_hash>` query to reload a stored trace. |
-| `/traces`      | Table of gateway request traces.                                                                                                                                                                                                                                           |
-| `/traces/[id]` | Trace detail with a latency waterfall, intent metadata, and evaluation scores.                                                                                                                                                                                             |
-| `/analytics`   | Dashboard KPIs, cache performance, model breakdown, and latency metrics.                                                                                                                                                                                                   |
+| Route          | Description                                                                                                                                                                                                                                          |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/`            | Chat playground. Provider/model selection, temperature, max tokens, structured-output modes (`text` / `json_object` / `json_schema` with presets), API key, and cache status badges. Supports a `?hash=<exact_hash>` query to reload a stored trace. |
+| `/traces`      | Table of gateway request traces.                                                                                                                                                                                                                     |
+| `/traces/[id]` | Trace detail with a latency waterfall, intent metadata, and evaluation scores.                                                                                                                                                                       |
+| `/analytics`   | Dashboard KPIs, cache performance, model breakdown, and latency metrics.                                                                                                                                                                             |
 
 The sidebar (`src/components/app-sidebar.tsx`) also links `/cache` and
 `/settings`, which do not have routes yet.

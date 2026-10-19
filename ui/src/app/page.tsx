@@ -151,16 +151,7 @@ export default function Home() {
   const [cacheInfo, setCacheInfo] = useState<CacheInfoType | null>(null);
   const [latency, setLatency] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
-  const {
-    apiKey,
-    setApiKey,
-    userId,
-    setUserId,
-    tenantId,
-    setTenantId,
-    isSettingsOpen,
-    setIsSettingsOpen,
-  } = useApiKey();
+  const { apiKey, setApiKey, isSettingsOpen, setIsSettingsOpen } = useApiKey();
 
   // Settings state
   const [provider, setProvider] =
@@ -284,9 +275,9 @@ export default function Home() {
         'Content-Type': 'application/json',
       };
 
+      // The gateway resolves tenant/user identity from this key alone; it
+      // ignores X-Tenant-ID/X-User-ID, so they are deliberately not sent.
       if (apiKey) headers['X-API-Key'] = apiKey;
-      if (userId) headers['x-user-id'] = userId;
-      if (tenantId) headers['x-tenant-id'] = tenantId;
 
       const bodyPayload: Record<string, unknown> = {
         service_name: provider,
@@ -815,26 +806,10 @@ export default function Home() {
                       onChange={(e) => setApiKey(e.target.value)}
                       placeholder="sk-..."
                     />
-                  </Flex>
-                  <Flex direction="column" gap="1">
-                    <Text as="label" size="2" weight="bold">
-                      User ID
+                    <Text size="1" color="gray">
+                      Your tenant and user identity are resolved from this key.
+                      Leave it empty to chat anonymously.
                     </Text>
-                    <TextField.Root
-                      type="text"
-                      value={userId}
-                      onChange={(e) => setUserId(e.target.value)}
-                    />
-                  </Flex>
-                  <Flex direction="column" gap="1">
-                    <Text as="label" size="2" weight="bold">
-                      Tenant ID
-                    </Text>
-                    <TextField.Root
-                      type="text"
-                      value={tenantId}
-                      onChange={(e) => setTenantId(e.target.value)}
-                    />
                   </Flex>
                 </div>
               </div>

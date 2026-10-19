@@ -4,6 +4,7 @@ import logging
 from fastapi import Depends, Header, HTTPException, Request, status
 
 from app.core.dependencies import get_llm_quota_service
+from app.core.rls import ANONYMOUS_TENANT
 from app.modules.admin.admin_api_keys_service import AdminKeyIdentity
 from app.modules.llm_quota.llm_quota_service import LlmQuotaService
 
@@ -23,17 +24,16 @@ class LlmQuotaGuard:
     ):
         provider = None
         model = None
-        # Identity is established by TenantContextMiddleware: an API key resolved
-        # to a tenant/user, or trusted internal headers. Fall back to headers so
-        # the guard keeps working if the middleware is not installed.
+        # Identity is established by TenantContextMiddleware from X-API-Key
+        # alone: the resolved tenant/user, else the anonymous tenant. Nothing
+        # the caller supplies may change it. The body used to be able to
+        # override the user via `body["user"]`, which both minted a fresh Redis
+        # rate-limit bucket per request and split the RPM counter from the TPM
+        # counter (record_tokens keys on the resolved user, not this one).
         user = getattr(request.state, "user_id", None) or getattr(
             request.state, "user", None
         )
-        tenant_id = (
-            getattr(request.state, "tenant_id", None)
-            or request.headers.get("x-tenant-id")
-            or "anonymous"
-        )
+        tenant_id = getattr(request.state, "tenant_id", None) or ANONYMOUS_TENANT
 
         try:
             # Safely read body. FastAPI caches request.body() so it's safe to read multiple times
@@ -42,8 +42,6 @@ class LlmQuotaGuard:
                 body = json.loads(body_bytes)
                 provider = body.get("service_name")
                 model = body.get("model")
-                if body.get("user"):
-                    user = body.get("user")
         except Exception:
             logger.exception("Error reading request body")
 
@@ -84,9 +82,9 @@ class ApiKeyAuthGuard:
     A valid key is the only accepted credential in either mode. This guard
     previously also let a request through on the strength of an ``X-Tenant-ID``
     header alone, which meant anyone who could reach the gateway could read
-    another tenant's traces and analytics by guessing a tenant name. The header
-    still selects the tenant context in ``TenantContextMiddleware``; it just no
-    longer authenticates anything.
+    another tenant's traces and analytics by guessing a tenant name. That header
+    no longer authenticates anything, and no longer selects the tenant context
+    either: ``TenantContextMiddleware`` derives identity from the key alone.
     """
 
     def __init__(self, *, allow_anonymous: bool = False) -> None:

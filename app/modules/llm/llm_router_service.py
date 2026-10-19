@@ -155,7 +155,10 @@ class LlmRouterService:
 
         async def attempt_call(svc: str, req: ChatCompletionRequest):
             llm_req = req.model_copy(deep=True)
-            for key in ["user_id", "tenant_id", "session_id", "conversation_id"]:
+            # Gateway-only scoping fields never reach a provider. `user_id` and
+            # `tenant_id` are private attributes and so are already absent from
+            # the model dump; only the session/conversation scopes need stripping.
+            for key in ["session_id", "conversation_id"]:
                 if hasattr(llm_req, key):
                     delattr(llm_req, key)
 
@@ -293,7 +296,9 @@ class LlmRouterService:
             llm_req = req.model_copy(deep=True)
             if model:
                 llm_req.model = model
-            for key in ["user_id", "tenant_id", "session_id", "conversation_id"]:
+            # See `attempt_call`: user_id/tenant_id are private attributes and
+            # never appear in the serialized request.
+            for key in ["session_id", "conversation_id"]:
                 if hasattr(llm_req, key):
                     delattr(llm_req, key)
             return llm_req

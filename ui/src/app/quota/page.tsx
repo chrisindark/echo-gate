@@ -92,7 +92,7 @@ function scopeLabel(value: string | null, wildcard: string): string {
 }
 
 export default function QuotaPage() {
-  const { adminKey, tenantId } = useApiKey();
+  const { adminKey, quotaTenant } = useApiKey();
 
   const [rules, setRules] = useState<QuotaRule[]>([]);
   const [total, setTotal] = useState(0);
@@ -276,7 +276,7 @@ export default function QuotaPage() {
 
   const openCreate = () => {
     setEditingId(null);
-    setForm({ ...EMPTY_FORM, tenant_id: tenantId || '' });
+    setForm({ ...EMPTY_FORM, tenant_id: quotaTenant || '' });
     setFormError(null);
     setFormOpen(true);
   };
@@ -482,9 +482,9 @@ export default function QuotaPage() {
                 <Select.Trigger className="min-w-[180px]" />
                 <Select.Content>
                   <Select.Item value={GLOBAL_SCOPE}>All tenants</Select.Item>
-                  {(tenants.includes(tenantId)
+                  {(tenants.includes(quotaTenant)
                     ? tenants
-                    : [tenantId, ...tenants]
+                    : [quotaTenant, ...tenants]
                   )
                     .filter((t, i, arr) => t && arr.indexOf(t) === i)
                     .map((t) => (

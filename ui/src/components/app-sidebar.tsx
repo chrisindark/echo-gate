@@ -21,7 +21,7 @@ import { useApiKey } from '@/context/api-key-context';
 export function AppSidebar() {
   const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(false);
-  const { tenantId } = useApiKey();
+  const { apiKey } = useApiKey();
 
   const routes = [
     { name: 'Chat', path: '/', icon: MessageSquare },
@@ -100,10 +100,12 @@ export function AppSidebar() {
             <div className="p-4 border-t border-border text-xs text-muted-foreground shrink-0 w-64 flex flex-col gap-1.5">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-medium text-muted-foreground">
-                  Active Tenant
+                  Identity
                 </span>
+                {/* The gateway resolves the real tenant/user server-side from
+                    the API key, so the client can only report the posture. */}
                 <span className="font-mono text-[10px] font-semibold px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 truncate max-w-[120px]">
-                  {tenantId || 'dev'}
+                  {apiKey ? 'from API key' : 'anonymous'}
                 </span>
               </div>
               <div className="text-[10px] text-muted-foreground/60 text-center">
