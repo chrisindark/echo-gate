@@ -101,12 +101,23 @@ class LlmQuotaService:
 
     async def check_quota(
         self,
-        api_key: str,
+        api_key: str | None,
         provider: str | None = None,
         model: str | None = None,
         user: str | None = None,
         tenant_id: str | None = None,
+        bucket_id: str | None = None,
     ) -> bool:
+        """Enforce RPM/TPM/budget limits for one request.
+
+        ``bucket_id`` selects who shares a rate-limit counter. A keyed caller
+        passes its API key (or leaves ``bucket_id`` unset), so two requests
+        holding the same key share a bucket. Anonymous calls must pass a
+        per-caller ``bucket_id`` fingerprint; without one they would all land
+        in the historical shared ``rpm:None:...`` bucket and a single keyless
+        caller could exhaust the default 10 RPM for every anonymous caller.
+        ``api_key`` remains the identity for the paid ``budget:`` counter.
+        """
         max_rpm, max_tpm = await self.get_applicable_limits(
             provider, model, user, tenant_id
         )
@@ -116,7 +127,10 @@ class LlmQuotaService:
         if max_tpm is None:
             max_tpm = 20000  # Default TPM limit # move to config
 
-        redis_suffix = f"{api_key}:{provider or 'any'}:{model or 'any'}:{user or 'any'}"
+        redis_suffix = (
+            f"{bucket_id or api_key}:{provider or 'any'}:{model or 'any'}:"
+            f"{user or 'any'}"
+        )
         rpm_key = f"rpm:{redis_suffix}"
         tpm_key = f"tpm:{redis_suffix}"
 

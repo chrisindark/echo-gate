@@ -3,6 +3,7 @@
 import { TraceDetailView, TraceLog } from '@/components/trace-detail-view';
 import { useApiKey } from '@/context/api-key-context';
 import { cn } from '@/lib/utils';
+import { API_ROOT } from '@/lib/api';
 import { Card, Heading, Text } from '@radix-ui/themes';
 import { Activity, ArrowLeft, Clock, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
@@ -28,10 +29,9 @@ function TraceDetailContent() {
         const headers: Record<string, string> = {};
         if (apiKey) headers['X-API-Key'] = apiKey;
 
-        const res = await fetch(
-          `http://localhost:8000/api/v1/gateway-requests/${id}`,
-          { headers }
-        );
+        const res = await fetch(`${API_ROOT}/api/v1/gateway-requests/${id}`, {
+          headers,
+        });
         if (!res.ok) {
           if (res.status === 404) {
             throw new Error(`Trace with ID #${id} not found.`);

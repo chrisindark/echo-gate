@@ -4,8 +4,8 @@ The observability and playground frontend for the Echo Gate gateway. It is an
 independent **Next.js 16** (App Router, React 19) app using Tailwind CSS v4,
 Radix UI Themes, `framer-motion`, and `lucide-react`.
 
-It talks to the FastAPI gateway at `http://localhost:8000` (currently hardcoded,
-see below).
+It talks to the FastAPI gateway. The base URL defaults to `http://localhost:8000`
+and is configurable via `NEXT_PUBLIC_API_BASE_URL` (see below).
 
 ## Getting started
 
@@ -34,8 +34,7 @@ see below).
 | `/traces/[id]` | Trace detail with a latency waterfall, intent metadata, and evaluation scores.                                                                                                                                                                       |
 | `/analytics`   | Dashboard KPIs, cache performance, model breakdown, and latency metrics.                                                                                                                                                                             |
 
-The sidebar (`src/components/app-sidebar.tsx`) also links `/cache` and
-`/settings`, which do not have routes yet.
+The sidebar (`src/components/app-sidebar.tsx`) also links `/settings`.
 
 ## Scripts
 
@@ -48,8 +47,11 @@ npm run lint    # eslint
 
 ## Notes
 
-- **API base URL is hardcoded** to `http://localhost:8000` in `src/app/page.tsx`
-  and the trace pages; there is no environment variable yet.
+- **API base URL** defaults to `http://localhost:8000` and is configurable via
+  `NEXT_PUBLIC_API_BASE_URL` at build time (`src/lib/api.ts`; Next.js inlines
+  `NEXT_PUBLIC_*` variables into the client bundle during `next build`, so the
+  value cannot be changed at runtime). Copy `.env.example` to `.env.local` to
+  override it in development.
 - The gateway enforces a per-provider model allowlist that this UI mirrors in
   `src/app/page.tsx` (`PROVIDERS`). Keep them in sync with
   `app/modules/chat/chat_schema.py`.

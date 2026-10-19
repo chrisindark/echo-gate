@@ -173,14 +173,10 @@ Default `INTENT_TTL_SECONDS`: `weather` 300 · `product_info` 3600 ·
 
 ## Not read by anything
 
-These appear in `app/.env.example` but are never read by the code:
-
-- `EMBEDDING_DIMENSION`
-- `EMBEDDING_DEVICE`
-- `CROSS_ENCODER_VERIFIER_MODEL`
-
-Conversely, `CROSS_ENCODER_RELEVANCE_MODEL` is read by the code but is **not** in
-`app/.env.example` (its default still applies).
-
 `MIGRATION_DATABASE_URL` is consumed by Alembic's `env.py`/`alembic.ini`, not by
 the application.
+
+`app/.env.example` lists only variables the code reads; the earlier drift
+(`EMBEDDING_DIMENSION`, `EMBEDDING_DEVICE`, and `CROSS_ENCODER_VERIFIER_MODEL`
+being listed but unread, and `CROSS_ENCODER_RELEVANCE_MODEL` being read but
+missing from the example) has been resolved.

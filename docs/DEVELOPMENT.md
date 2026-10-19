@@ -46,7 +46,8 @@ poetry run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 # Celery worker
 poetry run celery -A app.worker.celery_app worker --loglevel=info
 
-# Celery beat (scheduled tasks; not started by docker-compose)
+# Celery beat (scheduled tasks; also started by the `celery_beat`
+# docker-compose service)
 poetry run celery -A app.worker.celery_app beat --loglevel=info
 
 # UI only
@@ -126,10 +127,9 @@ docs under `ui/node_modules/next/dist/docs/`) before editing. Key facts:
 
 - Pages: `/` (chat playground), `/traces`, `/traces/[id]`, `/analytics`, `/quota`
   (admin; needs an `X-Admin-Key`).
-- `ui/src/components/app-sidebar.tsx` also links `/cache` and `/settings`, which
-  have no routes. `ui/README.md` and [ARCHITECTURE.md](ARCHITECTURE.md#known-gaps-and-discrepancies)
-  note this.
-- The UI hardcodes `http://localhost:8000` for API calls (no env var yet).
+- The API base URL defaults to `http://localhost:8000` and is configurable via
+  `NEXT_PUBLIC_API_BASE_URL` at build time (`ui/src/lib/api.ts`; see
+  `ui/.env.example`).
 
 ```bash
 cd ui

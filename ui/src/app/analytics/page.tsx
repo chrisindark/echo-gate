@@ -2,6 +2,7 @@
 
 import { useApiKey } from '@/context/api-key-context';
 import { cn } from '@/lib/utils';
+import { API_ROOT } from '@/lib/api';
 import { Box, Card, Flex, Heading, Text } from '@radix-ui/themes';
 import { motion } from 'framer-motion';
 import {
@@ -140,10 +141,9 @@ export default function AnalyticsPage() {
     const headers: Record<string, string> = {};
     if (apiKey) headers['X-API-Key'] = apiKey;
 
-    fetch(
-      `http://localhost:8000/api/v1/analytics/dashboard?${params.toString()}`,
-      { headers }
-    )
+    fetch(`${API_ROOT}/api/v1/analytics/dashboard?${params.toString()}`, {
+      headers,
+    })
       .then((res) => {
         if (!res.ok) {
           if (res.status === 401) {
@@ -177,7 +177,7 @@ export default function AnalyticsPage() {
         if (apiKey) headers['X-API-Key'] = apiKey;
 
         const res = await fetch(
-          `http://localhost:8000/api/v1/analytics/dashboard?${params.toString()}`,
+          `${API_ROOT}/api/v1/analytics/dashboard?${params.toString()}`,
           { headers }
         );
         if (!res.ok) {

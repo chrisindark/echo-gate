@@ -28,9 +28,10 @@ import {
   X,
 } from 'lucide-react';
 import Link from 'next/link';
+import { API_ROOT } from '@/lib/api';
 import { useCallback, useEffect, useState } from 'react';
 
-const API_BASE = 'http://localhost:8000/api/v1/admin/llm-quota';
+const API_BASE = `${API_ROOT}/api/v1/admin/llm-quota`;
 
 // Defaults hardcoded in the gateway (llm_quota_service.check_quota). Shown so an
 // operator can see what applies when no rule matches a scope.

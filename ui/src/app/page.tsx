@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useApiKey } from '@/context/api-key-context';
+import { API_ROOT } from '@/lib/api';
 
 const SCHEMA_PRESETS = [
   {
@@ -211,7 +212,7 @@ export default function Home() {
     const startTime = performance.now();
     try {
       const res = await fetch(
-        `http://localhost:8000/api/v1/gateway-requests/by-hash/${hash}`
+        `${API_ROOT}/api/v1/gateway-requests/by-hash/${hash}`
       );
       const endTime = performance.now();
       setLatency(Math.round(endTime - startTime));
@@ -313,7 +314,7 @@ export default function Home() {
         };
       }
 
-      const res = await fetch('http://localhost:8000/api/v1/chat/completions', {
+      const res = await fetch(`${API_ROOT}/api/v1/chat/completions`, {
         method: 'POST',
         headers,
         body: JSON.stringify(bodyPayload),
