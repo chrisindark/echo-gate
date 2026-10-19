@@ -1,6 +1,7 @@
 'use client';
 
 import { useApiKey } from '@/context/api-key-context';
+import { API_ROOT } from '@/lib/api';
 import {
   Badge,
   Button,
@@ -231,7 +232,7 @@ export default function SettingsPage() {
             <div className="flex items-center justify-between pt-4 border-t border-border/50">
               <div className="text-xs text-muted-foreground flex items-center gap-2">
                 <Server className="w-4 h-4" />
-                <span>Gateway Backend: http://localhost:8000</span>
+                <span>Gateway Backend: {API_ROOT}</span>
               </div>
               <Button type="submit" color="blue" variant="solid" size="2">
                 {saved ? (

@@ -67,15 +67,16 @@ poetry run uvicorn app.main:app --port 8000 --reload
 
 ## Rules and caveats
 
-- **API base URL is hardcoded** to `http://localhost:8000` (in `src/app/page.tsx`
-  and the trace pages); there is no environment variable yet. A hosted deployment
-  needs this made configurable.
+- **API base URL defaults to `http://localhost:8000`** and is configurable via
+  `NEXT_PUBLIC_API_BASE_URL` at build time (see `src/lib/api.ts`; Next.js inlines
+  `NEXT_PUBLIC_*` variables into the client bundle during `next build`, so the
+  value cannot be changed at runtime). See `.env.example`.
 - **Keep the model allowlist in sync.** `src/app/page.tsx` has a `PROVIDERS` map that
   mirrors the gateway's per-provider allowlist in
   `../app/modules/chat/chat_schema.py` (`ALLOWED_MODELS`). When the backend adds or
   removes a model, update both.
-- **The sidebar links `/cache` and `/settings` have no routes** — clicking them 404s.
-  This is a known gap; do not "fix" it silently.
+- The sidebar previously linked to `/cache`, which had no route; that entry has
+  been removed. There is no cache-browser page — a future feature if needed.
 - No charting library is installed; the analytics page renders cards and tables.
 - Follow the existing component/formatting style. Do not reformat unrelated files.
 

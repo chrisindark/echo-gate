@@ -138,15 +138,3 @@ explicit task:
 
 - The `conversation/` router is defined but **not included** in `app/main.py`, so
   `/api/v1/conversations/*` returns 404. Tables and RLS policies exist.
-- The UI hardcodes `http://localhost:8000`, and its sidebar links `/cache` and
-  `/settings`, which have no routes.
-- `app/.env.example` contains unused keys (`EMBEDDING_DIMENSION`, `EMBEDDING_DEVICE`,
-  `CROSS_ENCODER_VERIFIER_MODEL`) and omits `CROSS_ENCODER_RELEVANCE_MODEL`.
-- The Celery Beat comments claim 5-minute/1-minute intervals while the coded
-  schedules are all 30 seconds; `docker-compose.yml` starts a worker but no Beat.
-- **Anonymous chat shares one rate-limit bucket.** `POST /api/v1/chat/completions`
-  intentionally permits keyless callers (a supplied `X-API-Key` must still
-  resolve). The Redis counter key includes `api_key`, so every keyless request
-  lands in `rpm:None:<provider>:<model>:anonymous` and one caller can exhaust the
-  default 10 RPM for all anonymous traffic. Per-caller anonymous isolation is a
-  known follow-up.

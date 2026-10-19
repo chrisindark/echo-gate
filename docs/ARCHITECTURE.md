@@ -200,8 +200,12 @@ tenant-scoped credential. There is deliberately no `X-Tenant-ID`/`X-User-ID`
 header path: those headers are caller-supplied, so honouring them meant anyone who
 could reach the gateway could pick the tenant its request ran as. The request body
 cannot supply identity either — `tenant_id`/`user_id` are not body fields, and
-`user` in the body is not read for identity or billing. Both the RLS context and
-the quota/rate-limit identity therefore always trace back to one API key row.
+`user` in the body is not read for identity or billing. The RLS context therefore
+always traces back to one API key row, and keyed callers rate-limit on their key.
+Anonymous callers rate-limit on a per-caller fingerprint (hashed client address,
+preferring the first `X-Forwarded-For` hop, plus an optional `X-Session-ID`), so
+they never share a single bucket; that fingerprint is not an identity and never
+reaches the RLS context.
 
 `X-Admin-Key` is deliberately **not** part of that resolution chain: admin keys
 are stored apart from tenant keys, so they never become a tenant identity. Admin
@@ -223,17 +227,12 @@ Registered Beat tasks:
 
 | Task | Schedule (as coded) | Purpose |
 | --- | --- | --- |
-| `app.modules.llm_usage.tasks.process_uncalculated_costs` | every 30s | Fill in `cost` for usage logs where `cost_calculated` is false. |
-| `app.modules.gateway_requests.tasks.evaluate_pending_requests` | every 30s | Evaluate `PENDING` traces with the judge/cross-encoder to flag false-positive cache hits. |
-| `delete_expired_vectors` (qdrant) | every 30s | Delete expired points from the Qdrant cache collection. |
+| `app.modules.llm_usage.tasks.process_uncalculated_costs` | every 5 min | Fill in `cost` for usage logs where `cost_calculated` is false. |
+| `app.modules.gateway_requests.tasks.evaluate_pending_requests` | every 1 min | Evaluate `PENDING` traces with the judge/cross-encoder to flag false-positive cache hits. |
+| `delete_expired_vectors` (qdrant) | every 5 min | Delete expired points from the Qdrant cache collection. |
 
-> The comments next to each entry describe longer intervals ("every 5 minutes",
-> "every 1 minute"), but the actual coded `schedule` is `30.0` seconds for all
-> three. Treat the numeric value as authoritative.
-
-`docker-compose.yml` starts a `celery_worker` service but **not** a Beat service,
-so scheduled tasks do not run under plain `docker-compose up` — start Beat
-separately (`celery -A app.worker.celery_app beat`).
+`docker-compose.yml` starts both a `celery_worker` and a `celery_beat` service,
+so scheduled tasks run under plain `docker-compose up`.
 
 ## Health and observability
 
@@ -276,16 +275,9 @@ These are real today; documented rather than silently changed.
    `APIRouter(prefix="/api/v1/conversations")`, but `app/main.py` never includes it,
    so every conversation route returns 404. The models/tables and RLS policies
    exist.
-2. **UI gaps.** The Next.js app hardcodes `http://localhost:8000` (no env var), the
-   sidebar links to `/cache` and `/settings` which have no routes (404), and the
-   analytics page is read-only tables/cards rather than charts.
-3. **`.env.example` drift.** `EMBEDDING_DIMENSION`, `EMBEDDING_DEVICE`, and
-   `CROSS_ENCODER_VERIFIER_MODEL` appear in `app/.env.example` but are read nowhere;
-   meanwhile the relevance cross-encoder is configured by
-   `CROSS_ENCODER_RELEVANCE_MODEL`, which is not in the example. See
-   [CONFIGURATION.md](CONFIGURATION.md#not-read-by-anything).
-4. **README model drift.** The README mentions `deepseek-r1` and
+2. **README model drift.** The README mentions `deepseek-r1` and
    `nomic-embed-text`; the enforced allowlist is `ALLOWED_MODELS` in
    `app/modules/chat/chat_schema.py`, and the default embedding model is
    `all-MiniLM-L6-v2` (the embedding service is constructed with `use_ollama=False`).
-5. **Celery Beat interval comments** disagree with the coded schedules (see above).
+3. **Analytics page is read-only.** The Next.js analytics page renders tables and
+   cards rather than charts (no charting library is installed).

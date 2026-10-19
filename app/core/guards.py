@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 
@@ -35,6 +36,28 @@ class LlmQuotaGuard:
         )
         tenant_id = getattr(request.state, "tenant_id", None) or ANONYMOUS_TENANT
 
+        # Rate-limit bucket identity. Keyed callers bucket on the API key;
+        # anonymous callers bucket on a stable per-caller fingerprint so one
+        # keyless client cannot exhaust the shared anonymous bucket for every
+        # other anonymous caller. The fingerprint is hashed before it touches
+        # Redis, and combines the client address (preferring the first
+        # X-Forwarded-For hop, which is what a fronting proxy reports) with an
+        # optional X-Session-ID so callers behind shared NAT can still be
+        # isolated from each other. A caller can rotate these values to get a
+        # fresh bucket, so this bounds honest anonymous load only; it is not
+        # a security boundary.
+        bucket_id = x_api_key
+        if not x_api_key:
+            client = getattr(request, "client", None)
+            client_ip = (
+                (request.headers.get("x-forwarded-for", "").split(",")[0].strip())
+                or (client.host if client else None)
+                or "unknown"
+            )
+            session_id = request.headers.get("x-session-id")
+            fingerprint = f"{client_ip}:{session_id}" if session_id else client_ip
+            bucket_id = f"anon:{hashlib.sha256(fingerprint.encode()).hexdigest()[:16]}"
+
         try:
             # Safely read body. FastAPI caches request.body() so it's safe to read multiple times
             body_bytes = await request.body()
@@ -52,6 +75,7 @@ class LlmQuotaGuard:
             model=model,
             user=user,
             tenant_id=tenant_id,
+            bucket_id=bucket_id,
         )
 
         # Attach API key to request state

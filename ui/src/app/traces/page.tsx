@@ -3,6 +3,7 @@
 import { TraceDetailView, TraceLog } from '@/components/trace-detail-view';
 import { useApiKey } from '@/context/api-key-context';
 import { cn } from '@/lib/utils';
+import { API_ROOT } from '@/lib/api';
 import { Card, Heading, Text } from '@radix-ui/themes';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
@@ -83,7 +84,7 @@ export default function TracesPage() {
         if (apiKey) headers['X-API-Key'] = apiKey;
 
         const res = await fetch(
-          `http://localhost:8000/api/v1/gateway-requests/?${params.toString()}`,
+          `${API_ROOT}/api/v1/gateway-requests/?${params.toString()}`,
           { headers }
         );
         if (!res.ok) {

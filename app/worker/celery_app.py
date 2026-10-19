@@ -99,15 +99,15 @@ celery_app = Celery(
 beat_schedule = {
     "process-uncalculated-costs-every-5-minutes": {
         "task": "app.modules.llm_usage.tasks.process_uncalculated_costs",
-        "schedule": 30.0,  # Runs every 5 minutes (was 30s)
+        "schedule": 300.0,  # Runs every 5 minutes
     },
     "evaluate-pending-requests-every-1-minute": {
         "task": "app.modules.gateway_requests.tasks.evaluate_pending_requests",
-        "schedule": 30.0,  # Runs every 1 minute
+        "schedule": 60.0,  # Runs every 1 minute
     },
     "delete-expired-vectors-every-5-minutes": {
         "task": "delete_expired_vectors",
-        "schedule": 30.0,  # Runs every 5 minutes (was 30s)
+        "schedule": 300.0,  # Runs every 5 minutes
     },
 }
 
