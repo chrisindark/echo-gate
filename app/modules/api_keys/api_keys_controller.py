@@ -3,6 +3,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.dependencies import get_api_key_service
+from app.core.guards import require_admin_scope
 from app.core.responses import BaseAPIResponse
 from app.modules.api_keys.api_keys_schema import (
     ApiKeyCreate,
@@ -15,6 +16,12 @@ logger = logging.getLogger(__name__)
 
 api_v1_router = APIRouter(prefix="/api/v1/admin/api-keys", tags=["API Keys"])
 
+# Minting tenant keys is itself an admin capability, so these routes require an
+# admin key with the matching scope. Keys are created only through this route,
+# which is why it must never be reachable without one.
+RequireKeysRead = require_admin_scope("keys:read")
+RequireKeysWrite = require_admin_scope("keys:write")
+
 
 @api_v1_router.post(
     "/",
@@ -23,6 +30,7 @@ api_v1_router = APIRouter(prefix="/api/v1/admin/api-keys", tags=["API Keys"])
 )
 def create_api_key(
     data: ApiKeyCreate,
+    _admin: object = Depends(RequireKeysWrite),
     api_key_service: ApiKeyService = Depends(get_api_key_service),
 ):
     """Create an API key bound to a tenant/user.
@@ -49,6 +57,7 @@ def create_api_key(
     response_model=BaseAPIResponse[list[ApiKeyResponse]],
 )
 def list_api_keys(
+    _admin: object = Depends(RequireKeysRead),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=200),
     api_key_service: ApiKeyService = Depends(get_api_key_service),
@@ -66,6 +75,7 @@ def list_api_keys(
 )
 def revoke_api_key(
     key_id: int,
+    _admin: object = Depends(RequireKeysWrite),
     api_key_service: ApiKeyService = Depends(get_api_key_service),
 ):
     """Revoke an API key. The key remains visible but can no longer authenticate."""

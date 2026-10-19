@@ -25,19 +25,30 @@ import {
 import React, { useState } from 'react';
 
 export default function SettingsPage() {
-  const { apiKey, setApiKey, userId, setUserId, tenantId, setTenantId } =
-    useApiKey();
+  const {
+    apiKey,
+    setApiKey,
+    adminKey,
+    setAdminKey,
+    userId,
+    setUserId,
+    tenantId,
+    setTenantId,
+  } = useApiKey();
 
   const [inputKey, setInputKey] = useState(apiKey);
+  const [inputAdminKey, setInputAdminKey] = useState(adminKey);
   const [inputUser, setInputUser] = useState(userId);
   const [inputTenant, setInputTenant] = useState(tenantId);
   const [showKey, setShowKey] = useState(false);
+  const [showAdminKey, setShowAdminKey] = useState(false);
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     setApiKey(inputKey.trim());
+    setAdminKey(inputAdminKey.trim());
     setUserId(inputUser.trim());
     setTenantId(inputTenant.trim());
     setSaved(true);
@@ -138,9 +149,58 @@ export default function SettingsPage() {
                   </Button>
                 </div>
                 <Text size="1" color="gray">
-                  This key determines which tenant data is visible. When
-                  provided, requests to Chat, Traces, and Analytics are scoped
-                  to this key.
+                  Optional. Leave it empty to use Chat anonymously as the
+                  <code className="font-mono bg-muted/60 px-1 py-0.5 rounded mx-1">
+                    anonymous
+                  </code>
+                  tenant. Adding a valid key scopes Chat, Traces, and Analytics
+                  to that key&apos;s tenant. Traces and Analytics always require
+                  a valid key and will return 401 without one; a key that does
+                  not resolve is rejected rather than silently treated as
+                  anonymous.
+                </Text>
+              </div>
+
+              {/* Admin API Key */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Shield className="w-3.5 h-3.5" /> Admin API Key
+                    (X-Admin-Key)
+                  </span>
+                  <span className="text-[11px] text-muted-foreground font-normal">
+                    Required for the Quota page
+                  </span>
+                </label>
+                <div className="relative">
+                  <TextField.Root
+                    type={showAdminKey ? 'text' : 'password'}
+                    value={inputAdminKey}
+                    onChange={(e) => setInputAdminKey(e.target.value)}
+                    placeholder="ega_..."
+                    className="font-mono text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAdminKey(!showAdminKey)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    title={showAdminKey ? 'Hide key' : 'Show key'}
+                  >
+                    {showAdminKey ? (
+                      <EyeOff className="w-4 h-4" />
+                    ) : (
+                      <Eye className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
+                <Text size="1" color="gray">
+                  A separate, scoped operator credential used only for
+                  cross-tenant admin operations. Created on the gateway host
+                  with{' '}
+                  <code className="font-mono bg-muted/60 px-1 py-0.5 rounded">
+                    python -m app.scripts.create_admin_key create
+                  </code>{' '}
+                  . Your tenant API key will not work for these routes.
                 </Text>
               </div>
 

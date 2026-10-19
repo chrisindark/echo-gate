@@ -96,6 +96,11 @@ defaults are `10` RPM and `20000` TPM (hardcoded in `llm_quota_service.py`).
 Counters live in Redis (`rpm:*` 60s window, `tpm:*` 60s window, `budget:*`).
 Redis failure degrades to allow.
 
+Rules are managed through `/api/v1/admin/llm-quota` (see
+[API_REFERENCE.md](API_REFERENCE.md#llm-quota-admin--apiv1adminllm-quota)). Those
+handlers run in `system_rls_context()`, so they cross tenants deliberately and
+require an `X-Admin-Key` with a `quota:*` scope.
+
 #### `conversations`
 
 | Column | Type | Notes |
@@ -121,6 +126,39 @@ Redis failure degrades to allow.
 > Conversations/messages exist but their router is not mounted — see
 > [API_REFERENCE.md](API_REFERENCE.md#conversations--apiv1conversations-not-mounted).
 
+#### `admin_api_keys`
+
+Scoped operator credentials for `/api/v1/admin/*`. Deliberately a **separate
+table** from `api_keys` — see the reasoning below.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | int PK | |
+| `name` | varchar(100) | Label for the holder. Not unique. |
+| `key_prefix` | varchar(16) | Leading chars of the plaintext, display only. |
+| `key_hash` | varchar(64) | SHA-256 hex, **unique**. Plaintext shown once at creation. |
+| `scopes` | varchar(255) | Comma-separated: `quota:read`, `quota:write`, `keys:read`, `keys:write`, or `admin:*`. |
+| `expires_at` | timestamptz NULL | NULL = no expiry (revocation is explicit). |
+| `is_active` | bool | |
+| `last_used_at` | timestamptz NULL | Throttled to one write per 5 minutes. |
+| `created_at` / `updated_at` | timestamptz | |
+
+**Why a separate table rather than an `is_admin` column on `api_keys`:**
+
+- Tenant keys mint an *identity* and are creatable over HTTP. Admin keys mint
+  *privilege* (cross-tenant RLS bypass). The only way to create one is the
+  offline `app/scripts/create_admin_key.py` CLI, so the escalation path is
+  closed structurally rather than by convention.
+- Admin keys are not tenant identities. `TenantContextMiddleware` resolves any
+  valid `api_keys` row into a tenant context; an admin key must never become one,
+  so it must not live in that table.
+- A SQL dump of `api_keys` then leaks tenant credentials only.
+
+Like `api_keys`, this table has **no RLS**: admin key resolution happens before
+any tenant context exists, so the row must be readable regardless of the active
+tenant. Access control is by key possession and is enforced in
+`app/core/guards.py`.
+
 ### Indexes
 
 Each table indexes its scope and filter columns (`tenant_id`, `user_id`,
@@ -141,7 +179,7 @@ RLS is then enabled per table. Every policy begins with
 | `gateway_requests`, `llm_usage_logs` | **Tenant:** visible when `tenant_id = current_setting('app.current_tenant')`. |
 | `llm_quota_rules` | **Quota:** visible when `tenant_id IS NULL` **or** matches the current tenant. |
 | `conversations`, `messages` | **User:** visible when tenant matches and `app.current_user = ''` **or** `user_id` matches. |
-| `api_keys` | **No RLS** by design. |
+| `api_keys`, `admin_api_keys` | **No RLS** by design; key resolution happens before a tenant context exists. |
 
 Both `USING` and `WITH CHECK` are set, so cross-tenant inserts are rejected.
 Identity is bound per transaction by `app/core/rls.py` as transaction-local GUCs

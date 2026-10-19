@@ -53,7 +53,15 @@ poetry run uvicorn app.main:app --port 8000 --reload
   evaluation scores).
 - `src/app/analytics/page.tsx` — dashboard KPIs, cache performance, model breakdown,
   latency metrics.
+- `src/app/quota/page.tsx` — admin quota rule management (CRUD over
+  `/api/v1/admin/llm-quota`): list/create/edit/toggle/delete rules, plus an
+  "effective limits" preview that resolves which rule wins for a tenant.
+  Authenticates with **`X-Admin-Key`**, not the tenant `X-API-Key`; shows setup
+  instructions when no admin key is configured.
 - `src/components/app-sidebar.tsx` — navigation.
+- `src/context/api-key-context.tsx` — tenant and admin credentials, persisted to
+  `localStorage`. The admin key deliberately has **no built-in default**: one must
+  never be baked into the client bundle.
 
 ## Rules and caveats
 

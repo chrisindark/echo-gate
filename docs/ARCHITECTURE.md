@@ -33,7 +33,9 @@ app/
     database.py               SQLAlchemy engines/sessions (read + write)
     rls.py                    Postgres RLS GUC context (tenant/user/system)
     middlewares.py            CorrelationId, User, TenantContext middleware
-    guards.py                 llm_quota_guard (RPM/TPM/budget enforcement)
+    guards.py                 llm_quota_guard (RPM/TPM/budget enforcement),
+                              ApiKeyAuthGuard (tenant; strict + optional modes),
+                              AdminApiKeyGuard (scoped admin)
     retry.py                  tenacity-based retry (status 408/429/5xx + timeouts)
     responses.py              BaseAPIResponse envelope
     pricing.py                Per-provider/model token pricing
@@ -51,9 +53,12 @@ app/
     gateway_requests/         trace model/schema/service/controller + evaluation task
     llm_usage/                usage model/schema/service/controller + cost task
     llm_quota/                quota rules model/service (Redis-backed enforcement)
+                              + admin CRUD controller/service/schema (X-Admin-Key)
     analytics/                dashboard/latency aggregation
     health/                   health, live, ready, worker probes
     api_keys/                 API key model/schema/service/controller (tenant identity)
+    admin/                    admin API key model/service (scoped operator identity;
+                              minted only by app/scripts/create_admin_key.py)
     conversation/             conversation/message model/service/controller (NOT registered — see gaps)
   worker/
     celery_app.py             Celery app, beat schedule, worker event-loop wiring
@@ -67,8 +72,12 @@ and response models live in `*_schema.py`, SQLAlchemy tables live in
 ## Request lifecycle
 
 The public endpoint is `POST /api/v1/chat/completions`
-(`app/modules/chat/chat_controller.py`), guarded by `llm_quota_guard`. It fills in
-identity from the middleware and calls
+(`app/modules/chat/chat_controller.py`), guarded by `api_key_auth_optional_guard`
+then `llm_quota_guard`. A supplied `X-API-Key` must resolve to an active tenant
+key (otherwise `401`); a request with no key proceeds as the `anonymous` tenant,
+which is an intentional feature and is subject to the default quota limits. Auth
+runs first so a bad key is rejected without consuming rate-limit budget. The
+controller fills in identity from the middleware and calls
 `LlmRouterService.generate_completion(request, api_key=...)`.
 
 `generate_completion` runs these stages, recording a latency value for each:
@@ -186,6 +195,18 @@ the `anonymous` tenant. With no context set, every policy comparison is `NULL` a
 no rows are visible (fail-closed). New rows are stamped with the active
 tenant/user when the caller leaves them unset. See
 [DATA_MODEL.md](DATA_MODEL.md) for the policy shapes per table.
+
+`X-Tenant-ID`/`X-User-ID` select the context but do **not** authenticate. Only a
+valid `X-API-Key` or `X-Admin-Key` authenticates a request.
+
+`X-Admin-Key` is deliberately **not** part of that resolution chain: admin keys
+are stored apart from tenant keys, so they never become a tenant identity. Admin
+routes authenticate with `AdminApiKeyGuard`, which enforces a scope and hands a
+resolved identity to the service. Services that need to cross tenants run in
+`system_rls_context()`, which disables RLS for the transaction — so
+`LlmQuotaRuleService` refuses to open a session without a resolved
+`AdminKeyIdentity`, turning a forgotten or mis-wired guard into a loud error
+rather than a silent bypass.
 
 ## Background workers (Celery)
 

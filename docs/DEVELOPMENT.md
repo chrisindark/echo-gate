@@ -108,6 +108,7 @@ alters the API, also regenerate the OpenAPI snapshot (above).
 
 | Script | Purpose |
 | --- | --- |
+| `app/scripts/create_admin_key.py` | **The only way to mint an admin API key.** Subcommands `create --name --scopes [--expires-in-days]`, `list`, `revoke --id`. Prints the plaintext (`ega_...`) once. Run with `PYTHON_ENV=local`. |
 | `app/scripts/run_tests.py` | Sends the `TEST_DATASET` prompts to the gateway and writes `run_test_results.csv`. Env: `ECHO_GATE_URL`. |
 | `app/scripts/seed_prompts.py` | Seeds prompts and checks cache-threshold behavior; writes `send_prompt_results.csv`. Env: `ECHO_GATE_URL`, `ECHO_GATE_RESULTS_CSV`. |
 | `app/scripts/migrate_embeddings.py` | Re-embeds points between collections (`embeddings_multivector` → `..._v2`). Hardcodes `QDRANT_URL` and `EMBEDDING_DIM` — edit before use. |
@@ -123,7 +124,8 @@ alters the API, also regenerate the OpenAPI snapshot (above).
 `ui/` is a separate Next.js 16 app. Read `ui/AGENTS.md` (and the installed Next.js
 docs under `ui/node_modules/next/dist/docs/`) before editing. Key facts:
 
-- Pages: `/` (chat playground), `/traces`, `/traces/[id]`, `/analytics`.
+- Pages: `/` (chat playground), `/traces`, `/traces/[id]`, `/analytics`, `/quota`
+  (admin; needs an `X-Admin-Key`).
 - `ui/src/components/app-sidebar.tsx` also links `/cache` and `/settings`, which
   have no routes. `ui/README.md` and [ARCHITECTURE.md](ARCHITECTURE.md#known-gaps-and-discrepancies)
   note this.

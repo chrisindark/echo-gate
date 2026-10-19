@@ -1,0 +1,1 @@
+"""Scoped admin API keys."""
