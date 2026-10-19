@@ -190,14 +190,18 @@ sets three transaction-local GUCs:
 - `app.rls_system` — `'on'` for trusted background jobs that must cross tenants.
 
 Identity resolution order (`TenantContextMiddleware`): `X-API-Key` resolved
-server-side to a tenant/user, else trusted `X-Tenant-ID`/`X-User-ID` headers, else
-the `anonymous` tenant. With no context set, every policy comparison is `NULL` and
-no rows are visible (fail-closed). New rows are stamped with the active
-tenant/user when the caller leaves them unset. See
+server-side to a tenant/user, else the `anonymous` tenant. With no context set,
+every policy comparison is `NULL` and no rows are visible (fail-closed). New rows
+are stamped with the active tenant/user when the caller leaves them unset. See
 [DATA_MODEL.md](DATA_MODEL.md) for the policy shapes per table.
 
-`X-Tenant-ID`/`X-User-ID` select the context but do **not** authenticate. Only a
-valid `X-API-Key` or `X-Admin-Key` authenticates a request.
+`X-API-Key` is the only source of tenant and user identity, and the only
+tenant-scoped credential. There is deliberately no `X-Tenant-ID`/`X-User-ID`
+header path: those headers are caller-supplied, so honouring them meant anyone who
+could reach the gateway could pick the tenant its request ran as. The request body
+cannot supply identity either — `tenant_id`/`user_id` are not body fields, and
+`user` in the body is not read for identity or billing. Both the RLS context and
+the quota/rate-limit identity therefore always trace back to one API key row.
 
 `X-Admin-Key` is deliberately **not** part of that resolution chain: admin keys
 are stored apart from tenant keys, so they never become a tenant identity. Admin
@@ -236,8 +240,30 @@ separately (`celery -A app.worker.celery_app beat`).
 - `GET /` returns app metadata.
 - `GET /api/v1/health` — basic healthy/version.
 - `GET /api/v1/health/live` — process liveness.
-- `GET /api/v1/health/ready` — Postgres + Redis + Qdrant (1s timeouts; 503 on failure).
+- `GET /api/v1/health/ready` — **gating**. Postgres only (1s timeout; 503 on
+  failure). See the tiering note below.
+- `GET /api/v1/health/deps` — **non-gating** roll-up for alerting: Postgres,
+  Redis, Qdrant, Celery broker and workers. Always 200; read the `status` field
+  (`healthy` / `degraded` / `unhealthy`).
 - `GET /api/v1/health/worker` and `/api/v1/health/celery` — Celery broker + workers.
+
+### Probe tiering
+
+The probes are tiered by *what breaks*, not by *what is configured*. `/ready`
+gates on Postgres alone because that is the only dependency whose failure makes
+the gateway answer **incorrectly** rather than merely slower:
+
+- **Redis** — `LlmQuotaService.check_quota` catches the failure and falls back to
+  an unlimited budget; cache reads are wrapped so a miss becomes a provider call.
+- **Qdrant** — a failed lookup is logged and treated as a cache miss.
+- **Postgres** — `get_applicable_limits` reads quota rules through `SessionLocal`
+  with no handler, so the error escapes as a 500 on every chat request; and
+  `resolve_api_key` swallows the database error and returns `None`, which
+  `ApiKeyAuthGuard` reports as a 401 for a key that is in fact valid.
+
+Redis and Qdrant stay on `/deps` so a cache blip is still visible to an operator
+without evicting every replica and converting graceful degradation into an
+outage.
 - Every response carries `X-Correlation-ID` and `X-Request-ID`; the chat response
   also exposes `X-Cache`.
 - Structured access logs include method, path, status, duration, and client IP.

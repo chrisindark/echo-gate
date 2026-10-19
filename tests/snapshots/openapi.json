@@ -1220,17 +1220,6 @@
             "title": "Temperature",
             "type": "number"
           },
-          "tenant_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Tenant Id"
-          },
           "thinking": {
             "anyOf": [
               {
@@ -1309,17 +1298,6 @@
               }
             ],
             "title": "User"
-          },
-          "user_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "User Id"
           }
         },
         "required": [
@@ -5926,6 +5904,25 @@
         ]
       }
     },
+    "/api/v1/health/deps": {
+      "get": {
+        "operationId": "endpoint_api_v1_health_deps_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Non-gating dependency report for alerting: Postgres, Redis, Qdrant, Celery broker and workers (1s timeouts). Always returns 200; read the status field (healthy / degraded / unhealthy) instead of the HTTP code",
+        "tags": [
+          "Health"
+        ]
+      }
+    },
     "/api/v1/health/live": {
       "get": {
         "operationId": "endpoint_api_v1_health_live_get",
@@ -5958,7 +5955,7 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Readiness probe for Redis, Database, and Vector DB with 1s timeouts",
+        "summary": "Readiness probe: gates on Postgres only, with a 1s timeout. Redis and Qdrant are degradable (a failure is a cache miss, not a wrong answer) and are reported on /health/deps instead, so a cache blip does not evict every replica",
         "tags": [
           "Health"
         ]

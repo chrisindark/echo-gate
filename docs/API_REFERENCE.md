@@ -33,18 +33,23 @@ The chat completion endpoint is the exception: it returns a bare
 | --- | --- | --- |
 | `X-API-Key` | analytics, gateway-requests, chat | Resolved server-side to a `tenant_id`/`user_id`; establishes the Postgres RLS context. **Required** by analytics and gateway-requests; **optional but validated** on chat. |
 | `X-Admin-Key` | `/api/v1/admin/*` | Scoped operator credential. Required by every admin route; see [Admin authentication](#admin-authentication--x-admin-key). |
-| `X-Tenant-ID` | trusted/internal | Tenant when no API key is supplied. Selects the RLS context but does **not** authenticate. |
-| `X-User-ID` | trusted/internal | User when no API key is supplied. Selects the RLS context but does **not** authenticate. |
 | `X-Session-ID` | chat | Binds the request to a session cache scope. |
 | `X-Conversation-ID` | chat | Binds the request to a conversation cache scope. |
 | `X-Request-ID` / `X-Correlation-ID` | all | Accepted and echoed back for tracing. |
 
-The chat controller also accepts `tenant_id`, `user_id`, `session_id`, and
-`conversation_id` in the JSON body; body values win, then middleware/header values
-apply.
+`X-API-Key` is the **only** source of tenant and user identity. `tenant_id` and
+`user_id` are not request fields at all — they are resolved from the key and
+stamped onto the request server-side. A body carrying `tenant_id` or `user_id` is
+parsed and the values discarded, and `user` in the body is not read for identity
+or billing purposes.
 
-`X-Tenant-ID` / `X-User-ID` are **not** credentials. They choose which tenant a
-request is scoped to; they no longer stand in for authentication on any route.
+The former `X-Tenant-ID` / `X-User-ID` headers are **ignored**. They were
+caller-supplied, so honouring them let anyone who could reach the gateway choose
+the tenant its request ran as — and, together with the request body, read another
+tenant's cached answers.
+
+The chat controller accepts `session_id` and `conversation_id` in the JSON body as
+well as the matching headers; body values win.
 
 ### Chat authentication
 
@@ -100,9 +105,50 @@ Returns app metadata.
 | --- | --- | --- |
 | `GET` | `/api/v1/health` | Basic check. `{"status": "healthy", "version": ...}`. |
 | `GET` | `/api/v1/health/live` | Process liveness. 200 healthy, 503 otherwise. |
-| `GET` | `/api/v1/health/ready` | Checks Postgres, Redis, Qdrant (1s timeouts). 200/503. |
+| `GET` | `/api/v1/health/ready` | Gating probe. Postgres only (1s timeout). 200/503. |
+| `GET` | `/api/v1/health/deps` | Non-gating dependency report for alerting. **Always 200.** |
 | `GET` | `/api/v1/health/worker` | Checks Celery broker + workers. 200/503. |
 | `GET` | `/api/v1/health/celery` | Alias of `/worker`. |
+
+### Probe tiering
+
+The three probes answer different questions and are wired to different consumers:
+
+| Probe | Question | Gate? | Dependencies |
+| --- | --- | --- | --- |
+| `/live` | Is the process running? | Restarts the container | None |
+| `/ready` | Can this replica serve a *correct* response? | Load-balancer membership | Postgres |
+| `/deps` | Is anything degraded? | No — alerting only | Postgres, Redis, Qdrant, Celery |
+
+`/ready` deliberately excludes Redis and Qdrant. Both are degradable: a failed
+lookup is treated as a cache miss and the router answers from the provider, so
+their absence produces slower responses, never wrong ones. Postgres is not
+degradable — quota rules are read through an unguarded session (a failure 500s
+every chat request) and API-key resolution swallows the database error and
+returns "unauthenticated" (a failure 401s valid keys). Gating on it would let a
+cache blip evict every replica and turn graceful degradation into an outage.
+
+`/deps` never returns 503, so it can be scraped without any risk of a probe
+taking a replica out of rotation. Alert on the `status` field instead:
+
+```json
+{
+  "status": "degraded",
+  "gating": ["database"],
+  "failed": ["redis"],
+  "checks": {
+    "database": "ok",
+    "redis": "failed",
+    "vector_db": "ok",
+    "celery_broker": "ok",
+    "celery_workers": "ok"
+  }
+}
+```
+
+`status` is `healthy` (all ok), `degraded` (a non-gating dependency failed), or
+`unhealthy` (the gating dependency failed). Page on `unhealthy`; warn on
+`degraded`.
 
 ---
 
@@ -128,8 +174,8 @@ The main gateway endpoint. OpenAI-compatible request; returns a
 | `max_tokens` | int | `null` | Cache key; also filters candidates by completion tokens. |
 | `presence_penalty` / `frequency_penalty` | float | `0.0` | Cache key. |
 | `logit_bias` | object | `null` | Cache key. |
-| `user` | object/string | `null` | Falls back to middleware user. |
-| `user_id`, `tenant_id`, `session_id`, `conversation_id` | string | `null` | Cache key + scope. |
+| `user` | object/string | `null` | OpenAI-compatible end-user field. **Not** an identity — see [Identity headers](#identity-headers). |
+| `session_id`, `conversation_id` | string | `null` | Cache key + scope. Also accepted as the `X-Session-ID` / `X-Conversation-ID` headers. |
 | `response_format` | object | `null` | `{"type":"json_object"}` or `{"type":"json_schema", ...}`. Cache key via `response_format_hash`. |
 | `reasoning_effort` | string | `null` | Passed to reasoning-capable providers (`low`, `medium`, `high`). Cache key. |
 | `thinking` | bool | `false` | Enable extended thinking / reasoning mode across Gemini, Claude, OpenAI, and Ollama. Cache key. |
