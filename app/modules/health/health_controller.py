@@ -4,14 +4,14 @@ from fastapi_health import health
 from app.core.config import config
 from app.core.responses import BaseAPIResponse
 from app.modules.health.health_service import (
+    DEPENDENCY_CHECKS,
+    READINESS_CHECKS,
     celery_failure_handler,
     celery_success_handler,
     check_celery_broker,
     check_celery_workers,
-    check_database,
     check_liveness,
-    check_redis,
-    check_vector_db,
+    dependencies_report_handler,
     liveness_failure_handler,
     liveness_success_handler,
     readiness_failure_handler,
@@ -48,14 +48,37 @@ router.add_api_route(
 router.add_api_route(
     "/ready",
     health(
-        [check_database, check_redis, check_vector_db],
+        list(READINESS_CHECKS),
         success_handler=readiness_success_handler,
         failure_handler=readiness_failure_handler,
         success_status=200,
         failure_status=503,
     ),
     methods=["GET"],
-    summary="Readiness probe for Redis, Database, and Vector DB with 1s timeouts",
+    summary=(
+        "Readiness probe: gates on Postgres only, with a 1s timeout. Redis and "
+        "Qdrant are degradable (a failure is a cache miss, not a wrong answer) "
+        "and are reported on /health/deps instead, so a cache blip does not "
+        "evict every replica"
+    ),
+)
+
+router.add_api_route(
+    "/deps",
+    health(
+        list(DEPENDENCY_CHECKS),
+        success_handler=dependencies_report_handler,
+        failure_handler=dependencies_report_handler,
+        success_status=200,
+        # Deliberately 200: this route is an alerting surface, never a gate.
+        failure_status=200,
+    ),
+    methods=["GET"],
+    summary=(
+        "Non-gating dependency report for alerting: Postgres, Redis, Qdrant, "
+        "Celery broker and workers (1s timeouts). Always returns 200; read the "
+        "status field (healthy / degraded / unhealthy) instead of the HTTP code"
+    ),
 )
 
 router.add_api_route(

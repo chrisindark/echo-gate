@@ -67,7 +67,7 @@ Existing suites:
 | File | Covers |
 | --- | --- |
 | `tests/test_api_keys_unit.py` | Key hashing determinism, prefix, entropy, empty-key resolution. |
-| `tests/test_health.py` | `/health/live`, `/ready`, `/worker` healthy and degraded paths. |
+| `tests/test_health.py` | `/health/live`, `/ready`, `/deps`, `/worker` healthy and degraded paths. |
 | `tests/test_logging_and_correlation.py` | JSON formatter, logger setup, latency decorator, correlation-ID middleware. |
 | `tests/test_rls.py` | RLS stamping/isolation, fail-closed default, cross-tenant insert rejection, API-key resolution. (Requires a live Postgres.) |
 | `tests/test_tenant_middleware.py` | Identity propagation and no context leakage between requests. |
@@ -156,7 +156,9 @@ npm run build
 
 ## Debugging tips
 
-- `GET /api/v1/health/ready` isolates which backing service is unhealthy.
+- `GET /api/v1/health/deps` isolates which backing service is unhealthy, and is the
+  endpoint to alert on — it never returns 503. Use `/api/v1/health/ready` only for
+  the gating question ("can this replica serve correctly?"), which is Postgres alone.
 - `POST /api/v1/chat/completions/semantic-search` (and `/exact-search`) exercise the
   cache without a provider call.
 - `GET /api/v1/gateway-requests/?search=...` finds a trace; the detail view exposes

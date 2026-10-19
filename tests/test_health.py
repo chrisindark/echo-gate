@@ -24,36 +24,116 @@ class TestHealthEndpoints(unittest.TestCase):
         """Verify /api/v1/health/live returns HTTP 200 with alive status."""
         response = self.client.get("/api/v1/health/live")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"status": "alive"})
+        self.assertEqual(response.json(), {"status": "healthy"})
 
-    def test_health_ready_all_healthy(self):
-        """Verify /api/v1/health/ready returns HTTP 200 when all dependencies are healthy."""
+    def test_health_ready_healthy(self):
+        """Verify /api/v1/health/ready returns HTTP 200 when Postgres is healthy."""
         app.dependency_overrides[check_database] = lambda: True
-        app.dependency_overrides[check_redis] = lambda: True
-        app.dependency_overrides[check_vector_db] = lambda: True
 
         response = self.client.get("/api/v1/health/ready")
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual(data["status"], "ready")
-        self.assertEqual(
-            data["checks"],
-            {"database": "ok", "redis": "ok", "vector_db": "ok"},
-        )
+        self.assertEqual(data["status"], "healthy")
+        self.assertEqual(data["checks"], {"database": "ok"})
 
-    def test_health_ready_partial_failure(self):
-        """Verify /api/v1/health/ready returns HTTP 503 when any dependency fails."""
-        app.dependency_overrides[check_database] = lambda: True
-        app.dependency_overrides[check_redis] = lambda: False
-        app.dependency_overrides[check_vector_db] = lambda: True
+    def test_health_ready_database_failure(self):
+        """Verify /api/v1/health/ready returns HTTP 503 when Postgres fails."""
+        app.dependency_overrides[check_database] = lambda: False
 
         response = self.client.get("/api/v1/health/ready")
         self.assertEqual(response.status_code, 503)
         data = response.json()
         self.assertEqual(data["status"], "unhealthy")
+        self.assertEqual(data["checks"], {"database": "failed"})
+
+    def test_health_ready_ignores_degradable_dependencies(self):
+        """A Redis or Qdrant blip must not take the replica out of rotation.
+
+        Neither dependency can produce an incorrect answer -- both degrade to a
+        cache miss -- so neither belongs in the readiness gate.
+        """
+        app.dependency_overrides[check_database] = lambda: True
+        app.dependency_overrides[check_redis] = lambda: False
+        app.dependency_overrides[check_vector_db] = lambda: False
+
+        response = self.client.get("/api/v1/health/ready")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "healthy")
+
+    def test_health_deps_healthy(self):
+        """Verify /api/v1/health/deps reports every dependency as ok."""
+        for check in (
+            check_database,
+            check_redis,
+            check_vector_db,
+            check_celery_broker,
+            check_celery_workers,
+        ):
+            app.dependency_overrides[check] = lambda: True
+
+        response = self.client.get("/api/v1/health/deps")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["status"], "healthy")
+        self.assertEqual(data["gating"], ["database"])
+        self.assertEqual(data["failed"], [])
         self.assertEqual(
             data["checks"],
-            {"database": "ok", "redis": "failed", "vector_db": "ok"},
+            {
+                "database": "ok",
+                "redis": "ok",
+                "vector_db": "ok",
+                "celery_broker": "ok",
+            },
+        )
+
+    def test_health_deps_degraded_still_returns_200(self):
+        """A degradable failure is 'degraded' but must never produce a 503."""
+        app.dependency_overrides[check_database] = lambda: True
+        app.dependency_overrides[check_redis] = lambda: False
+        app.dependency_overrides[check_vector_db] = lambda: True
+        app.dependency_overrides[check_celery_broker] = lambda: True
+        app.dependency_overrides[check_celery_workers] = lambda: True
+
+        response = self.client.get("/api/v1/health/deps")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["status"], "degraded")
+        self.assertEqual(data["failed"], ["redis"])
+        self.assertEqual(data["checks"]["redis"], "failed")
+
+    def test_health_deps_unhealthy_still_returns_200(self):
+        """A gating failure reports 'unhealthy' for alerting, without a 503."""
+        app.dependency_overrides[check_database] = lambda: False
+        app.dependency_overrides[check_redis] = lambda: True
+        app.dependency_overrides[check_vector_db] = lambda: True
+        app.dependency_overrides[check_celery_broker] = lambda: True
+        app.dependency_overrides[check_celery_workers] = lambda: True
+
+        response = self.client.get("/api/v1/health/deps")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["status"], "unhealthy")
+        self.assertEqual(data["failed"], ["database"])
+
+    def test_health_deps_everything_down(self):
+        """Verify /api/v1/health/deps stays 200 and lists every failed check."""
+        for check in (
+            check_database,
+            check_redis,
+            check_vector_db,
+            check_celery_broker,
+            check_celery_workers,
+        ):
+            app.dependency_overrides[check] = lambda: False
+
+        response = self.client.get("/api/v1/health/deps")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["status"], "unhealthy")
+        self.assertEqual(
+            data["failed"],
+            ["celery_broker", "database", "redis", "vector_db"],
         )
 
     def test_health_worker_all_healthy(self):
@@ -64,7 +144,7 @@ class TestHealthEndpoints(unittest.TestCase):
         response = self.client.get("/api/v1/health/worker")
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual(data["status"], "ready")
+        self.assertEqual(data["status"], "healthy")
         self.assertEqual(
             data["checks"],
             {"celery_broker": "ok", "celery_workers": "ok"},
