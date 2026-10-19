@@ -138,8 +138,6 @@ explicit task:
 
 - The `conversation/` router is defined but **not included** in `app/main.py`, so
   `/api/v1/conversations/*` returns 404. Tables and RLS policies exist.
-- `stream` is accepted in `ChatCompletionRequest` but streaming is **not
-  implemented** anywhere; responses are always non-streaming JSON.
 - The UI hardcodes `http://localhost:8000`, and its sidebar links `/cache` and
   `/settings`, which have no routes.
 - `app/.env.example` contains unused keys (`EMBEDDING_DIMENSION`, `EMBEDDING_DEVICE`,

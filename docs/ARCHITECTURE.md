@@ -276,17 +276,16 @@ These are real today; documented rather than silently changed.
    `APIRouter(prefix="/api/v1/conversations")`, but `app/main.py` never includes it,
    so every conversation route returns 404. The models/tables and RLS policies
    exist.
-2. **Streaming implemented.** `ChatCompletionRequest.stream=True` is supported via Server-Sent Events (`text/event-stream`), backed by provider streams, exact/semantic cache playback, and guarded in-memory response accumulation.
-3. **UI gaps.** The Next.js app hardcodes `http://localhost:8000` (no env var), the
+2. **UI gaps.** The Next.js app hardcodes `http://localhost:8000` (no env var), the
    sidebar links to `/cache` and `/settings` which have no routes (404), and the
    analytics page is read-only tables/cards rather than charts.
-4. **`.env.example` drift.** `EMBEDDING_DIMENSION`, `EMBEDDING_DEVICE`, and
+3. **`.env.example` drift.** `EMBEDDING_DIMENSION`, `EMBEDDING_DEVICE`, and
    `CROSS_ENCODER_VERIFIER_MODEL` appear in `app/.env.example` but are read nowhere;
    meanwhile the relevance cross-encoder is configured by
    `CROSS_ENCODER_RELEVANCE_MODEL`, which is not in the example. See
    [CONFIGURATION.md](CONFIGURATION.md#not-read-by-anything).
-5. **README model drift.** The README mentions `deepseek-r1` and
+4. **README model drift.** The README mentions `deepseek-r1` and
    `nomic-embed-text`; the enforced allowlist is `ALLOWED_MODELS` in
    `app/modules/chat/chat_schema.py`, and the default embedding model is
    `all-MiniLM-L6-v2` (the embedding service is constructed with `use_ollama=False`).
-6. **Celery Beat interval comments** disagree with the coded schedules (see above).
+5. **Celery Beat interval comments** disagree with the coded schedules (see above).
