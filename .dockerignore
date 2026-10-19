@@ -1,0 +1,69 @@
+# The backend image only needs pyproject.toml, poetry.lock, app/ and
+# alembic/. Everything else is either dev tooling, a separate app (ui/), or
+# local state that must never be baked into an image.
+
+# Secrets and local env files — never baked into built images. Container
+# configuration comes from docker-compose/system env; app/main.py falls back
+# to system environment when these files are absent.
+.env
+.env.*
+app/.env
+app/.env.*
+**/.env
+**/.env.*
+
+# VCS and dev tooling
+.git
+.gitignore
+.github
+.vscode
+.idea
+.husky
+.pre-commit-config.yaml
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Python artifacts (rebuilt from source inside the image)
+**/__pycache__
+**/*.py[cod]
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.coverage
+htmlcov
+.tox
+
+# Virtual environments
+.venv
+venv
+
+# Local model / tokenizer caches (downloaded at build time instead)
+.model_cache
+.cache
+
+# The UI is a separate app with its own toolchain and huge node_modules;
+# the backend image does not serve it.
+ui
+
+# Docs, guides, and other non-runtime files
+docs
+*.md
+
+# Tests are run outside the image (CI / poetry run pytest)
+tests
+
+# Local-only scripts, data, and artifacts
+dev.sh
+check_qdrant.py
+create_qdrant.py
+wipe_qdrant.py
+run_test_results.csv
+
+# Celery / SQLite local state
+celerybeat-schedule
+celerybeat-schedule-shm
+celerybeat-schedule-wal
+sqlite3.db
+sqlite3.db-shm
+sqlite3.db-wal
