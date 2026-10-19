@@ -10,6 +10,7 @@ This directory is the detailed reference for the Echo Gate LLM gateway. The root
 | [CONFIGURATION.md](CONFIGURATION.md) | Every environment variable, its default, and how it changes behavior. |
 | [DATA_MODEL.md](DATA_MODEL.md) | Postgres tables, Row-Level Security policies, and the Qdrant cache collection schema. |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Local setup, test/build/lint commands, migrations, scripts, and contribution conventions. |
+| [ROADMAP.md](ROADMAP.md) | Current plan of record: features already landed, and the planned work (resilience, cache-quality loop, serving performance, commercialization) in development order. |
 
 ## What Echo Gate is
 

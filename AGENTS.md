@@ -19,6 +19,8 @@ Deep reference lives in `docs/`. Read the relevant file before a non-trivial cha
 - `docs/CONFIGURATION.md` — every environment variable and its default.
 - `docs/DATA_MODEL.md` — Postgres tables, RLS policies, and the Qdrant collection.
 - `docs/DEVELOPMENT.md` — setup, commands, tests, migrations, conventions, scripts.
+- `docs/ROADMAP.md` — plan of record: landed features and planned work in
+  development order. Read before proposing new work.
 
 ## Plan First
 
