@@ -84,9 +84,19 @@ Echo Gate accepts OpenAI-compatible `chat/completions` requests and routes them 
 ### 6. Observability UI (Next.js 16)
 
 - Independent frontend located in `ui/` (Next.js 16, React 19, Tailwind CSS, Radix UI Themes):
+  - **Chat Playground (`/`)**: Interactive chat interface with real-time streaming, cache hit indicators, provider and model selectors, and configuration toggles.
   - **Traces Dashboard (`/traces`)**: Real-time table of all gateway traffic with routing decisions, cache statuses, and latencies.
   - **Trace Detail View (`/traces/[id]`)**: Interactive waterfall visualization displaying the exact lifecycle latency of each pipeline stage, extracted intent metadata, and judge scores.
   - **Analytics Dashboard (`/analytics`)**: Visual summaries of KPIs, cache hit rates, cost and latency saved, model breakdowns, and time-series trends.
+  - **Quota Management (`/quota`)**: Scoped admin interface for Tokens-Per-Minute (TPM) and budget rules.
+
+| Chat Playground | Traces & Latency Waterfall |
+| --- | --- |
+| ![Chat Playground](docs/assets/screenshots/chat-playground.png) | ![Traces Dashboard](docs/assets/screenshots/traces-dashboard.png) |
+
+| Trace Detail & Waterfall | Analytics Dashboard |
+| --- | --- |
+| ![Trace Detail](docs/assets/screenshots/trace-detail.png) | ![Analytics Dashboard](docs/assets/screenshots/analytics-dashboard.png) |
 
 ### 7. Background Worker (Celery)
 
@@ -264,12 +274,20 @@ across tenants.
 
 ### 6. Create an API Key
 
-Every request's tenant context comes from an API key. Create one after the API is
-running:
+Every request's tenant context comes from an API key.
+
+First, mint an admin key using the CLI tool:
+
+```bash
+poetry run python -m app.scripts.create_admin_key create --name "local-admin" --scopes "admin:*"
+```
+
+Store the displayed admin key (`ega_...`). Then create a tenant API key:
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/admin/api-keys/ \
   -H "Content-Type: application/json" \
+  -H "X-Admin-Key: <YOUR_ADMIN_KEY>" \
   -d '{"name": "local-dev", "tenant_id": "acme", "user_id": "dev"}'
 ```
 

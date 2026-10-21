@@ -34,9 +34,10 @@ def embed(text: str) -> list[float]:
         )
         return response["embedding"]
     """
-    os.environ["OLLAMA_URL"] = "http://localhost:11434"
-    os.environ["BM25_MODEL_PATH"] = (
-        "/Users/christopherpaul/projects/echo-gate/.model_cache/models--Qdrant--bm25"
+    os.environ["OLLAMA_URL"] = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+    os.environ["BM25_MODEL_PATH"] = os.environ.get(
+        "BM25_MODEL_PATH",
+        os.path.join(os.getcwd(), ".model_cache/models--Qdrant--bm25"),
     )
     embedding_service = EmbeddingService()
     vector = embedding_service.get_embedding(f"{text}")

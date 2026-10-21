@@ -59,7 +59,7 @@ app/
     api_keys/                 API key model/schema/service/controller (tenant identity)
     admin/                    admin API key model/service (scoped operator identity;
                               minted only by app/scripts/create_admin_key.py)
-    conversation/             conversation/message model/service/controller (NOT registered — see gaps)
+    conversation/             conversation/message model/service/controller (RLS-scoped conversations & chat history)
   worker/
     celery_app.py             Celery app, beat schedule, worker event-loop wiring
   scripts/                    One-off tools (seed, migrate embeddings, test runner)
