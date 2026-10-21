@@ -17,6 +17,15 @@ venv/
 ENV/
 env/
 
+# Environment / secrets files — local config must never be committed.
+# Examples (*.env.example) are the only committed env files.
+**/.env
+**/.env.*
+!**/.env.example
+
+# Generated test-result artifacts (app/scripts/run_tests.py output)
+run_test_results.csv
+
 # IDE and OS configs
 .vscode/*
 !.vscode/extensions.json

@@ -116,9 +116,9 @@ alters the API, also regenerate the OpenAPI snapshot (above).
 | `app/scripts/test_dataset.py` | The labelled prompt dataset (canonical id + `expected_match`) used by the runners. |
 | `app/scripts/calibrate_reranker.py` | Replays `TEST_DATASET` through `RerankerService` offline (no Redis/Qdrant/API) and sweeps acceptance thresholds, writing `reranker_calibration.{csv,json}` with precision/recall/F1 and a recommended threshold. Flags: `--limit`, `--max-candidates`, `--scoring-mode`, `--score-source`. |
 | `app/scripts/inspect_semantic_cache.py` | Read-only report over `gateway_requests.score_breakdown` (offline sweeps cannot exercise the intent/metadata factors). Flags near-boundary rejections: candidates whose `base_score` cleared the intent's high threshold but whose bounded factors dropped the final score below it, with per-field `metadata_comparisons`. Flags: `--limit`, `--boundary-margin`, `--json`. Run with `PYTHON_ENV=local` so the DB URL is loaded. |
-| `create_qdrant.py` | Re-initializes the Qdrant collection via the DI container. |
-| `check_qdrant.py` | Scrolls the first 5 points to inspect scope/tenant/user. |
-| `wipe_qdrant.py` | Drops the `embeddings_multivector` collection. |
+| `app/scripts/create_qdrant.py` | Re-initializes the Qdrant collection via the DI container. |
+| `app/scripts/check_qdrant.py` | Scrolls the first 5 points to inspect scope/tenant/user. |
+| `app/scripts/wipe_qdrant.py` | Drops the `embeddings_multivector` collection. |
 
 ## UI
 
