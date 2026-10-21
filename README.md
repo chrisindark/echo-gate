@@ -1,5 +1,7 @@
 # Echo Gate LLM Gateway
 
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
+
 **Echo Gate** is an asynchronous, high-performance LLM API gateway, proxy, and observability platform built with **FastAPI** (Python 3.11+) and accompanied by an independent **Next.js 16** frontend in `ui/`.
 
 Echo Gate accepts OpenAI-compatible `chat/completions` requests and routes them dynamically across local and cloud providers (**Ollama**, **Google GenAI / Gemini**, **OpenAI**, **Groq**, and **OpenRouter**). Its core capability is an enterprise-grade **Multi-Level Semantic Caching & Verification Pipeline** combining Redis, Qdrant hybrid search, cross-encoder reranking, intent classification, and asynchronous judge evaluations to maximize cache hit rates, eliminate hallucinations, protect user privacy, and drastically cut latency and inference costs.
@@ -19,6 +21,7 @@ Echo Gate accepts OpenAI-compatible `chat/completions` requests and routes them 
 ## 🚀 Key Features
 
 ### 1. Multi-Provider Routing & Resiliency
+
 - Standardized OpenAI chat completion endpoint routing to:
   - **Ollama**: Local models (`qwen3:8b`, `qwen2.5-coder:{1.5b,3b,7b,14b}`)
   - **Google GenAI**: Gemini models (`gemini-3.1-flash-lite`, `gemini-3.5-flash-lite`, `gemini-3.8-flash`)
@@ -28,6 +31,7 @@ Echo Gate accepts OpenAI-compatible `chat/completions` requests and routes them 
 - **Automated Fallback & Exponential Retries**: Configurable automatic fallback provider and model switching with retry policies to prevent client-facing outages.
 
 ### 2. Multi-Level Caching Pipeline
+
 - **Layer 1: Redis Exact Match**:
   - Sub-millisecond retrieval for identical requests using versioned SHA-256 prompt and configuration hashes.
   - Granular TTL management with configurable bypass flags (`USE_REDIS_EXACT_MATCHING`).
@@ -41,6 +45,7 @@ Echo Gate accepts OpenAI-compatible `chat/completions` requests and routes them 
   - **Toggleable Infrastructure**: Ability to independently disable Redis or Qdrant search layers via environment configuration.
 
 ### 3. Semantic Verification & Request Intelligence
+
 - **Intent Classification & Analysis**:
   - Classifies query intent (e.g. `general_query`, `code_generation`, `code_explanation`, `debugging`, `summarization`, `chitchat`, `weather`, `finance_market`, `factual_static`, …).
   - Extracts extended semantic attributes: `time_sensitivity`, `core_operation`, `core_subject`, `subject_modifier`, and `action_modifier`.
@@ -57,6 +62,7 @@ Echo Gate accepts OpenAI-compatible `chat/completions` requests and routes them 
   - Employs local DeBERTa-v3 NLI cross-encoders alongside optional LLM judges (Gemini, OpenAI, Groq) to identify false positive cache hits.
 
 ### 4. Full Request Tracing & Latency Profiling
+
 - **Microsecond Latency Breakdown**: Every request records fine-grained timestamps across every pipeline stage:
   - `redis_exact_ms`
   - `qdrant_exact_ms`
@@ -69,18 +75,21 @@ Echo Gate accepts OpenAI-compatible `chat/completions` requests and routes them 
 - **Gateway Requests Log**: Comprehensive audit trail in PostgreSQL storing prompts, responses, routing decisions (`REDIS_EXACT`, `QDRANT_EXACT`, `QDRANT_SEMANTIC`, `QDRANT_FAST`, `LLM`), latencies, errors, and evaluation statuses.
 
 ### 5. Quotas, Usage, & Cost Tracking
+
 - **Token Usage Accounting**: Tracks prompt, completion, total, cache-read, and cache-creation tokens per request.
 - **Cost Calculation**: Automated dollar cost computation based on provider and model token pricing tiers.
 - **Rate & Token Limits**: Enforces Tokens-Per-Minute (TPM) quota rules per API key, provider, and model.
 - **Multi-Tenant Isolation (Postgres RLS)**: Every request resolves an API key to a tenant/user and the gateway binds that identity to the database transaction. Row-Level Security policies on the traces, usage, quota, and conversation tables make cross-tenant reads and writes impossible at the storage layer.
 
 ### 6. Observability UI (Next.js 16)
+
 - Independent frontend located in `ui/` (Next.js 16, React 19, Tailwind CSS, Radix UI Themes):
   - **Traces Dashboard (`/traces`)**: Real-time table of all gateway traffic with routing decisions, cache statuses, and latencies.
   - **Trace Detail View (`/traces/[id]`)**: Interactive waterfall visualization displaying the exact lifecycle latency of each pipeline stage, extracted intent metadata, and judge scores.
   - **Analytics Dashboard (`/analytics`)**: Visual summaries of KPIs, cache hit rates, cost and latency saved, model breakdowns, and time-series trends.
 
 ### 7. Background Worker (Celery)
+
 - **Cache Eviction**: Periodically purges expired vector points from Qdrant (`delete_expired_vectors`).
 - **Asynchronous Evaluation Pipeline**: Background worker (`evaluate_pending_requests`) evaluates pending request logs with cross-encoders and NLI models to identify false-positive cache hits without degrading hot-path serving latency.
 
@@ -159,6 +168,7 @@ Echo Gate accepts OpenAI-compatible `chat/completions` requests and routes them 
 ## ⚙️ Setup & Installation
 
 ### 1. Prerequisites
+
 - [Poetry](https://python-poetry.org/) (Python dependency management)
 - [Node.js 20+](https://nodejs.org/) (for the Next.js UI)
 - [Docker & Docker Compose](https://www.docker.com/)
@@ -182,11 +192,15 @@ Embeddings are computed locally with `sentence-transformers`
 (`EMBEDDING_MODEL_NAME`, default `all-MiniLM-L6-v2`), not via Ollama.
 
 ### 3. Environment Configuration
+
 Create your environment file in `app/`:
+
 ```bash
 cp app/.env.example app/.env.local
 ```
+
 Configure your keys and endpoints:
+
 ```ini
 PYTHON_ENV=local
 
@@ -224,12 +238,15 @@ DEFAULT_LLM_SERVICE=ollama
 > list, including the semantic-search thresholds and model settings.
 
 ### 4. Start Infrastructure Containers
+
 Start PostgreSQL, Redis, and Qdrant:
+
 ```bash
 docker-compose up -d postgres redis qdrant
 ```
 
 ### 5. Install Dependencies & Run Database Migrations
+
 ```bash
 # Install backend dependencies
 poetry install
@@ -261,30 +278,34 @@ The response includes the plaintext `api_key` (shown once). Send it as
 sets the Postgres RLS context. When no key is supplied the request is treated as
 the `anonymous` tenant.
 
-
 ### 7. Start the Services
 
 **API Gateway:**
+
 ```bash
 poetry run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 **Celery Background Worker:**
+
 ```bash
 poetry run celery -A app.worker.celery_app worker --loglevel=info
 ```
 
 **Celery Beat (Optional - for scheduled tasks):**
+
 ```bash
 poetry run celery -A app.worker.celery_app beat --loglevel=info
 ```
 
 **Frontend UI:**
+
 ```bash
 cd ui
 npm install
 npm run dev
 ```
+
 Open [http://localhost:3000](http://localhost:3000) to view the gateway dashboard, traces, and analytics.
 
 ---
@@ -294,6 +315,7 @@ Open [http://localhost:3000](http://localhost:3000) to view the gateway dashboar
 Echo Gate exposes standard endpoints under `/api/v1`.
 
 ### 1. Standard Chat Completion (Ollama)
+
 ```bash
 curl -X POST "http://localhost:8000/api/v1/chat/completions" \
   -H "Content-Type: application/json" \
@@ -308,6 +330,7 @@ curl -X POST "http://localhost:8000/api/v1/chat/completions" \
 ```
 
 ### 2. Cloud Provider Routing (Google Gemini / OpenAI / Groq)
+
 ```bash
 curl -X POST "http://localhost:8000/api/v1/chat/completions" \
   -H "Content-Type: application/json" \
@@ -321,7 +344,9 @@ curl -X POST "http://localhost:8000/api/v1/chat/completions" \
 ```
 
 ### 3. Inspecting Semantic Cache Directly
+
 Test candidate retrieval without hitting an LLM provider:
+
 ```bash
 curl -X POST "http://localhost:8000/api/v1/chat/completions/semantic-search" \
   -H "Content-Type: application/json" \
@@ -334,6 +359,7 @@ curl -X POST "http://localhost:8000/api/v1/chat/completions/semantic-search" \
 ```
 
 ### 4. Fetching Request Traces & Analytics
+
 - **List Traces**: `GET /api/v1/gateway-requests/?skip=0&limit=20`
 - **Trace Details with Latency Breakdown**: `GET /api/v1/gateway-requests/{log_id}`
 - **Trace by Exact Hash**: `GET /api/v1/gateway-requests/by-hash/{exact_hash}`
@@ -343,20 +369,20 @@ curl -X POST "http://localhost:8000/api/v1/chat/completions/semantic-search" \
 
 ### 5. Other Endpoints
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `POST` | `/api/v1/chat/completions/exact-search` | Test the exact-cache lookup only. |
-| `POST` | `/api/v1/chat/completions/cache-save` | Write a `{request, response}` pair into the cache directly. |
-| `POST` | `/api/v1/qdrant/search` | Dense vector search against the cache collection. |
-| `POST` | `/api/v1/qdrant/search/rrf` | Hybrid dense + sparse RRF cache search. |
-| `POST` | `/api/v1/verifier/predict/rerank` | Cross-encoder rerank of candidate strings. |
-| `GET`/`POST` | `/api/v1/llm-usage/` | List / create token-usage logs. |
-| `POST` | `/api/v1/llm-usage/calculate-costs` | Queue background cost calculation. |
-| `GET`/`POST`/`DEL` | `/api/v1/admin/api-keys/` | Create, list, and revoke API keys. |
-| `GET` | `/api/v1/health` | Basic health; see `/live`, `/ready`, `/worker`, `/celery`. |
-
-Conversation endpoints (`/api/v1/conversations`) exist in code but are **not
-mounted** and return 404 today. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#known-gaps-and-discrepancies).
+| Method             | Path                                           | Purpose                                                     |
+| ------------------ | ---------------------------------------------- | ----------------------------------------------------------- |
+| `POST`             | `/api/v1/chat/completions/exact-search`        | Test the exact-cache lookup only.                           |
+| `POST`             | `/api/v1/chat/completions/cache-save`          | Write a `{request, response}` pair into the cache directly. |
+| `POST`             | `/api/v1/qdrant/search`                        | Dense vector search against the cache collection.           |
+| `POST`             | `/api/v1/qdrant/search/rrf`                    | Hybrid dense + sparse RRF cache search.                     |
+| `POST`             | `/api/v1/verifier/predict/rerank`              | Cross-encoder rerank of candidate strings.                  |
+| `GET`/`POST`       | `/api/v1/llm-usage/`                           | List / create token-usage logs.                             |
+| `POST`             | `/api/v1/llm-usage/calculate-costs`            | Queue background cost calculation.                          |
+| `GET`/`POST`/`DEL` | `/api/v1/admin/api-keys/`                      | Create, list, and revoke API keys.                          |
+| `GET`/`POST`       | `/api/v1/conversations`                        | Create / list conversations (RLS-scoped).                   |
+| `GET`              | `/api/v1/conversations/{conversation_id}`      | A conversation with its messages.                           |
+| `POST`             | `/api/v1/conversations/{conversation_id}/chat` | Chat with full history; persists user + assistant messages. |
+| `GET`              | `/api/v1/health`                               | Basic health; see `/live`, `/ready`, `/worker`, `/celery`.  |
 
 The full, authoritative endpoint reference is in
 [docs/API_REFERENCE.md](docs/API_REFERENCE.md); the API contract is also snapshotted
@@ -367,7 +393,29 @@ in `tests/snapshots/openapi.json`.
 ## 🛠️ Utility Scripts
 
 The project includes helpful CLI scripts under `app/scripts/`:
+
 - **Run Evaluation Test Suite**: `poetry run python app/scripts/run_tests.py`
 - **Seed Benchmark Prompts**: `poetry run python app/scripts/seed_prompts.py`
 - **Migrate Qdrant Embeddings**: `poetry run python app/scripts/migrate_embeddings.py`
-- **Manage Qdrant Collections**: `poetry run python create_qdrant.py` and `poetry run python check_qdrant.py`
+- **Manage Qdrant Collections**: `poetry run python -m app.scripts.create_qdrant`, `poetry run python -m app.scripts.check_qdrant`, and `poetry run python -m app.scripts.wipe_qdrant`
+
+---
+
+## 📜 License
+
+Echo Gate is free software: licensed under the
+[GNU Affero General Public License v3.0](LICENSE) or any later version.
+
+**Self-hosting safe harbor:** AGPL's source-provision duty (section 13) is
+triggered by modifying Echo Gate and making it available to users over a
+network. Running _unmodified_ Echo Gate privately inside your own
+organization — self-hosting for internal use — is fine and requires nothing
+further. If you modify Echo Gate and serve it to third parties over a
+network, you must make your modified version's source available to those
+users under AGPL, or obtain a separate commercial license from the project
+maintainers.
+
+See [NOTICE](NOTICE) for the full license statement and third-party
+dependency note. Contributions are licensed under AGPL-3.0 as well
+(AGPL-3.0-only for the `contribution` in licensing terms); see
+[CONTRIBUTING.md](CONTRIBUTING.md) before your first pull request.
