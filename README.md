@@ -368,20 +368,20 @@ curl -X POST "http://localhost:8000/api/v1/chat/completions/semantic-search" \
 
 ### 5. Other Endpoints
 
-| Method             | Path                                    | Purpose                                                     |
-| ------------------ | --------------------------------------- | ----------------------------------------------------------- |
-| `POST`             | `/api/v1/chat/completions/exact-search` | Test the exact-cache lookup only.                           |
-| `POST`             | `/api/v1/chat/completions/cache-save`   | Write a `{request, response}` pair into the cache directly. |
-| `POST`             | `/api/v1/qdrant/search`                 | Dense vector search against the cache collection.           |
-| `POST`             | `/api/v1/qdrant/search/rrf`             | Hybrid dense + sparse RRF cache search.                     |
-| `POST`             | `/api/v1/verifier/predict/rerank`       | Cross-encoder rerank of candidate strings.                  |
-| `GET`/`POST`       | `/api/v1/llm-usage/`                    | List / create token-usage logs.                             |
-| `POST`             | `/api/v1/llm-usage/calculate-costs`     | Queue background cost calculation.                          |
-| `GET`/`POST`/`DEL` | `/api/v1/admin/api-keys/`               | Create, list, and revoke API keys.                          |
-| `GET`              | `/api/v1/health`                        | Basic health; see `/live`, `/ready`, `/worker`, `/celery`.  |
-
-Conversation endpoints (`/api/v1/conversations`) exist in code but are **not
-mounted** and return 404 today. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#known-gaps-and-discrepancies).
+| Method             | Path                                           | Purpose                                                     |
+| ------------------ | ---------------------------------------------- | ----------------------------------------------------------- |
+| `POST`             | `/api/v1/chat/completions/exact-search`        | Test the exact-cache lookup only.                           |
+| `POST`             | `/api/v1/chat/completions/cache-save`          | Write a `{request, response}` pair into the cache directly. |
+| `POST`             | `/api/v1/qdrant/search`                        | Dense vector search against the cache collection.           |
+| `POST`             | `/api/v1/qdrant/search/rrf`                    | Hybrid dense + sparse RRF cache search.                     |
+| `POST`             | `/api/v1/verifier/predict/rerank`              | Cross-encoder rerank of candidate strings.                  |
+| `GET`/`POST`       | `/api/v1/llm-usage/`                           | List / create token-usage logs.                             |
+| `POST`             | `/api/v1/llm-usage/calculate-costs`            | Queue background cost calculation.                          |
+| `GET`/`POST`/`DEL` | `/api/v1/admin/api-keys/`                      | Create, list, and revoke API keys.                          |
+| `GET`/`POST`       | `/api/v1/conversations`                        | Create / list conversations (RLS-scoped).                   |
+| `GET`              | `/api/v1/conversations/{conversation_id}`      | A conversation with its messages.                           |
+| `POST`             | `/api/v1/conversations/{conversation_id}/chat` | Chat with full history; persists user + assistant messages. |
+| `GET`              | `/api/v1/health`                               | Basic health; see `/live`, `/ready`, `/worker`, `/celery`.  |
 
 The full, authoritative endpoint reference is in
 [docs/API_REFERENCE.md](docs/API_REFERENCE.md); the API contract is also snapshotted

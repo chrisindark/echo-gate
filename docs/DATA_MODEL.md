@@ -123,8 +123,9 @@ require an `X-Admin-Key` with a `quota:*` scope.
 | `content` | text | |
 | `created_at` | timestamptz | |
 
-> Conversations/messages exist but their router is not mounted — see
-> [API_REFERENCE.md](API_REFERENCE.md#conversations--apiv1conversations-not-mounted).
+> Conversations/messages are tenant-scoped and surfaced through the mounted
+> `conversation/` router — see
+> [API_REFERENCE.md](API_REFERENCE.md#conversations--apiv1conversations).
 
 #### `admin_api_keys`
 

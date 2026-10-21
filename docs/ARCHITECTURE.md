@@ -271,13 +271,9 @@ outage.
 
 These are real today; documented rather than silently changed.
 
-1. **Conversations are unreachable.** `app/modules/conversation/` defines
-   `APIRouter(prefix="/api/v1/conversations")`, but `app/main.py` never includes it,
-   so every conversation route returns 404. The models/tables and RLS policies
-   exist.
-2. **README model drift.** The README mentions `deepseek-r1` and
-   `nomic-embed-text`; the enforced allowlist is `ALLOWED_MODELS` in
-   `app/modules/chat/chat_schema.py`, and the default embedding model is
-   `all-MiniLM-L6-v2` (the embedding service is constructed with `use_ollama=False`).
-3. **Analytics page is read-only.** The Next.js analytics page renders tables and
+1. **Analytics page is read-only.** The Next.js analytics page renders tables and
    cards rather than charts (no charting library is installed).
+
+Former gaps (conversation router unmounted, README model drift, anonymous
+shared rate-limit bucket, `.env.example` key drift, scheduled-task mismatch)
+have been resolved; the record lives in `docs/ROADMAP.md`.
