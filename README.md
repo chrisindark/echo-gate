@@ -1,5 +1,7 @@
 # Echo Gate LLM Gateway
 
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
+
 **Echo Gate** is an asynchronous, high-performance LLM API gateway, proxy, and observability platform built with **FastAPI** (Python 3.11+) and accompanied by an independent **Next.js 16** frontend in `ui/`.
 
 Echo Gate accepts OpenAI-compatible `chat/completions` requests and routes them dynamically across local and cloud providers (**Ollama**, **Google GenAI / Gemini**, **OpenAI**, **Groq**, and **OpenRouter**). Its core capability is an enterprise-grade **Multi-Level Semantic Caching & Verification Pipeline** combining Redis, Qdrant hybrid search, cross-encoder reranking, intent classification, and asynchronous judge evaluations to maximize cache hit rates, eliminate hallucinations, protect user privacy, and drastically cut latency and inference costs.
@@ -370,3 +372,24 @@ The project includes helpful CLI scripts under `app/scripts/`:
 - **Seed Benchmark Prompts**: `poetry run python app/scripts/seed_prompts.py`
 - **Migrate Qdrant Embeddings**: `poetry run python app/scripts/migrate_embeddings.py`
 - **Manage Qdrant Collections**: `poetry run python create_qdrant.py` and `poetry run python check_qdrant.py`
+
+---
+
+## 📜 License
+
+Echo Gate is free software: licensed under the
+[GNU Affero General Public License v3.0](LICENSE) or any later version.
+
+**Self-hosting safe harbor:** AGPL's source-provision duty (section 13) is
+triggered by modifying Echo Gate and making it available to users over a
+network. Running *unmodified* Echo Gate privately inside your own
+organization — self-hosting for internal use — is fine and requires nothing
+further. If you modify Echo Gate and serve it to third parties over a
+network, you must make your modified version's source available to those
+users under AGPL, or obtain a separate commercial license from the project
+maintainers.
+
+See [NOTICE](NOTICE) for the full license statement and third-party
+dependency note. Contributions are licensed under AGPL-3.0 as well
+(AGPL-3.0-only for the `contribution` in licensing terms); see
+[CONTRIBUTING.md](CONTRIBUTING.md) before your first pull request.
