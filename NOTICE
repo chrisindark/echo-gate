@@ -1,0 +1,11 @@
+Echo Gate — LLM Gateway with semantic caching
+Copyright (C) 2026  Christopher Paul
+
+This program is free software: you can redistribute it and/or modify it
+under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or (at
+your option) any later version, as provided in the LICENSE file.
+
+This program uses third-party packages under their own licenses; see
+pyproject.toml, ui/package.json, and poetry.lock / ui/pnpm-lock or
+ui/package-lock.json for the dependency manifests.
