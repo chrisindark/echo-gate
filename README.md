@@ -11,6 +11,7 @@ Echo Gate accepts OpenAI-compatible `chat/completions` requests and routes them 
 - [docs/CONFIGURATION.md](docs/CONFIGURATION.md) — every environment variable and its default.
 - [docs/DATA_MODEL.md](docs/DATA_MODEL.md) — Postgres tables, RLS policies, Qdrant collection schema.
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — setup, commands, tests, migrations, conventions.
+- [docs/ROADMAP.md](docs/ROADMAP.md) — plan of record: landed features and planned work in development order.
 - [AGENTS.md](AGENTS.md) — concise guide for coding agents working in this repo.
 
 ---
