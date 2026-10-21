@@ -400,7 +400,7 @@ The project includes helpful CLI scripts under `app/scripts/`:
 
 ---
 
-## 📜 Licenseeswdsxsê
+## 📜 License
 
 Echo Gate is free software: licensed under the
 [GNU Affero General Public License v3.0](LICENSE) or any later version.
