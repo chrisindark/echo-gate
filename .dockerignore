@@ -46,6 +46,10 @@ venv
 # the backend image does not serve it.
 ui
 
+# Interim local-only MCP bridge (own venv/requirements; not part of the app).
+# Temporary until the planned external MCP server serves the agentic surface.
+mcp-bridge
+
 # Docs, guides, and other non-runtime files
 docs
 *.md

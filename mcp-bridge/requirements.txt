@@ -1,0 +1,7 @@
+# Local-only dependencies for the interim MCP bridge.
+# Intentionally separate from pyproject.toml: the gateway itself must not
+# depend on MCP tooling (see docs/ROADMAP.md; this bridge is temporary local
+# tooling until the planned external MCP server covers the agentic surface).
+fastmcp>=2.14.0,<3.0.0
+httpx>=0.27.0
+python-dotenv>=1.0.1
