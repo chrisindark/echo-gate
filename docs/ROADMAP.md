@@ -9,9 +9,17 @@ longer need to be tracked separately. It has two halves:
 - **Planned** — approved architectural work in suggested development order.
 
 An intentional decision (2026-10-19): **Echo Gate will not ship its own MCP
-endpoint.** The agentic/IDE surface will be provided by the external
-`chain-mcp` project instead. This removes the former "MCP Server" plan
-section; revisit natively only if chain-mcp cannot cover the use case.
+endpoint.** The agentic/IDE surface will be provided by an external,
+contract-driven MCP server project instead. This removes the former "MCP
+Server" plan section; revisit natively only if that project cannot cover the
+use case.
+
+Interim (2026-10-21): while the external MCP server is still early (it cannot
+yet compile OpenAPI contracts or serve MCP transports), a **local-only
+FastMCP bridge** lives in `mcp-bridge/` (own venv, outside `app/`, excluded
+from Docker and the OpenAPI snapshot) so `agent-forge` can consume the gateway
+over MCP today. The decision above still stands — `mcp-bridge/` is throwaway
+dev tooling to be deleted once the external server covers the use case.
 
 Adopted capabilities that already exist are listed under [Landed](#landed);
 everything else below is future work.
@@ -27,6 +35,12 @@ Feature-by-feature record of what exists in the codebase today.
 - **OpenAI-compatible completions API** (`POST /api/v1/chat/completions`):
   provider routing across Gemini (`google-genai`), OpenAI, Groq, OpenRouter,
   Ollama, Claude, plus a mock provider for tests.
+- **Conversations API** (`2026-10-21`): the previously unmounted
+  `conversation/` router is live in `app/main.py` —
+  `POST/GET /api/v1/conversations`, `GET /{id}`,
+  `POST /{id}/chat` (history-aware completion that persists user and
+  assistant messages). RLS-scoped via the standard identity path; OpenAPI
+  snapshot regenerated (purely additive).
 - **Full streaming support** (`stream: true`): SSE responses with OpenAI-style
   chunks (`data: {...}` … `data: [DONE]`), per-provider stream adapters
   (OpenAI/Groq/OpenRouter share `_stream_openai_compatible`, Ollama
@@ -129,6 +143,11 @@ Feature-by-feature record of what exists in the codebase today.
   `MIGRATION_DATABASE_URL`; OpenAPI snapshot contract test
   (`tests/test_openapi_snapshot.py`); ruff + ruff-format + prettier/eslint
   pre-commit hooks.
+- **OSS launch packaging** (`2026-10-21`): AGPL-3.0 `LICENSE`, `NOTICE`,
+  README safe-harbor; `CONTRIBUTING.md`, `SECURITY.md`, `SUPPORT.md`,
+  `CHANGELOG.md`; GitHub Actions (backend + UI CI, Docker buildx/Trivy,
+  release-drafter) and issue templates; general `.env` ignore patterns,
+  qdrant one-offs under `app/scripts/`.
 - ~170-test suite (`tests/`); documentation set in `docs/` (architecture,
   API reference, configuration, data model, development).
 
@@ -144,8 +163,17 @@ independently shippable.
 
 Small diffs, no behavior change. Pre-req for opening the repo publicly.
 
-1. **Licensing** (needs a decision + legal review). No LICENSE exists today;
-   `pyproject.toml` carries no license field.
+**Status: ✅ complete as of 2026-10-21** (except the two cosmetic follow-ups
+noted at the bottom).
+
+1. **Licensing — done 2026-10-21.** Chosen: **AGPL-3.0** (options considered
+   are kept below for the record). Shipped: canonical `LICENSE` (AGPL-3.0
+   full text), `pyproject.toml` license field (`AGPL-3.0-only`), `NOTICE`,
+   README license badge + self-host safe-harbor section, CONTRIBUTING terms.
+   Deliberately deferred to Phase 4: CLA workflow and the referenced-only
+   proprietary `LICENSE.commercial` — they apply at commercialization, not
+   launch. Legal review still recommended before any acquisition/licensing
+   event.
 
    | License | How it feels | Cloud-competitor protection | Notes |
    | --- | --- | --- | --- |
@@ -153,31 +181,40 @@ Small diffs, no behavior change. Pre-req for opening the repo publicly.
    | `Apache-2.0` / `MIT` | Most adoption | None | Max contributor friendliness; others could SaaS it. |
    | `FSL-1.1-MIT` (Sentry style) | OSS in 2 years | Strong, time-based | Freestanding and recent; understandable. |
    | `BSL-1.1` | source-available | Strong | Not OSI "open source"; some devs will bounce. |
+2. **Meta files — done 2026-10-21.** `CONTRIBUTING.md`, `SECURITY.md`
+   (GitHub Private Vulnerability Reporting + security-relevant invariants
+   list), `SUPPORT.md`, `CHANGELOG.md` (Keep-a-Changelog, 0.1.0 entry),
+   `.github/workflows/ci.yml` (backend: compileall + ruff + pytest incl.
+   OpenAPI snapshot offline; UI: npm lint + build on Node 22),
+   `.github/workflows/docker.yml` (PR: amd64 build + Trivy SARIF; main:
+   multi-arch buildx push to GHCR + failing Trivy gate),
+   `.github/workflows/release.yml` + `release-drafter.yml`, and YAML issue
+   templates (bug/feature + config routing security reports to Private
+   Vulnerability Reporting). All validated as parseable YAML.
+3. **Cleanup**: ~~mount or delete the dead `conversation/` router~~
+   (**done 2026-10-21**: router mounted; snapshot regenerated — purely
+   additive, 4 endpoints / 11 schemas; docs and README updated);
+   real README quickstart with screenshots and an architecture diagram;
+   audit code, `.env.example`, and README for internal names; keep the docs
+   tree as the deep reference and root this file as the plan of record.
+   (Done 2026-10-21: general `.env` ignore patterns added with example-file
+   negation; the root qdrant one-off scripts moved to `app/scripts/`
+   (`python -m app.scripts.*` invocations) with README/dockerignore updated;
+   stale `run_test_results.csv` deleted and ignored as generated output.)
+4. **Repo restructure — skipped by decision (2026-10-21)**: `app/` →
+   `api/app/`, `ui/` → `web/`, root `docker-compose.yml` →
+   `deploy/compose/`, with the Docker/CI/doc updates in one mechanical
+   commit. The roadmap's own guidance was "skip if churn outweighs clarity;
+   do it *before* external contributors arrive or not at all" — skipped
+   against the churn, revisit only at real scale or contributor demand.
 
-   Suggested default: **AGPL-3.0 core + CLA + proprietary license for
-   cloud/enterprise artifacts**, with a `NOTICE` file, a proprietary
-   `LICENSE.commercial` referenced by (but not vendored into) the OSS repo,
-   and an AGPL "self-host safe harbor" note in the README stating plainly
-   that self-hosting for internal use is fine and that serving third parties
-   requires publishing that deployment's source or a commercial license.
-   A CLA workflow (cla-assistant / CLABot) preserves the right to relicense
-   and sell proprietary integrations.
-2. **Meta files**: `CONTRIBUTING.md`, `SECURITY.md`, `SUPPORT.md`,
-   `CHANGELOG.md`, `.github/workflows` (ruff, pytest, OpenAPI snapshot,
-   `npm lint`/`build`, multi-arch docker buildx, Trivy, release-drafter),
-   issue templates.
-3. **Cleanup**: mount or delete the dead `conversation/` router (an OSS
-   release should not ship 404 routes); move root-level one-off scripts
-   (`check_qdrant.py`, `create_qdrant.py`, `wipe_qdrant.py`,
-   `run_test_results.csv`) under `app/scripts/` or delete them; real
-   README quickstart with screenshots and an architecture diagram; audit
-   code, `.env.example`, and README for internal names; keep the docs tree
-   as the deep reference and root this file as the plan of record.
-4. **Repo restructure (optional but cheapest now)**: `app/` → `api/app/`,
-   `ui/` → `web/`, root `docker-compose.yml` → `deploy/compose/`, with the
-   Docker/CI/doc updates in one mechanical commit. Fine to skip if churn
-   outweighs clarity; do it *before* external contributors arrive or not at
-   all.
+**Phase 0 residual follow-ups (cosmetic, not blockers):**
+
+- README screenshots: the UI-side screenshots need a running stack; take
+  them at first full-stack bring-up and embed next to the existing
+  architecture diagram.
+- Analytics read-only page (the sole remaining entry in
+  `docs/ARCHITECTURE.md` known gaps) is a UI feature, not launch hygiene.
 
 ### Phase 1 — Provider resilience & single-point-of-failure hardening
 
@@ -281,7 +318,7 @@ data-driven threshold calibration. Remaining work:
 
 Strategy: keep the repo genuinely self-hostable while reserving cloud
 operations, identity, and large-org features for the paid tiers. (MCP is
-deferred to the external `chain-mcp` project.)
+deferred to an external, contract-driven MCP server project.)
 
 **What already works in our favor:**
 - RLS multi-tenancy is real — the hard part of shared cloud tenancy is done.
