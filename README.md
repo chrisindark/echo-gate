@@ -369,4 +369,4 @@ The project includes helpful CLI scripts under `app/scripts/`:
 - **Run Evaluation Test Suite**: `poetry run python app/scripts/run_tests.py`
 - **Seed Benchmark Prompts**: `poetry run python app/scripts/seed_prompts.py`
 - **Migrate Qdrant Embeddings**: `poetry run python app/scripts/migrate_embeddings.py`
-- **Manage Qdrant Collections**: `poetry run python create_qdrant.py` and `poetry run python check_qdrant.py`
+- **Manage Qdrant Collections**: `poetry run python -m app.scripts.create_qdrant`, `poetry run python -m app.scripts.check_qdrant`, and `poetry run python -m app.scripts.wipe_qdrant`
