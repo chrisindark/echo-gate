@@ -135,8 +135,11 @@ provider are available.
 
 ## Known Gaps (do not "fix" silently)
 
-These are real, tracked discrepancies — document them, and only change them as an
+Real, tracked discrepancies — document them, and only change them as an
 explicit task:
 
-- The `conversation/` router is defined but **not included** in `app/main.py`, so
-  `/api/v1/conversations/*` returns 404. Tables and RLS policies exist.
+- None currently tracked. The former gaps (`conversation/` router unmounted,
+  anonymous shared rate-limit bucket, `.env.example` drift, Celery Beat
+  schedule mismatch) have been resolved; the date-stamped record lives in
+  `docs/ROADMAP.md`. Add new discrepancies here instead of fixing them in
+  passing.

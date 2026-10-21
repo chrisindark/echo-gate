@@ -20,6 +20,9 @@ from app.core.responses import BaseAPIResponse
 from app.modules.analytics.analytics_controller import api_v1_router as analytics_router
 from app.modules.api_keys.api_keys_controller import api_v1_router as api_keys_router
 from app.modules.chat.chat_controller import api_v1_router as chat_router
+from app.modules.conversation.conversation_controller import (
+    api_v1_router as conversation_router,
+)
 from app.modules.gateway_requests.gateway_requests_controller import (
     api_v1_router as gateway_requests_router,
 )
@@ -112,6 +115,7 @@ def root():
 # Register routers
 app.include_router(health_router)
 app.include_router(chat_router)
+app.include_router(conversation_router)
 app.include_router(qdrant_router)
 app.include_router(llm_usage_router)
 app.include_router(verifier_router)

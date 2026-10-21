@@ -22,7 +22,10 @@ class Conversation(Base):
     )
 
     messages = relationship(
-        "Message", back_populates="conversation", cascade="all, delete-orphan"
+        "Message",
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="Message.created_at",
     )
 
 

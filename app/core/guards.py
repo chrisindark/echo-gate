@@ -48,15 +48,7 @@ class LlmQuotaGuard:
         # a security boundary.
         bucket_id = x_api_key
         if not x_api_key:
-            client = getattr(request, "client", None)
-            client_ip = (
-                (request.headers.get("x-forwarded-for", "").split(",")[0].strip())
-                or (client.host if client else None)
-                or "unknown"
-            )
-            session_id = request.headers.get("x-session-id")
-            fingerprint = f"{client_ip}:{session_id}" if session_id else client_ip
-            bucket_id = f"anon:{hashlib.sha256(fingerprint.encode()).hexdigest()[:16]}"
+            bucket_id = get_anonymous_bucket_id(request)
 
         try:
             # Safely read body. FastAPI caches request.body() so it's safe to read multiple times
@@ -80,8 +72,51 @@ class LlmQuotaGuard:
 
         # Attach API key to request state
         request.state.api_key = x_api_key
+        request.state.bucket_id = bucket_id
 
         return True
+
+
+def get_anonymous_bucket_id(request: Request) -> str:
+    """Derive a stable per-caller fingerprint for anonymous requests."""
+    client = getattr(request, "client", None)
+    client_ip = (
+        (request.headers.get("x-forwarded-for", "").split(",")[0].strip())
+        or (client.host if client else None)
+        or "unknown"
+    )
+    session_id = request.headers.get("x-session-id")
+    fingerprint = f"{client_ip}:{session_id}" if session_id else client_ip
+    return f"anon:{hashlib.sha256(fingerprint.encode()).hexdigest()[:16]}"
+
+
+def resolve_caller_user(request: Request) -> str:
+    """Resolve the caller's user identity for per-user scoping.
+
+    Prefers the resolved user identity from auth/state. Falls back to
+    a stable key fingerprint if a key was provided without an explicit user,
+    and finally to the anonymous bucket ID (derived from client IP and
+    optional session).
+    """
+    user_id = getattr(request.state, "user_id", None)
+    if user_id:
+        return user_id
+
+    user = getattr(request.state, "user", None)
+    if user and user != ANONYMOUS_TENANT:
+        return user
+
+    api_key = getattr(request.state, "api_key", None) or request.headers.get(
+        "x-api-key"
+    )
+    if api_key:
+        return f"key:{hashlib.sha256(api_key.encode()).hexdigest()[:16]}"
+
+    bucket_id = getattr(request.state, "bucket_id", None)
+    if bucket_id:
+        return bucket_id
+
+    return get_anonymous_bucket_id(request)
 
 
 # Initialize a singleton instance for Depends
