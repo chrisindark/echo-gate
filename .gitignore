@@ -33,3 +33,6 @@ sqlite3.db-wal
 celerybeat-schedule
 celerybeat-schedule-shm
 celerybeat-schedule-wal
+
+# Interim MCP bridge (local config only; never commit the bridge .env)
+mcp-bridge/.env
