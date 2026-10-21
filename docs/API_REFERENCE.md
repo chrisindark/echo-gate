@@ -462,30 +462,40 @@ boundary (in-process Python can call the service directly), but it means a
 mis-wired or forgotten guard raises instead of silently opening an
 RLS-bypassed session.
 
-### Known Gaps
+### Rate limiting notes
 
-- **Anonymous chat shares one rate-limit bucket.** `POST /api/v1/chat/completions`
-  intentionally allows keyless requests (see above). Because the Redis counter
-  key is built from `api_key`, every keyless caller lands in the same bucket —
-  `rpm:None:<provider>:<model>:anonymous` — so one anonymous caller can exhaust
-  the default 10 RPM and stall all other anonymous traffic. Requests carrying a
-  valid `X-API-Key` use their own bucket and are unaffected. Per-caller
-  anonymous isolation is a known follow-up, not an oversight.
+- **Anonymous callers are isolated per fingerprint.** `POST /api/v1/chat/completions`
+  intentionally allows keyless requests (see above). A keyless caller's counter
+  bucket is `anon:<sha256-prefix>` over the client address (preferring the first
+  `X-Forwarded-For` hop, as reported by a fronting proxy) plus an optional
+  `X-Session-ID` behind shared NAT, so one anonymous caller can never exhaust
+  the shared anonymous capacity for everyone else. Callers carrying a valid
+  `X-API-Key` bucket on their key. A caller can still rotate fingerprints to
+  obtain a fresh bucket, so this bounds honest anonymous load only — it is not
+  a security boundary; see `app/core/guards.py` and
+  `tests/test_anonymous_rate_limit.py`.
 
 ---
 
-## Conversations — `/api/v1/conversations` *(not mounted)*
+## Conversations — `/api/v1/conversations`
 
-`app/modules/conversation/conversation_controller.py` defines:
+Mounted in `app/main.py`
+(`app/modules/conversation/conversation_controller.py`):
 
-- `POST /api/v1/conversations`
-- `GET /api/v1/conversations`
-- `GET /api/v1/conversations/{conversation_id}`
-- `POST /api/v1/conversations/{conversation_id}/chat`
+| Method | Path | Description |
+| --- | --- | --- |
+| `POST` | `/api/v1/conversations` | Create a conversation (body: `{"title": ...}`). |
+| `GET` | `/api/v1/conversations` | List the caller's conversations (`skip`, `limit`). |
+| `GET` | `/api/v1/conversations/{conversation_id}` | One conversation with its messages. |
+| `POST` | `/api/v1/conversations/{conversation_id}/chat` | Append the user message to history, generate a completion with the full history, persist the assistant reply. |
 
-**But the router is not registered in `app/main.py`, so all four return 404
-today.** The tables and RLS policies exist (see
-[DATA_MODEL.md](DATA_MODEL.md)); registering the router is the missing step.
+Responses wrap in `BaseAPIResponse[ConversationResponse | ...]`. The chat route
+calls the router service, so caching, tracing, and usage logging apply exactly
+as on `/api/v1/chat/completions`. Rows live in the RLS-scoped `conversations`
+and `messages` tables: the tenant/user resolved from `X-API-Key` is stamped on
+writes and filters every read
+(see [DATA_MODEL.md](DATA_MODEL.md)). Accessing another user's
+conversation returns `404` (ownership is checked server-side).
 
 ---
 

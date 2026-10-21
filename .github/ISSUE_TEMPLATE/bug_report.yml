@@ -1,0 +1,61 @@
+name: 🐛 Bug report
+description: Report something broken in the gateway or the UI.
+labels: ["bug", "triage"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Also tell us what you expected to happen and how to reproduce it.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Gateway (chat completions / routing)
+        - Caching (Redis / Qdrant / reranking)
+        - Streaming (SSE)
+        - Multi-tenancy / RLS / quotas
+        - Conversations
+        - Admin (api-keys / quota rules)
+        - Analytics / traces / usage
+        - Health / Celery workers
+        - UI (Next.js)
+        - Docs
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: how-run
+    attributes:
+      label: How are you running the stack?
+      options:
+        - docker-compose (services + api container)
+        - docker-compose (infra only) + poetry run uvicorn
+        - dev.sh
+        - Other/not docker
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: "`git rev-parse --short HEAD` output."
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: |
+        Redact API keys, tenant data, and prompt/response content before
+        pasting. Correlation IDs (X-Correlation-ID) help a lot.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: "The /api/v1/health/deps roll-up reports healthy gating dependencies"
+        - label: I searched for an existing issue about this
+          required: true

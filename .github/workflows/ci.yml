@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (ruff + pytest + OpenAPI snapshot)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: "1.8.3"
+          virtualenvs-in-project: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: poetry
+
+      - name: Install dependencies
+        run: poetry install --with dev --no-interaction
+
+      - name: Syntax / import check
+        run: poetry run python -m compileall app
+
+      - name: Lint (ruff)
+        run: |
+          poetry run ruff check app tests
+          poetry run ruff format --check app tests
+
+      - name: Unit tests + OpenAPI contract snapshot
+        run: poetry run pytest -q
+        # The suite is offline (mocked Redis/Qdrant/Postgres). The snapshot
+        # test rewrites tests/snapshots/openapi.json when it drifts, so a
+        # failing step means an un-reviewed contract change.
+
+  ui:
+    name: UI (next lint + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build

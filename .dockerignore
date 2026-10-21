@@ -59,9 +59,9 @@ tests
 
 # Local-only scripts, data, and artifacts
 dev.sh
-check_qdrant.py
-create_qdrant.py
-wipe_qdrant.py
+app/scripts/check_qdrant.py
+app/scripts/create_qdrant.py
+app/scripts/wipe_qdrant.py
 run_test_results.csv
 
 # Celery / SQLite local state
