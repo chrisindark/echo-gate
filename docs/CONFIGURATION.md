@@ -2,17 +2,17 @@
 
 ## How configuration is loaded
 
-1. `app/main.py` reads `PYTHON_ENV` (default `local`) and, if
-   `app/.env.<PYTHON_ENV>` exists, loads it with `python-dotenv`. It then calls
+1. `api/app/main.py` reads `PYTHON_ENV` (default `local`) and, if
+   `api/app/.env.<PYTHON_ENV>` exists, loads it with `python-dotenv`. It then calls
    `load_dotenv()` for a generic `.env` search.
-2. `app/core/config.py` instantiates a single module-level `config` object that
+2. `api/app/core/config.py` instantiates a single module-level `config` object that
    reads from the environment. `config.load()` is called again in the FastAPI
    lifespan, so values from the env file are in effect at startup. The Celery app
-   (`app/worker/celery_app.py`) performs the same env-file load.
+   (`api/app/worker/celery_app.py`) performs the same env-file load.
 
 Because values are read from the environment, anything not set falls back to the
-default in `config.py`. Copy `app/.env.example` to `app/.env.local` (or
-`app/.env.<PYTHON_ENV>`) to start.
+default in `config.py`. Copy `api/app/.env.example` to `api/app/.env.local` (or
+`api/app/.env.<PYTHON_ENV>`) to start.
 
 > **Enabled-by-default flags are strings.** `USE_REDIS_EXACT_MATCHING`,
 > `USE_QDRANT_EXACT_MATCHING`, and `USE_QDRANT_SEMANTIC_MATCHING` default to
@@ -23,7 +23,7 @@ default in `config.py`. Copy `app/.env.example` to `app/.env.local` (or
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `PYTHON_ENV` | `local` | Selects `app/.env.<PYTHON_ENV>`; also affects log level/format. |
+| `PYTHON_ENV` | `local` | Selects `api/app/.env.<PYTHON_ENV>`; also affects log level/format. |
 | `PROJECT_NAME` | `""` | App title. |
 | `VERSION` | `0.1.0` | Reported version. |
 | `SERVICE_NAME` | `""` | Added to structured log records. |
@@ -176,7 +176,7 @@ Default `INTENT_TTL_SECONDS`: `weather` 300 · `product_info` 3600 ·
 `MIGRATION_DATABASE_URL` is consumed by Alembic's `env.py`/`alembic.ini`, not by
 the application.
 
-`app/.env.example` lists only variables the code reads; the earlier drift
+`api/app/.env.example` lists only variables the code reads; the earlier drift
 (`EMBEDDING_DIMENSION`, `EMBEDDING_DEVICE`, and `CROSS_ENCODER_VERIFIER_MODEL`
 being listed but unread, and `CROSS_ENCODER_RELEVANCE_MODEL` being read but
 missing from the example) has been resolved.

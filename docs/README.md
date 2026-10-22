@@ -38,15 +38,15 @@ Redis + Qdrant (cache write) · Postgres (trace + usage) · Celery (eval, evicti
 
 ## Fast orientation for an agentic harness
 
-- **Entry point:** `app/main.py` wires middleware and routers; the interesting
-  request path is `app/modules/llm/llm_router_service.py::generate_completion`.
-- **Cache:** Redis (`app/modules/redis/redis_service.py`) plus a Qdrant collection
-  named `embeddings_multivector` (`app/modules/qdrant/llm_cache_collection_service.py`).
-- **Providers:** `app/modules/llm/llm_provider_service.py`.
-- **Persistence:** SQLAlchemy models in `app/modules/*/*_model.py`, migrated by
+- **Entry point:** `api/app/main.py` wires middleware and routers; the interesting
+  request path is `api/app/modules/llm/llm_router_service.py::generate_completion`.
+- **Cache:** Redis (`api/app/modules/redis/redis_service.py`) plus a Qdrant collection
+  named `embeddings_multivector` (`api/app/modules/qdrant/llm_cache_collection_service.py`).
+- **Providers:** `api/app/modules/llm/llm_provider_service.py`.
+- **Persistence:** SQLAlchemy models in `api/app/modules/*/*_model.py`, migrated by
   the single Alembic baseline in `alembic/versions/`.
-- **Background work:** `app/worker/celery_app.py` and `tasks.py` in the
+- **Background work:** `api/app/worker/celery_app.py` and `tasks.py` in the
   `gateway_requests`, `llm_usage`, and `qdrant` modules.
-- **UI:** independent Next.js app in `ui/` (chat playground, traces, analytics).
+- **UI:** independent Next.js app in `web/` (chat playground, traces, analytics).
 - **Known gaps** (documented, not yet fixed) are listed in
   [ARCHITECTURE.md → Known gaps](ARCHITECTURE.md#known-gaps-and-discrepancies).

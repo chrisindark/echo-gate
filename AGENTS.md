@@ -2,7 +2,7 @@
 
 ## Scope
 
-Echo Gate is a Python 3.11+ FastAPI gateway with an independent Next.js 16 UI in `ui/`.
+Echo Gate is a Python 3.11+ FastAPI gateway with an independent Next.js 16 UI in `web/`.
 The gateway accepts OpenAI-compatible chat-completion requests and routes to Gemini
 (`google-genai`), OpenAI, Groq, OpenRouter, or Ollama. It uses Redis (exact) plus
 Qdrant (semantic) caching, Celery for background jobs, and SQLAlchemy with Alembic
@@ -31,24 +31,24 @@ provider behavior, or persistence decision is genuinely unspecified.
 
 ## Architecture
 
-- `app/main.py`: app setup, lifespan, middlewares, and routers. Loads
-  `app/.env.<PYTHON_ENV>` when present, then falls back to system environment
+- `api/app/main.py`: app setup, lifespan, middlewares, and routers. Loads
+  `api/app/.env.<PYTHON_ENV>` when present, then falls back to system environment
   variables.
-- `app/core/dependencies.py`: singleton service construction and shutdown. Add new
+- `api/app/core/dependencies.py`: singleton service construction and shutdown. Add new
   shared services here only when FastAPI dependencies need them.
-- `app/modules/<feature>/`: keep controllers thin, Pydantic schemas in `*_schema.py`,
+- `api/app/modules/<feature>/`: keep controllers thin, Pydantic schemas in `*_schema.py`,
   persistence models in `*_model.py`, and business logic in `*_service.py`.
-- `app/modules/llm/llm_router_service.py`: cache lookup, semantic matching, provider
+- `api/app/modules/llm/llm_router_service.py`: cache lookup, semantic matching, provider
   routing, and cache writes. Preserve tenant, model, and request fields that affect
   response correctness when changing cache behavior.
-- `app/modules/llm/llm_provider_service.py`: provider adapters for `google-genai`,
+- `api/app/modules/llm/llm_provider_service.py`: provider adapters for `google-genai`,
   `openai`, `groq`, `openrouter`, and `ollama`.
-- `app/worker/celery_app.py` and `tasks.py` in the `gateway_requests`, `qdrant`, and
+- `api/app/worker/celery_app.py` and `tasks.py` in the `gateway_requests`, `qdrant`, and
   `llm_usage` modules: background job definitions. Match the existing task patterns
   when adding work.
 - `alembic/`: database migrations. Update models and create a migration for schema
   changes; do not rely on `create_all`.
-- `ui/`: separate Next.js app. Follow `ui/AGENTS.md` and `ui/CLAUDE.md`; inspect the
+- `web/`: separate Next.js app. Follow `web/AGENTS.md` and `web/CLAUDE.md`; inspect the
   installed Next.js documentation before changing UI code.
 
 ### Module map (where things live)
@@ -63,10 +63,10 @@ provider behavior, or persistence decision is genuinely unspecified.
 - `llm_quota/`, `api_keys/` — Redis-backed quotas and tenant identity. Admin CRUD
   for quota rules is `llm_quota_controller.py` + `llm_quota_rule_service.py`.
 - `admin/` — scoped operator credentials (`admin_api_keys`), created only by
-  `app/scripts/create_admin_key.py`. Enforced by `AdminApiKeyGuard` in
-  `app/core/guards.py`; never mint one over HTTP.
+  `python -m app.scripts.create_admin_key`. Enforced by `AdminApiKeyGuard` in
+  `app.core.guards`; never mint one over HTTP.
 - `health/` — health, liveness, readiness, Celery probes.
-- `conversation/` — conversation/message code that is NOT mounted (see Known Gaps).
+- `conversation/` — conversation/message model, service, controller (mounted in `main.py`).
 
 ## Request lifecycle (the path that matters)
 
@@ -117,9 +117,8 @@ Routing decisions: `REDIS_EXACT`, `QDRANT_EXACT`, `QDRANT_FAST`, `QDRANT_SEMANTI
 ## Verify
 
 - Unit tests: `poetry run pytest` (suite in `tests/`, configured in `pyproject.toml`)
-- Backend syntax/import check: `poetry run python -m compileall app`
-- Infra for local runs: `docker-compose up -d qdrant redis postgres` (scoped; a bare
-  `docker-compose up -d` also builds and starts the API container and Celery worker)
+- Backend syntax/import check: `poetry run python -m compileall api/app`
+- Infra for local runs: `docker compose -f deploy/compose/docker-compose.yml up -d qdrant redis postgres`
 - Run the API: `poetry run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload`
   (`dev.sh` starts the API and the UI together)
 - Run migrations when models change: `poetry run alembic upgrade head`
@@ -127,7 +126,7 @@ Routing decisions: `REDIS_EXACT`, `QDRANT_EXACT`, `QDRANT_FAST`, `QDRANT_SEMANTI
   `tests/snapshots/openapi.json`. Intentional API changes regenerate the snapshot
   and fail the test; review the `git diff`, confirm additions are additive, then
   commit the regenerated snapshot.
-- UI changes: `npm run lint` and `npm run build` from `ui/`
+- UI changes: `npm run lint` and `npm run build` from `web/`
 
 Add focused tests for changed behavior when practical; do not claim integration
 verification unless Redis, Qdrant, required environment files, and the selected

@@ -38,7 +38,7 @@ services:
 
   echo-gate:
     build:
-      context: .
+      context: ../..
     ports:
       - "8000:8000"
     environment:
@@ -60,7 +60,7 @@ services:
 
   celery_worker:
     build:
-      context: .
+      context: ../..
     environment:
       - QDRANT_URL=http://qdrant:6333
       - REDIS_URL=redis://redis:6379/0
@@ -81,7 +81,7 @@ services:
 
   celery_beat:
     build:
-      context: .
+      context: ../..
     environment:
       - PYTHON_ENV=production
       - REDIS_URL=redis://redis:6379/0

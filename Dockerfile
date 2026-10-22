@@ -17,6 +17,8 @@ RUN python -c "from sentence_transformers import SentenceTransformer, CrossEncod
 # Copy the application code
 COPY . .
 
+ENV PYTHONPATH=/workspace/api
+
 EXPOSE 8000
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

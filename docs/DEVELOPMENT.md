@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - Python **3.11+** and [Poetry](https://python-poetry.org/)
-- Node.js 20+ (for `ui/`)
+- Node.js 20+ (for `web/`)
 - Docker + Docker Compose (Postgres, Redis, Qdrant)
 - Ollama on `:11434` if you use local models or the default intent classifier /
   embedding setup
@@ -12,10 +12,10 @@
 
 ```bash
 # 1. Environment file
-cp app/.env.example app/.env.local       # then edit keys/URLs
+cp api/app/.env.example api/app/.env.local       # then edit keys/URLs
 
 # 2. Infrastructure (Postgres, Redis, Qdrant)
-docker-compose up -d postgres redis qdrant
+docker compose -f deploy/compose/docker-compose.yml up -d postgres redis qdrant
 
 # 3. Backend dependencies
 poetry install
@@ -109,30 +109,30 @@ alters the API, also regenerate the OpenAPI snapshot (above).
 
 | Script | Purpose |
 | --- | --- |
-| `app/scripts/create_admin_key.py` | **The only way to mint an admin API key.** Subcommands `create --name --scopes [--expires-in-days]`, `list`, `revoke --id`. Prints the plaintext (`ega_...`) once. Run with `PYTHON_ENV=local`. |
-| `app/scripts/run_tests.py` | Sends the `TEST_DATASET` prompts to the gateway and writes `run_test_results.csv`. Env: `ECHO_GATE_URL`. |
-| `app/scripts/seed_prompts.py` | Seeds prompts and checks cache-threshold behavior; writes `send_prompt_results.csv`. Env: `ECHO_GATE_URL`, `ECHO_GATE_RESULTS_CSV`. |
-| `app/scripts/migrate_embeddings.py` | Re-embeds points between collections (`embeddings_multivector` → `..._v2`). Hardcodes `QDRANT_URL` and `EMBEDDING_DIM` — edit before use. |
-| `app/scripts/test_dataset.py` | The labelled prompt dataset (canonical id + `expected_match`) used by the runners. |
-| `app/scripts/calibrate_reranker.py` | Replays `TEST_DATASET` through `RerankerService` offline (no Redis/Qdrant/API) and sweeps acceptance thresholds, writing `reranker_calibration.{csv,json}` with precision/recall/F1 and a recommended threshold. Flags: `--limit`, `--max-candidates`, `--scoring-mode`, `--score-source`. |
-| `app/scripts/inspect_semantic_cache.py` | Read-only report over `gateway_requests.score_breakdown` (offline sweeps cannot exercise the intent/metadata factors). Flags near-boundary rejections: candidates whose `base_score` cleared the intent's high threshold but whose bounded factors dropped the final score below it, with per-field `metadata_comparisons`. Flags: `--limit`, `--boundary-margin`, `--json`. Run with `PYTHON_ENV=local` so the DB URL is loaded. |
-| `app/scripts/create_qdrant.py` | Re-initializes the Qdrant collection via the DI container. |
-| `app/scripts/check_qdrant.py` | Scrolls the first 5 points to inspect scope/tenant/user. |
-| `app/scripts/wipe_qdrant.py` | Drops the `embeddings_multivector` collection. |
+| `api/app/scripts/create_admin_key.py` | **The only way to mint an admin API key.** Subcommands `create --name --scopes [--expires-in-days]`, `list`, `revoke --id`. Prints the plaintext (`ega_...`) once. Run with `PYTHON_ENV=local`. |
+| `api/app/scripts/run_tests.py` | Sends the `TEST_DATASET` prompts to the gateway and writes `run_test_results.csv`. Env: `ECHO_GATE_URL`. |
+| `api/app/scripts/seed_prompts.py` | Seeds prompts and checks cache-threshold behavior; writes `send_prompt_results.csv`. Env: `ECHO_GATE_URL`, `ECHO_GATE_RESULTS_CSV`. |
+| `api/app/scripts/migrate_embeddings.py` | Re-embeds points between collections (`embeddings_multivector` → `..._v2`). Hardcodes `QDRANT_URL` and `EMBEDDING_DIM` — edit before use. |
+| `api/app/scripts/test_dataset.py` | The labelled prompt dataset (canonical id + `expected_match`) used by the runners. |
+| `api/app/scripts/calibrate_reranker.py` | Replays `TEST_DATASET` through `RerankerService` offline (no Redis/Qdrant/API) and sweeps acceptance thresholds, writing `reranker_calibration.{csv,json}` with precision/recall/F1 and a recommended threshold. Flags: `--limit`, `--max-candidates`, `--scoring-mode`, `--score-source`. |
+| `api/app/scripts/inspect_semantic_cache.py` | Read-only report over `gateway_requests.score_breakdown` (offline sweeps cannot exercise the intent/metadata factors). Flags near-boundary rejections: candidates whose `base_score` cleared the intent's high threshold but whose bounded factors dropped the final score below it, with per-field `metadata_comparisons`. Flags: `--limit`, `--boundary-margin`, `--json`. Run with `PYTHON_ENV=local` so the DB URL is loaded. |
+| `api/app/scripts/create_qdrant.py` | Re-initializes the Qdrant collection via the DI container. |
+| `api/app/scripts/check_qdrant.py` | Scrolls the first 5 points to inspect scope/tenant/user. |
+| `api/app/scripts/wipe_qdrant.py` | Drops the `embeddings_multivector` collection. |
 
 ## UI
 
-`ui/` is a separate Next.js 16 app. Read `ui/AGENTS.md` (and the installed Next.js
-docs under `ui/node_modules/next/dist/docs/`) before editing. Key facts:
+`web/` is a separate Next.js 16 app. Read `web/AGENTS.md` (and the installed Next.js
+docs under `web/node_modules/next/dist/docs/`) before editing. Key facts:
 
 - Pages: `/` (chat playground), `/traces`, `/traces/[id]`, `/analytics`, `/quota`
   (admin; needs an `X-Admin-Key`).
 - The API base URL defaults to `http://localhost:8000` and is configurable via
-  `NEXT_PUBLIC_API_BASE_URL` at build time (`ui/src/lib/api.ts`; see
-  `ui/.env.example`).
+  `NEXT_PUBLIC_API_BASE_URL` at build time (`web/src/lib/api.ts`; see
+  `web/.env.example`).
 
 ```bash
-cd ui
+cd web
 npm run lint
 npm run build
 ```
@@ -151,8 +151,8 @@ npm run build
   fields that affect response correctness (see the cache key in
   `_generate_cache_key` and the Qdrant filter in `evaluate_semantic_cache`), and
   ensure a cache miss or unavailable Redis/Qdrant still yields a provider response.
-- **New settings:** add to `app/core/config.py`, document it in
-  `docs/CONFIGURATION.md` and `app/.env.example`.
+- **New settings:** add to `api/app/core/config.py`, document it in
+  `docs/CONFIGURATION.md` and `api/app/.env.example`.
 
 ## Debugging tips
 

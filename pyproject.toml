@@ -5,7 +5,7 @@ description = "Echo Gate LLM Gateway"
 authors = ["Christopher Paul <14836101+chrisindark@users.noreply.github.com>"]
 license = "AGPL-3.0-only"
 readme = "README.md"
-packages = [{include = "app"}]
+packages = [{include = "app", from = "api"}]
 
 [tool.poetry.dependencies]
 python = "^3.11"
@@ -34,7 +34,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-pythonpath = ["."]
+pythonpath = [".", "api"]
 testpaths = ["tests"]
 
 [dependency-groups]
@@ -67,7 +67,11 @@ ignore = [
     "E501", # Line length handled by formatter
     "B904", # raise HTTPException without from e
     "UP046", # Generic class Generic[DataT] for Pydantic compatibility
+    "UP042", # Class inherits from both str and Enum (StrEnum)
 ]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
 
 [tool.pyrefly]
 exclude = [

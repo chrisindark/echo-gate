@@ -1,12 +1,14 @@
-# The backend image only needs pyproject.toml, poetry.lock, app/ and
-# alembic/. Everything else is either dev tooling, a separate app (ui/), or
+# The backend image only needs pyproject.toml, poetry.lock, api/app/ and
+# alembic/. Everything else is either dev tooling, a separate app (web/), or
 # local state that must never be baked into an image.
 
 # Secrets and local env files — never baked into built images. Container
-# configuration comes from docker-compose/system env; app/main.py falls back
+# configuration comes from docker-compose/system env; api/app/main.py falls back
 # to system environment when these files are absent.
 .env
 .env.*
+api/app/.env
+api/app/.env.*
 app/.env
 app/.env.*
 **/.env
@@ -22,6 +24,7 @@ app/.env.*
 .pre-commit-config.yaml
 Dockerfile
 docker-compose.yml
+deploy/
 .dockerignore
 
 # Python artifacts (rebuilt from source inside the image)
@@ -42,8 +45,9 @@ venv
 .model_cache
 .cache
 
-# The UI is a separate app with its own toolchain and huge node_modules;
+# The Web UI is a separate app with its own toolchain and huge node_modules;
 # the backend image does not serve it.
+web
 ui
 
 # Interim local-only MCP bridge (own venv/requirements; not part of the app).

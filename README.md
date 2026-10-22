@@ -2,7 +2,7 @@
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 
-**Echo Gate** is an asynchronous, high-performance LLM API gateway, proxy, and observability platform built with **FastAPI** (Python 3.11+) and accompanied by an independent **Next.js 16** frontend in `ui/`.
+**Echo Gate** is an asynchronous, high-performance LLM API gateway, proxy, and observability platform built with **FastAPI** (Python 3.11+) and accompanied by an independent **Next.js 16** frontend in `web/`.
 
 Echo Gate accepts OpenAI-compatible `chat/completions` requests and routes them dynamically across local and cloud providers (**Ollama**, **Google GenAI / Gemini**, **OpenAI**, **Groq**, and **OpenRouter**). Its core capability is an enterprise-grade **Multi-Level Semantic Caching & Verification Pipeline** combining Redis, Qdrant hybrid search, cross-encoder reranking, intent classification, and asynchronous judge evaluations to maximize cache hit rates, eliminate hallucinations, protect user privacy, and drastically cut latency and inference costs.
 
@@ -83,7 +83,7 @@ Echo Gate accepts OpenAI-compatible `chat/completions` requests and routes them 
 
 ### 6. Observability UI (Next.js 16)
 
-- Independent frontend located in `ui/` (Next.js 16, React 19, Tailwind CSS, Radix UI Themes):
+- Independent frontend located in `web/` (Next.js 16, React 19, Tailwind CSS, Radix UI Themes):
   - **Chat Playground (`/`)**: Interactive chat interface with real-time streaming, cache hit indicators, provider and model selectors, and configuration toggles.
   - **Traces Dashboard (`/traces`)**: Real-time table of all gateway traffic with routing decisions, cache statuses, and latencies.
   - **Trace Detail View (`/traces/[id]`)**: Interactive waterfall visualization displaying the exact lifecycle latency of each pipeline stage, extracted intent metadata, and judge scores.
@@ -203,10 +203,10 @@ Embeddings are computed locally with `sentence-transformers`
 
 ### 3. Environment Configuration
 
-Create your environment file in `app/`:
+Create your environment file in `api/app/`:
 
 ```bash
-cp app/.env.example app/.env.local
+cp api/app/.env.example api/app/.env.local
 ```
 
 Configure your keys and endpoints:
@@ -252,7 +252,7 @@ DEFAULT_LLM_SERVICE=ollama
 Start PostgreSQL, Redis, and Qdrant:
 
 ```bash
-docker-compose up -d postgres redis qdrant
+docker compose -f deploy/compose/docker-compose.yml up -d postgres redis qdrant
 ```
 
 ### 5. Install Dependencies & Run Database Migrations
@@ -319,7 +319,7 @@ poetry run celery -A app.worker.celery_app beat --loglevel=info
 **Frontend UI:**
 
 ```bash
-cd ui
+cd web
 npm install
 npm run dev
 ```
@@ -410,11 +410,11 @@ in `tests/snapshots/openapi.json`.
 
 ## 🛠️ Utility Scripts
 
-The project includes helpful CLI scripts under `app/scripts/`:
+The project includes helpful CLI scripts under `api/app/scripts/` (runnable as `python -m app.scripts.<name>`):
 
-- **Run Evaluation Test Suite**: `poetry run python app/scripts/run_tests.py`
-- **Seed Benchmark Prompts**: `poetry run python app/scripts/seed_prompts.py`
-- **Migrate Qdrant Embeddings**: `poetry run python app/scripts/migrate_embeddings.py`
+- **Run Evaluation Test Suite**: `poetry run python -m app.scripts.run_tests`
+- **Seed Benchmark Prompts**: `poetry run python -m app.scripts.seed_prompts`
+- **Migrate Qdrant Embeddings**: `poetry run python -m app.scripts.migrate_embeddings`
 - **Manage Qdrant Collections**: `poetry run python -m app.scripts.create_qdrant`, `poetry run python -m app.scripts.check_qdrant`, and `poetry run python -m app.scripts.wipe_qdrant`
 
 ---

@@ -2,30 +2,30 @@
 
 Echo Gate is a FastAPI service that presents an OpenAI-compatible
 `chat/completions` API in front of several LLM providers, with a multi-level
-semantic cache in front of the providers. A separate Next.js app in `ui/` renders
+semantic cache in front of the providers. A separate Next.js app in `web/` renders
 the chat playground, trace explorer, and analytics dashboards.
 
 ## System components
 
 | Component | Where | Role |
 | --- | --- | --- |
-| HTTP API | `app/main.py`, `app/modules/*/*_controller.py` | FastAPI app, middleware, routers. |
-| Routing/cache core | `app/modules/llm/llm_router_service.py` | Owns the request lifecycle: exact cache, semantic cache, verification, provider call, cache write, logging. |
-| Provider adapters | `app/modules/llm/llm_provider_service.py` | One method per provider: `google-genai`/`gemini`, `openai`, `groq`, `openrouter`, `ollama`. |
-| Embeddings | `app/modules/embedding/embedding_service.py` | Dense embeddings (`sentence-transformers`) and sparse lexical embeddings (BM25). |
-| Redis cache | `app/modules/redis/redis_service.py` | Exact-match cache and quota counters. |
-| Qdrant cache | `app/modules/qdrant/llm_cache_collection_service.py` | Vector cache collection `embeddings_multivector`: upsert, exact search, dense search, hybrid RRF search, expiry deletion. |
-| Intent + entities | `app/modules/intent_classifier/` | LLM-based intent classification and regex-based entity extraction; scope/TTL decisions. |
-| Reranking/verification | `app/modules/reranking/reranker_service.py`, `app/modules/llm/cache_confidence.py`, `app/modules/verifier/` | Cross-encoder rerank, confidence gate, and the async judge/cross-encoder evaluators. |
-| Relational store | `app/core/database.py`, `app/modules/*/*_model.py`, `alembic/` | SQLAlchemy models on PostgreSQL with Row-Level Security. |
-| Background workers | `app/worker/celery_app.py`, `*/tasks.py` | Celery worker + Beat: cache eviction, cost calculation, pending-request evaluation. |
-| UI | `ui/` | Next.js 16 + React 19 observability dashboard. |
-| DI container | `app/core/dependencies.py` | Builds every singleton service and tears them down on shutdown. |
+| HTTP API | `api/app/main.py`, `api/app/modules/*/*_controller.py` | FastAPI app, middleware, routers. |
+| Routing/cache core | `api/app/modules/llm/llm_router_service.py` | Owns the request lifecycle: exact cache, semantic cache, verification, provider call, cache write, logging. |
+| Provider adapters | `api/app/modules/llm/llm_provider_service.py` | One method per provider: `google-genai`/`gemini`, `openai`, `groq`, `openrouter`, `ollama`. |
+| Embeddings | `api/app/modules/embedding/embedding_service.py` | Dense embeddings (`sentence-transformers`) and sparse lexical embeddings (BM25). |
+| Redis cache | `api/app/modules/redis/redis_service.py` | Exact-match cache and quota counters. |
+| Qdrant cache | `api/app/modules/qdrant/llm_cache_collection_service.py` | Vector cache collection `embeddings_multivector`: upsert, exact search, dense search, hybrid RRF search, expiry deletion. |
+| Intent + entities | `api/app/modules/intent_classifier/` | LLM-based intent classification and regex-based entity extraction; scope/TTL decisions. |
+| Reranking/verification | `api/app/modules/reranking/reranker_service.py`, `api/app/modules/llm/cache_confidence.py`, `api/app/modules/verifier/` | Cross-encoder rerank, confidence gate, and the async judge/cross-encoder evaluators. |
+| Relational store | `api/app/core/database.py`, `api/app/modules/*/*_model.py`, `alembic/` | SQLAlchemy models on PostgreSQL with Row-Level Security. |
+| Background workers | `api/app/worker/celery_app.py`, `*/tasks.py` | Celery worker + Beat: cache eviction, cost calculation, pending-request evaluation. |
+| UI | `web/` | Next.js 16 + React 19 observability dashboard. |
+| DI container | `api/app/core/dependencies.py` | Builds every singleton service and tears them down on shutdown. |
 
 ## Module layout
 
 ```text
-app/
+api/app/
   main.py                     FastAPI app, lifespan, middleware, router registration
   core/
     config.py                 Environment-backed settings (single Config instance)
@@ -231,8 +231,8 @@ Registered Beat tasks:
 | `app.modules.gateway_requests.tasks.evaluate_pending_requests` | every 1 min | Evaluate `PENDING` traces with the judge/cross-encoder to flag false-positive cache hits. |
 | `delete_expired_vectors` (qdrant) | every 5 min | Delete expired points from the Qdrant cache collection. |
 
-`docker-compose.yml` starts both a `celery_worker` and a `celery_beat` service,
-so scheduled tasks run under plain `docker-compose up`.
+`deploy/compose/docker-compose.yml` starts both a `celery_worker` and a `celery_beat` service,
+so scheduled tasks run under `docker compose -f deploy/compose/docker-compose.yml up`.
 
 ## Health and observability
 

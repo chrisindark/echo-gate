@@ -33,12 +33,12 @@ jobs:
         run: poetry install --with dev --no-interaction
 
       - name: Syntax / import check
-        run: poetry run python -m compileall app
+        run: poetry run python -m compileall api/app
 
       - name: Lint (ruff)
         run: |
-          poetry run ruff check app tests
-          poetry run ruff format --check app tests
+          poetry run ruff check api/app tests
+          poetry run ruff format --check api/app tests
 
       - name: Unit tests + OpenAPI contract snapshot
         run: poetry run pytest -q
@@ -46,12 +46,12 @@ jobs:
         # test rewrites tests/snapshots/openapi.json when it drifts, so a
         # failing step means an un-reviewed contract change.
 
-  ui:
-    name: UI (next lint + build)
+  web:
+    name: Web UI (next lint + build)
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ui
+        working-directory: web
     steps:
       - uses: actions/checkout@v4
 
@@ -60,7 +60,7 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: ui/package-lock.json
+          cache-dependency-path: web/package-lock.json
 
       - name: Install dependencies
         run: npm ci
