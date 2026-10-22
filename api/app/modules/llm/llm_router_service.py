@@ -87,6 +87,22 @@ def is_mock_response(response: ChatCompletionResponse | None) -> bool:
     return False
 
 
+def _chunk_has_content(chunk: ChatCompletionChunk) -> bool:
+    """Whether a streamed chunk already committed user-visible output.
+
+    Failover is only safe while the client has received nothing it would have to
+    unsee: role-only deltas and usage-only chunks can be followed by another
+    provider's chunk, but content, reasoning, or tool calls cannot.
+    """
+    for choice in chunk.choices or []:
+        delta = choice.delta
+        if delta is None:
+            continue
+        if delta.content or delta.reasoning_content or delta.tool_calls:
+            return True
+    return False
+
+
 class LlmRouterService:
     def __init__(
         self,
@@ -425,6 +441,7 @@ class LlmRouterService:
                     )
                     candidate_iter = candidate_stream.__aiter__()
                     first_chunk = None
+                    content_emitted = False
 
                     try:
                         first_chunk = await candidate_iter.__anext__()
@@ -485,7 +502,6 @@ class LlmRouterService:
                         )
 
                     # First chunk successfully received!
-                    breaker.record_success()
                     if first_chunk:
                         if first_chunk.model:
                             actual_model = first_chunk.model
@@ -495,12 +511,76 @@ class LlmRouterService:
                         first_chunk._degradation_state = (
                             "none" if idx == 0 else "provider_fallback"
                         )
+                        content_emitted = content_emitted or _chunk_has_content(
+                            first_chunk
+                        )
                         yield first_chunk, actual_service, actual_model
 
-                    async for chunk in candidate_iter:
-                        if chunk.model:
-                            actual_model = chunk.model
-                        yield chunk, actual_service, actual_model
+                    try:
+                        async for chunk in candidate_iter:
+                            if chunk.model:
+                                actual_model = chunk.model
+                            content_emitted = content_emitted or _chunk_has_content(
+                                chunk
+                            )
+                            yield chunk, actual_service, actual_model
+                    except Exception as e:
+                        # A provider can die after the response has started. That is
+                        # still a provider failure, so it counts against the breaker
+                        # even though the failure cannot always be routed around.
+                        breaker.record_failure(e)
+                        last_exception = e
+                        self._create_background_task(
+                            self._log_usage(
+                                request=request,
+                                response=None,
+                                service_name=candidate.service,
+                                start_time=t_primary_start,
+                                exact_hash=exact_hash
+                                or self._generate_cache_key(request),
+                                api_key=api_key,
+                                model=candidate.model,
+                                is_success=False,
+                                status_code=(
+                                    e.status_code
+                                    if isinstance(e, HTTPException)
+                                    else 500
+                                ),
+                                error_message=(
+                                    str(e.detail)
+                                    if isinstance(e, HTTPException)
+                                    else str(e)
+                                ),
+                            )
+                        )
+
+                        # Nothing user-visible was sent yet: the next candidate can
+                        # still answer, which is what the pre-first-chunk path does.
+                        if not content_emitted and idx < len(candidates) - 1:
+                            logger.warning(
+                                f"Streaming candidate {candidate.service} broke "
+                                f"mid-stream before any content: {e}. Trying next."
+                            )
+                            continue
+
+                        logger.error(
+                            f"Streaming candidate {candidate.service} failed after "
+                            f"{'content was' if content_emitted else 'the stream was'} "
+                            f"emitted: {e}. Cannot fail over safely."
+                        )
+                        classified = classify_provider_error(e, candidate.service)
+                        raise HTTPException(
+                            status_code=classified["status_code"],
+                            detail={
+                                "message": classified["message"],
+                                "error_code": classified["error_code"],
+                                "provider": candidate.service,
+                            },
+                        ) from e
+
+                    # Only a stream that ran to completion proves the provider is
+                    # healthy; the first chunk alone does not.
+                    breaker.record_success()
                     return
 
             except BulkheadLimitExceededException as bhe:

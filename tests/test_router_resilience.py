@@ -17,12 +17,30 @@ from app.core.circuit_breaker import (
 )
 from app.core.config import config
 from app.modules.chat.chat_schema import (
+    ChatCompletionChunk,
     ChatCompletionRequest,
     ChatCompletionResponse,
     ChatMessage,
     Choice,
+    ChunkChoice,
+    ChunkDelta,
 )
 from app.modules.llm.llm_router_service import LlmRouterService
+
+
+def _chunk(content: str | None = None, role: str | None = None) -> ChatCompletionChunk:
+    return ChatCompletionChunk(
+        id="chatcmpl-test",
+        created=1,
+        model="gpt-4o-mini",
+        choices=[
+            ChunkChoice(
+                index=0,
+                delta=ChunkDelta(role=role, content=content),
+                finish_reason=None,
+            )
+        ],
+    )
 
 
 def _request(model="gpt-4o-mini", service="openai") -> ChatCompletionRequest:
@@ -142,6 +160,110 @@ class TestRouterCircuitBreaker(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(service, "openai")
         self.assertEqual(breaker.state, CircuitBreakerState.HALF_OPEN)
+
+
+class TestMidStreamProviderFailures(unittest.IsolatedAsyncioTestCase):
+    """A provider that dies after the first chunk is still an unhealthy provider."""
+
+    def setUp(self):
+        circuit_breaker_registry.reset_all()
+        bulkhead_mod.bulkhead_manager.reset()
+        self._saved = {
+            name: getattr(config, name)
+            for name in (
+                "USE_FALLBACK_LLM",
+                "USE_REDIS_EXACT_MATCHING",
+                "CIRCUIT_BREAKER_FAILURE_THRESHOLD",
+                "CIRCUIT_BREAKER_RECOVERY_TIMEOUT_SECONDS",
+                "LLM_MAX_RETRIES",
+            )
+        }
+        config.USE_FALLBACK_LLM = "false"
+        config.USE_REDIS_EXACT_MATCHING = "false"
+        config.LLM_MAX_RETRIES = 0
+        config.CIRCUIT_BREAKER_FAILURE_THRESHOLD = 2
+
+    def tearDown(self):
+        for name, value in self._saved.items():
+            setattr(config, name, value)
+        circuit_breaker_registry.reset_all()
+        bulkhead_mod.bulkhead_manager.reset()
+
+    async def test_failure_after_content_counts_against_breaker(self):
+        class _DyingAfterContent:
+            async def generate_stream(self, request, service_name=None):
+                yield _chunk(content="partial answer")
+                raise HTTPException(status_code=503, detail="provider died")
+
+        router = _router(_DyingAfterContent())
+        with self.assertRaises(HTTPException) as ctx:
+            async for _ in router.generate_stream(_request()):
+                pass
+
+        # Classified provider error, not a bare RuntimeError.
+        self.assertEqual(ctx.exception.status_code, 503)
+        self.assertIsInstance(ctx.exception.detail, dict)
+        breaker = circuit_breaker_registry.get_breaker("openai")
+        self.assertEqual(breaker._consecutive_failures, 1)
+
+    async def test_repeated_mid_stream_failures_open_the_breaker(self):
+        class _AlwaysDying:
+            async def generate_stream(self, request, service_name=None):
+                yield _chunk(content="partial answer")
+                raise HTTPException(status_code=503, detail="provider died")
+
+        router = _router(_AlwaysDying())
+        for _ in range(2):
+            with self.assertRaises(HTTPException):
+                async for _ignored in router.generate_stream(_request()):
+                    pass
+
+        breaker = circuit_breaker_registry.get_breaker("openai")
+        self.assertEqual(breaker.state, CircuitBreakerState.OPEN)
+
+    async def test_failure_before_content_fails_over_to_next_candidate(self):
+        calls: list[str | None] = []
+
+        class _MixedProviders:
+            async def generate_stream(self, request, service_name=None):
+                calls.append(service_name)
+                if service_name == "groq":
+                    # Role-only delta: nothing user-visible has been committed.
+                    yield _chunk(role="assistant")
+                    raise HTTPException(status_code=503, detail="groq died")
+                yield _chunk(content="hello from the fallback")
+
+        router = _router(_MixedProviders())
+        contents = [
+            chunk.choices[0].delta.content
+            async for chunk in router.generate_stream(
+                _request(model="fast", service="groq")
+            )
+        ]
+
+        self.assertEqual(calls, ["groq", "google-genai"])
+        self.assertEqual([c for c in contents if c], ["hello from the fallback"])
+        self.assertEqual(
+            circuit_breaker_registry.get_breaker("groq")._consecutive_failures, 1
+        )
+
+    async def test_failure_after_content_does_not_fail_over(self):
+        calls: list[str | None] = []
+
+        class _DyingAlias:
+            async def generate_stream(self, request, service_name=None):
+                calls.append(service_name)
+                yield _chunk(content="partial answer")
+                raise HTTPException(status_code=503, detail="groq died")
+
+        router = _router(_DyingAlias())
+        with self.assertRaises(HTTPException):
+            async for _ in router.generate_stream(
+                _request(model="fast", service="groq")
+            ):
+                pass
+
+        self.assertEqual(calls, ["groq"], "must not replay after content was sent")
 
 
 if __name__ == "__main__":

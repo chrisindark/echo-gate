@@ -175,6 +175,7 @@ Echo Gate is designed to be *degradable*, not *down*:
    - When tripped `OPEN`, fast-fails or skips to the next candidate immediately with zero latency penalty.
    - Transitions to `HALF_OPEN` after recovery timeout (`CIRCUIT_BREAKER_RECOVERY_TIMEOUT_SECONDS`) to probe upstream recovery.
    - A `HALF_OPEN` breaker admits a single probe; the router releases that permit (`release_probe`) on paths that never reach the provider, such as a shed bulkhead, so a busy gateway cannot strand a recovered provider in `HALF_OPEN` permanently.
+   - A provider that dies *after* the first streamed chunk is recorded as a failure too. Success is only counted once a stream completes, and failover is attempted only while no content, reasoning, or tool call has been emitted — after that the client gets a structured SSE error instead of a replayed answer.
 
 3. **Bulkheads & Load Shedding** (`app/core/bulkhead.py`):
    - Global concurrency cap (`GLOBAL_MAX_CONCURRENCY`) and per-provider concurrency caps (`PROVIDER_MAX_CONCURRENCY`).
