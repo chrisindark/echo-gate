@@ -191,6 +191,7 @@ Echo Gate is designed to be *degradable*, not *down*:
 6. **Quota Budget Advertisement**:
    - `LlmQuotaService.check_quota` returns a `QuotaStatus` (limits, remaining, window resets read from the live Redis TTLs) instead of only raising. The guard sets `X-RateLimit-*` on the injected response, and the chat controller re-applies them on the `StreamingResponse` because a stream replaces that response object.
    - Refusals reuse the same headers: `429` (RPM/TPM) and `503` (provider circuit open / bulkhead shed) carry `Retry-After`, derived from the window TTL or the breaker's remaining recovery time, so downstream clients can pace themselves.
+   - When every candidate fails, the terminal `503` also carries `Retry-After`: the longest recovery window among the candidates' breakers (retrying before it expires would hit the same open breakers), else `RETRY_AFTER_DEFAULT_SECONDS`. Non-retryable classifications omit it.
 
 ## Cache scoping and TTL
 

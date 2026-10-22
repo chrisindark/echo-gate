@@ -102,16 +102,24 @@ Streamed (`stream: true`) responses carry the same headers: they are set on the
 - `403` — an admin key that is valid but lacks the scope the route requires.
 - `429` — RPM or TPM quota exceeded (see `llm_quota`), carrying the
   `X-RateLimit-*` headers plus `Retry-After`. The same status is returned when the
-  global or per-provider bulkhead sheds load, also with `Retry-After`, or when
-  every candidate provider is unavailable and a circuit breaker is open (`503`
-  with `Retry-After`).
+  global or per-provider bulkhead sheds load, also with `Retry-After`.
 - `402` — prepaid budget exhausted (`budget:<api_key>` ≤ 0 in Redis), carrying the
   `X-RateLimit-*` headers.
 - `400` — validation error, unsupported service, or a model not in the
   provider's allowlist.
-- `503` — provider (and fallback) failed.
+- `503` — no candidate provider could answer: every target failed (retries and
+  alias/fallback candidates included), a circuit breaker was open, or a stream
+  broke after it had started. Retryable `503`s carry `Retry-After`: the longest
+  remaining breaker recovery window among the candidates, else
+  `RETRY_AFTER_DEFAULT_SECONDS` (default 5) when no breaker is counting down.
+  When a stream breaks after content was emitted, the SSE body ends with an
+  `error` event and no replay is attempted.
 - `500` — unexpected server error in a controller.
 - `404` — resource not found on CRUD endpoints.
+
+`Retry-After` is deliberately absent from non-retryable failures (`400`, `401`,
+`403`, `402`): the same request would fail again, so a wait only wastes the
+caller's budget.
 
 ---
 

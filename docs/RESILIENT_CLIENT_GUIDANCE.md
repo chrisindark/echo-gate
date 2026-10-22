@@ -102,7 +102,7 @@ your bucket:
 | `X-RateLimit-Limit-Tokens` | TPM ceiling applied to this request. |
 | `X-RateLimit-Remaining-Tokens` | Tokens left in the current window. |
 | `X-RateLimit-Reset-Tokens` | Seconds until the token window resets. |
-| `Retry-After` | Present on `429` and `503` only: seconds to wait before retrying. |
+| `Retry-After` | Present on retryable refusals only (`429`, `503`): seconds to wait before retrying. |
 
 Practical rules for agents:
 
@@ -110,10 +110,15 @@ Practical rules for agents:
    approaches zero, pace yourself for `X-RateLimit-Reset-Requests` seconds
    instead of pushing until a `429`. Token budgets move in bigger steps, so
    `Remaining-Tokens` is the better signal for long prompts.
-2. **Honour `Retry-After` exactly.** It is derived from the live Redis window
-   TTL, so waiting that long is guaranteed to clear the counter. It is also sent
-   when a bulkhead sheds load (`429`) and when a provider circuit is open (`503`) —
-   both are retryable, unlike `400`/`401`/`403`/`402`.
+2. **Honour `Retry-After` exactly.** It is the gateway's own estimate of when
+   retrying becomes worthwhile, and it is sent on every retryable refusal:
+   quota (`429`), bulkhead shed (`429`), open circuit breaker (`503`), and total
+   upstream failure (`503` where no candidate answered, or a stream broke). For
+   quota it is the live Redis window TTL, so waiting that long clears the
+   counter; for upstream failures it is the longest remaining breaker recovery
+   window (or `RETRY_AFTER_DEFAULT_SECONDS`, default 5, when no breaker is open).
+   Non-retryable failures (`400`/`401`/`402`/`403`) never carry it — retrying
+   them cannot succeed.
 3. **Expect jitter between replicas.** Each gateway process reads the same Redis
    counters, but a response produced while another request is in flight may be a
    little stale. Treat the values as advisory, not transactional.

@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import time
 import uuid
 from collections import OrderedDict
@@ -347,7 +348,45 @@ class LlmRouterService:
                 "error_code": classified["error_code"],
                 "provider": last_svc,
             },
+            headers=self._retry_after_header(candidates, classified) or None,
         )
+
+    def _retry_after_header(
+        self,
+        candidates: list[ModelTarget],
+        classified: dict[str, Any],
+    ) -> dict[str, str]:
+        """`Retry-After` for a terminal upstream failure, or nothing if unusable.
+
+        Every candidate failed, so the honest wait is the longest circuit-breaker
+        recovery window still counting down: retrying before it expires just hits
+        the same open breakers. With no open breaker the upstream is merely
+        unhealthy right now, so advertise the configured default backoff. Errors
+        that are not retryable at all (a 400 from the provider) carry no header --
+        telling a client to retry a request that will fail again only wastes its
+        budget.
+        """
+        if not classified.get("retryable"):
+            return {}
+
+        recovery = (
+            max(
+                (
+                    circuit_breaker_registry.get_breaker(
+                        candidate.service
+                    ).remaining_recovery_time()
+                )
+                for candidate in candidates
+            )
+            if candidates
+            else 0.0
+        )
+        seconds = (
+            max(1, math.ceil(recovery))
+            if recovery > 0
+            else max(1, int(getattr(config, "RETRY_AFTER_DEFAULT_SECONDS", 5)))
+        )
+        return {"Retry-After": str(seconds)}
 
     async def _stream_from_provider_with_fallback(
         self,
@@ -499,6 +538,8 @@ class LlmRouterService:
                                 "error_code": classified["error_code"],
                                 "provider": candidate.service,
                             },
+                            headers=self._retry_after_header(candidates, classified)
+                            or None,
                         )
 
                     # First chunk successfully received!
@@ -576,6 +617,11 @@ class LlmRouterService:
                                 "error_code": classified["error_code"],
                                 "provider": candidate.service,
                             },
+                            # Content already went out, so the client decides whether
+                            # to retry; if this failure just tripped the breaker the
+                            # hint is its recovery window.
+                            headers=self._retry_after_header(candidates, classified)
+                            or None,
                         ) from e
 
                     # Only a stream that ran to completion proves the provider is
@@ -607,6 +653,7 @@ class LlmRouterService:
                 "error_code": classified["error_code"],
                 "provider": last_svc,
             },
+            headers=self._retry_after_header(candidates, classified) or None,
         )
 
     def _generate_cache_key(self, request: ChatCompletionRequest) -> str:

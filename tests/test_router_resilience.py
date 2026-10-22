@@ -4,6 +4,7 @@ These drive ``LlmRouterService._call_provider_with_retry`` instead of the helper
 in isolation, which is how the HALF_OPEN probe-leak regression was found.
 """
 
+import time
 import unittest
 from unittest.mock import MagicMock
 
@@ -264,6 +265,108 @@ class TestMidStreamProviderFailures(unittest.IsolatedAsyncioTestCase):
                 pass
 
         self.assertEqual(calls, ["groq"], "must not replay after content was sent")
+
+
+class TestTerminalFailureRetryAfter(unittest.IsolatedAsyncioTestCase):
+    """When nothing can answer, tell the client how long to wait."""
+
+    def setUp(self):
+        circuit_breaker_registry.reset_all()
+        bulkhead_mod.bulkhead_manager.reset()
+        self._saved = {
+            name: getattr(config, name)
+            for name in (
+                "USE_FALLBACK_LLM",
+                "USE_REDIS_EXACT_MATCHING",
+                "CIRCUIT_BREAKER_FAILURE_THRESHOLD",
+                "CIRCUIT_BREAKER_RECOVERY_TIMEOUT_SECONDS",
+                "RETRY_AFTER_DEFAULT_SECONDS",
+                "LLM_MAX_RETRIES",
+            )
+        }
+        config.USE_FALLBACK_LLM = "false"
+        config.USE_REDIS_EXACT_MATCHING = "false"
+        config.LLM_MAX_RETRIES = 0
+        config.CIRCUIT_BREAKER_FAILURE_THRESHOLD = 100
+        config.RETRY_AFTER_DEFAULT_SECONDS = 5
+
+    def tearDown(self):
+        for name, value in self._saved.items():
+            setattr(config, name, value)
+        circuit_breaker_registry.reset_all()
+        bulkhead_mod.bulkhead_manager.reset()
+
+    async def test_all_candidates_failed_advertises_default_backoff(self):
+        class _AlwaysDown:
+            async def generate_openai_completion(self, request):
+                raise HTTPException(status_code=503, detail="upstream down")
+
+        with self.assertRaises(HTTPException) as ctx:
+            await _router(_AlwaysDown())._call_provider_with_retry(_request(), "openai")
+
+        exc = ctx.exception
+        self.assertEqual(exc.status_code, 503)
+        self.assertEqual(exc.headers["Retry-After"], "5")
+        self.assertEqual(exc.detail["error_code"], "provider_unavailable")
+
+    async def test_open_breaker_recovery_drives_the_advertised_wait(self):
+        # A second candidate whose breaker is counting down: retrying before it
+        # expires would just hit the open breaker again.
+        config.USE_FALLBACK_LLM = "true"
+        circuit_breaker_registry.reset_all()
+        open_breaker = circuit_breaker_registry.get_breaker("google-genai")
+        open_breaker._state = CircuitBreakerState.OPEN
+        open_breaker.recovery_timeout = 30.0
+        open_breaker._last_failure_time = time.monotonic()
+
+        class _PrimaryDown:
+            async def generate_openai_completion(self, request):
+                raise HTTPException(status_code=503, detail="primary down")
+
+            async def generate_gemini_completion(self, request):
+                raise HTTPException(status_code=503, detail="fallback down")
+
+        with self.assertRaises(HTTPException) as ctx:
+            await _router(_PrimaryDown())._call_provider_with_retry(
+                _request(), "openai"
+            )
+
+        advertised = int(ctx.exception.headers["Retry-After"])
+        self.assertGreaterEqual(advertised, 29)
+        self.assertLessEqual(advertised, 30)
+
+    async def test_non_retryable_terminal_error_has_no_retry_after(self):
+        # Every alias target rejects the request: retrying cannot help.
+        class _BadRequest:
+            async def generate_groq_completion(self, request):
+                raise HTTPException(status_code=400, detail="bad request")
+
+            async def generate_gemini_completion(self, request):
+                raise HTTPException(status_code=400, detail="bad request")
+
+            async def generate_openai_completion(self, request):
+                raise HTTPException(status_code=400, detail="bad request")
+
+        with self.assertRaises(HTTPException) as ctx:
+            await _router(_BadRequest())._call_provider_with_retry(
+                _request(model="fast", service="groq"), "groq"
+            )
+
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertNotIn("Retry-After", ctx.exception.headers or {})
+
+    async def test_stream_exhaustion_advertises_retry_after(self):
+        class _StreamDown:
+            async def generate_stream(self, request, service_name=None):
+                raise HTTPException(status_code=503, detail="upstream down")
+                yield  # pragma: no cover - makes this an async generator
+
+        with self.assertRaises(HTTPException) as ctx:
+            async for _ignored in _router(_StreamDown()).generate_stream(_request()):
+                pass
+
+        self.assertEqual(ctx.exception.status_code, 503)
+        self.assertEqual(ctx.exception.headers["Retry-After"], "5")
 
 
 if __name__ == "__main__":
