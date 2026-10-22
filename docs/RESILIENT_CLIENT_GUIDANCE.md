@@ -15,6 +15,12 @@ Every completion response from Echo Gate returns an `X-Gateway-Degradation` head
 | **PROVIDER_FALLBACK** | `provider_fallback` | Upstream resilience: Primary provider failed (or its circuit breaker was open); request was transparently fulfilled by the configured fallback provider or next candidate in an alias. |
 | **HARD_DOWN** | `hard_down` / HTTP 503 | Terminal failure: All candidate providers and fallbacks failed, or the circuit breaker is open with no remaining candidates. |
 
+The header is present on both buffered JSON responses and streamed SSE responses
+(`stream: true`). For streams it is resolved from the first chunk, so it is
+available as soon as the response headers arrive — before you consume any body
+chunks. When a request degrades twice, `provider_fallback` wins over
+`cache_bypassed`, and a cache *hit* is always reported as `none`.
+
 ---
 
 ## 2. Request Timeout Budget Propagation

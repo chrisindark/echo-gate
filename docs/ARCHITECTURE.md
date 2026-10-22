@@ -164,15 +164,17 @@ Echo Gate is designed to be *degradable*, not *down*:
 
 1. **Explicit Degradation States**:
    - `FULL` (`X-Gateway-Degradation: none`): Served via cache hit or primary provider completion.
-   - `CACHE_DEGRADED` (`X-Gateway-Degradation: cache_bypassed`): Fail-open cache. A Redis or Qdrant failure is treated as a cache miss, proceeding directly to the provider without failing client requests.
+   - `CACHE_DEGRADED` (`X-Gateway-Degradation: cache_bypassed`): Fail-open cache. A Redis or Qdrant failure is treated as a cache miss, proceeding directly to the provider without failing client requests. The fail-open sites (`RedisService.get`, `LlmCacheCollectionService.search_exact` / `query_points_rrf` / `query_points_dense`, and the semantic read in `LlmRouterService.evaluate_semantic_cache`) call `mark_cache_degraded` in `app/core/degradation.py`, so the state reflects what actually happened for that request.
    - `PROVIDER_FALLBACK` (`X-Gateway-Degradation: provider_fallback`): Primary provider failed or its circuit breaker was open; served by fallback provider or subsequent alias target.
    - `HARD_DOWN` (`503 Service Unavailable`): All candidate targets and fallbacks failed, or circuit breaker is open with no remaining targets.
+   - The header is set on buffered JSON responses and on SSE streaming responses. For streams the router tags the first chunk before any bytes are written, so `provider_fallback` and `cache_bypassed` are visible even though the body is incremental. `provider_fallback` outranks `cache_bypassed`, and `cache_bypassed` is only reported when the answer actually came from a provider (a cache hit is never labelled bypassed).
 
 2. **Per-Provider Circuit Breakers** (`app/core/circuit_breaker.py`):
    - Keyed per provider (`openai`, `gemini`, `groq`, `openrouter`, `ollama`, `claude`).
    - Tracks consecutive retryable failures (`408`, `429`, `500`, `502`, `503`, `504`, timeouts).
    - When tripped `OPEN`, fast-fails or skips to the next candidate immediately with zero latency penalty.
    - Transitions to `HALF_OPEN` after recovery timeout (`CIRCUIT_BREAKER_RECOVERY_TIMEOUT_SECONDS`) to probe upstream recovery.
+   - A `HALF_OPEN` breaker admits a single probe; the router releases that permit (`release_probe`) on paths that never reach the provider, such as a shed bulkhead, so a busy gateway cannot strand a recovered provider in `HALF_OPEN` permanently.
 
 3. **Bulkheads & Load Shedding** (`app/core/bulkhead.py`):
    - Global concurrency cap (`GLOBAL_MAX_CONCURRENCY`) and per-provider concurrency caps (`PROVIDER_MAX_CONCURRENCY`).
