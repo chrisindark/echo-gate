@@ -86,6 +86,26 @@ Standard error codes:
 - `provider_unavailable`: Upstream 5xx or connection error.
 - `provider_timeout`: Upstream deadline exceeded.
 
+Every gateway-side provider failure uses this shape too, including the ones the
+gateway raises without calling upstream:
+
+- An **open circuit breaker** returns `503` with `error_code:
+  "provider_unavailable"`, `provider` set to the affected provider, and
+  `Retry-After` set to the breaker's remaining recovery window.
+- **Exhausting every candidate** returns `503` with the same shape, carrying
+  `Retry-After` (breaker recovery or `RETRY_AFTER_DEFAULT_SECONDS`).
+- Errors raised by the **quota guard** keep their plain string `detail`; their
+  machine-readable part is the `X-RateLimit-*` / `Retry-After` headers.
+
+Two envelopes carry these fields:
+
+| Response kind | Where the fields live |
+| --- | --- |
+| `application/json` error response | `body.detail.error_code`, `body.detail.provider`, `body.detail.message` |
+| `text/event-stream` error event | `data.error.error_code`, `data.error.provider`, `data.error.message` (the wrapper shown above) |
+
+Parse `error_code` and `provider`; never match on message text.
+
 ---
 
 ## 5. Rate-Limit Budget Headers

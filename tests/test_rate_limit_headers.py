@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock
 from fastapi import HTTPException
 from starlette.testclient import TestClient
 
+from app.core.circuit_breaker import CircuitBreakerOpenException
 from app.core.dependencies import get_llm_quota_service, get_llm_router_service
 from app.main import app
 from app.modules.chat.chat_schema import (
@@ -225,6 +226,21 @@ class TestRateLimitHeadersOnResponses(unittest.TestCase):
         self.assertEqual(http_response.headers["x-ratelimit-remaining-requests"], "0")
         for name in HEADER_NAMES:
             self.assertIn(name, http_response.headers)
+
+    def test_open_circuit_breaker_is_structured_with_retry_after(self):
+        self.quota_service.check_quota = AsyncMock(return_value=None)
+        self.router.generate_completion = AsyncMock(
+            side_effect=CircuitBreakerOpenException("openai", retry_after=9.2)
+        )
+
+        http_response = self._post()
+        self.assertEqual(http_response.status_code, 503)
+        self.assertEqual(http_response.headers["retry-after"], "9")
+
+        detail = http_response.json()["detail"]
+        self.assertEqual(detail["error_code"], "provider_unavailable")
+        self.assertEqual(detail["provider"], "openai")
+        self.assertIn("circuit breaker is OPEN", detail["message"])
 
 
 if __name__ == "__main__":

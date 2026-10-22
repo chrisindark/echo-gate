@@ -136,6 +136,10 @@ class TestRouterCircuitBreaker(unittest.IsolatedAsyncioTestCase):
             await router._call_provider_with_retry(_request(), "openai")
         self.assertEqual(ctx.exception.status_code, 503)
         self.assertEqual(provider.calls, calls_before, "open provider was still called")
+        # Same structured detail as any other provider failure.
+        self.assertEqual(ctx.exception.detail["error_code"], "provider_unavailable")
+        self.assertEqual(ctx.exception.detail["provider"], "openai")
+        self.assertIn("Retry-After", ctx.exception.headers)
 
     async def test_bulkhead_shed_releases_half_open_probe(self):
         """Regression: a shed request must not strand the HALF_OPEN probe permit."""

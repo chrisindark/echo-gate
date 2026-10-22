@@ -109,8 +109,9 @@ Streamed (`stream: true`) responses carry the same headers: they are set on the
   provider's allowlist.
 - `503` — no candidate provider could answer: every target failed (retries and
   alias/fallback candidates included), a circuit breaker was open, or a stream
-  broke after it had started. Retryable `503`s carry `Retry-After`: the longest
-  remaining breaker recovery window among the candidates, else
+  broke after it had started. All of these carry the structured `detail`
+  (`message`/`error_code`/`provider`); retryable `503`s also carry `Retry-After`:
+  the longest remaining breaker recovery window among the candidates, else
   `RETRY_AFTER_DEFAULT_SECONDS` (default 5) when no breaker is counting down.
   When a stream breaks after content was emitted, the SSE body ends with an
   `error` event and no replay is attempted.
