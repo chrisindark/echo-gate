@@ -86,6 +86,7 @@ default in `config.py`. Copy `api/app/.env.example` to `api/app/.env.local` (or
 | `LLM_MAX_RETRIES` | `0` | Retries per provider call (`stop_after_attempt(max_retries + 1)`). |
 | `RETRY_BACKOFF_INITIAL_SECONDS` | `1` | Initial exponential-jitter backoff. |
 | `RETRY_BACKOFF_MAX_SECONDS` | `10` | Max backoff. |
+| `RETRY_AFTER_DEFAULT_SECONDS` | `5` | `Retry-After` advertised when every candidate provider failed and no circuit breaker is counting down. |
 | `CIRCUIT_BREAKER_ENABLED` | `true` | Enable per-provider circuit breakers. |
 | `CIRCUIT_BREAKER_FAILURE_THRESHOLD` | `5` | Consecutive retryable errors before a provider trips OPEN. |
 | `CIRCUIT_BREAKER_RECOVERY_TIMEOUT_SECONDS` | `30.0` | Recovery window in seconds before attempting a HALF_OPEN probe. |

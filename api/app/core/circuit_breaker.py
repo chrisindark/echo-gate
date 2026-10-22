@@ -5,6 +5,7 @@ from enum import Enum
 from fastapi import HTTPException
 
 from app.core.config import config
+from app.core.error_classification import PROVIDER_ERROR_UNAVAILABLE
 from app.core.retry import is_retryable_exception
 
 logger = logging.getLogger(__name__)
@@ -17,11 +18,27 @@ class CircuitBreakerState(str, Enum):
 
 
 class CircuitBreakerOpenException(HTTPException):
+    """503 raised when a provider's circuit breaker is ``OPEN``.
+
+    Carries the same structured ``detail`` shape as every other provider failure
+    (``message``/``error_code``/``provider``), so clients can branch on
+    ``error_code`` instead of matching message text, plus ``Retry-After`` set to
+    the breaker's remaining recovery window.
+    """
+
     def __init__(self, service_name: str, retry_after: float):
+        seconds = int(max(1.0, retry_after))
         super().__init__(
             status_code=503,
-            detail=f"Circuit breaker is OPEN for provider '{service_name}'. Upstream service is degraded.",
-            headers={"Retry-After": str(int(max(1.0, retry_after)))},
+            detail={
+                "message": (
+                    f"Provider '{service_name}' circuit breaker is OPEN "
+                    f"(upstream degraded); retry in {seconds}s."
+                ),
+                "error_code": PROVIDER_ERROR_UNAVAILABLE,
+                "provider": service_name,
+            },
+            headers={"Retry-After": str(seconds)},
         )
         self.service_name = service_name
         self.retry_after = retry_after
@@ -117,6 +134,18 @@ class CircuitBreaker:
                 service_name=self.service_name,
                 retry_after=self.remaining_recovery_time(),
             )
+
+    def release_probe(self) -> None:
+        """Release a HALF_OPEN probe permit that was never resolved.
+
+        ``can_execute`` claims the single HALF_OPEN probe slot before dispatch.
+        If the attempt never reaches the provider -- a saturated bulkhead, a
+        cancelled request, an exception between the claim and the call -- no
+        success or failure is recorded, so the claim must be released explicitly.
+        Otherwise the breaker stays HALF_OPEN with its only permit held forever
+        and the provider is skipped until the process restarts.
+        """
+        self._half_open_probe_in_flight = False
 
     def record_success(self) -> None:
         """Record a successful provider interaction."""

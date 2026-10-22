@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import time
 import uuid
 from collections import OrderedDict
@@ -28,6 +29,11 @@ from app.core.constants import (
     MOCK_RESPONSE_TEXT,
     PROMPT_VERSION,
     SCOPE_HIERARCHY,
+)
+from app.core.degradation import (
+    cache_degradation_scope,
+    mark_cache_degraded,
+    resolve_degradation_state,
 )
 from app.core.error_classification import classify_provider_error
 from app.core.logger import log_latency
@@ -79,6 +85,22 @@ def is_mock_response(response: ChatCompletionResponse | None) -> bool:
         and first_choice.message.content.strip() == MOCK_RESPONSE_TEXT.strip()
     ):
         return True
+    return False
+
+
+def _chunk_has_content(chunk: ChatCompletionChunk) -> bool:
+    """Whether a streamed chunk already committed user-visible output.
+
+    Failover is only safe while the client has received nothing it would have to
+    unsee: role-only deltas and usage-only chunks can be followed by another
+    provider's chunk, but content, reasoning, or tool calls cannot.
+    """
+    for choice in chunk.choices or []:
+        delta = choice.delta
+        if delta is None:
+            continue
+        if delta.content or delta.reasoning_content or delta.tool_calls:
+            return True
     return False
 
 
@@ -308,6 +330,11 @@ class LlmRouterService:
                         f"Target {candidate.service}/{candidate.model} failed: {e}. Trying next candidate."
                     )
                     continue
+            finally:
+                # Release the HALF_OPEN probe permit on every non-dispatch path
+                # (bulkhead shed, budget abort, cancellation). A resolved probe
+                # already cleared it in record_success/record_failure.
+                breaker.release_probe()
 
         # All candidates exhausted: classify structured error
         last_svc = candidates[-1].service if candidates else service_name
@@ -321,7 +348,45 @@ class LlmRouterService:
                 "error_code": classified["error_code"],
                 "provider": last_svc,
             },
+            headers=self._retry_after_header(candidates, classified) or None,
         )
+
+    def _retry_after_header(
+        self,
+        candidates: list[ModelTarget],
+        classified: dict[str, Any],
+    ) -> dict[str, str]:
+        """`Retry-After` for a terminal upstream failure, or nothing if unusable.
+
+        Every candidate failed, so the honest wait is the longest circuit-breaker
+        recovery window still counting down: retrying before it expires just hits
+        the same open breakers. With no open breaker the upstream is merely
+        unhealthy right now, so advertise the configured default backoff. Errors
+        that are not retryable at all (a 400 from the provider) carry no header --
+        telling a client to retry a request that will fail again only wastes its
+        budget.
+        """
+        if not classified.get("retryable"):
+            return {}
+
+        recovery = (
+            max(
+                (
+                    circuit_breaker_registry.get_breaker(
+                        candidate.service
+                    ).remaining_recovery_time()
+                )
+                for candidate in candidates
+            )
+            if candidates
+            else 0.0
+        )
+        seconds = (
+            max(1, math.ceil(recovery))
+            if recovery > 0
+            else max(1, int(getattr(config, "RETRY_AFTER_DEFAULT_SECONDS", 5)))
+        )
+        return {"Retry-After": str(seconds)}
 
     async def _stream_from_provider_with_fallback(
         self,
@@ -415,6 +480,7 @@ class LlmRouterService:
                     )
                     candidate_iter = candidate_stream.__aiter__()
                     first_chunk = None
+                    content_emitted = False
 
                     try:
                         first_chunk = await candidate_iter.__anext__()
@@ -472,19 +538,95 @@ class LlmRouterService:
                                 "error_code": classified["error_code"],
                                 "provider": candidate.service,
                             },
+                            headers=self._retry_after_header(candidates, classified)
+                            or None,
                         )
 
                     # First chunk successfully received!
-                    breaker.record_success()
                     if first_chunk:
                         if first_chunk.model:
                             actual_model = first_chunk.model
+                        # Tag the chunk with the provider-path degradation state so
+                        # the controller can emit the right response header before
+                        # the SSE body starts.
+                        first_chunk._degradation_state = (
+                            "none" if idx == 0 else "provider_fallback"
+                        )
+                        content_emitted = content_emitted or _chunk_has_content(
+                            first_chunk
+                        )
                         yield first_chunk, actual_service, actual_model
 
-                    async for chunk in candidate_iter:
-                        if chunk.model:
-                            actual_model = chunk.model
-                        yield chunk, actual_service, actual_model
+                    try:
+                        async for chunk in candidate_iter:
+                            if chunk.model:
+                                actual_model = chunk.model
+                            content_emitted = content_emitted or _chunk_has_content(
+                                chunk
+                            )
+                            yield chunk, actual_service, actual_model
+                    except Exception as e:
+                        # A provider can die after the response has started. That is
+                        # still a provider failure, so it counts against the breaker
+                        # even though the failure cannot always be routed around.
+                        breaker.record_failure(e)
+                        last_exception = e
+                        self._create_background_task(
+                            self._log_usage(
+                                request=request,
+                                response=None,
+                                service_name=candidate.service,
+                                start_time=t_primary_start,
+                                exact_hash=exact_hash
+                                or self._generate_cache_key(request),
+                                api_key=api_key,
+                                model=candidate.model,
+                                is_success=False,
+                                status_code=(
+                                    e.status_code
+                                    if isinstance(e, HTTPException)
+                                    else 500
+                                ),
+                                error_message=(
+                                    str(e.detail)
+                                    if isinstance(e, HTTPException)
+                                    else str(e)
+                                ),
+                            )
+                        )
+
+                        # Nothing user-visible was sent yet: the next candidate can
+                        # still answer, which is what the pre-first-chunk path does.
+                        if not content_emitted and idx < len(candidates) - 1:
+                            logger.warning(
+                                f"Streaming candidate {candidate.service} broke "
+                                f"mid-stream before any content: {e}. Trying next."
+                            )
+                            continue
+
+                        logger.error(
+                            f"Streaming candidate {candidate.service} failed after "
+                            f"{'content was' if content_emitted else 'the stream was'} "
+                            f"emitted: {e}. Cannot fail over safely."
+                        )
+                        classified = classify_provider_error(e, candidate.service)
+                        raise HTTPException(
+                            status_code=classified["status_code"],
+                            detail={
+                                "message": classified["message"],
+                                "error_code": classified["error_code"],
+                                "provider": candidate.service,
+                            },
+                            # Content already went out, so the client decides whether
+                            # to retry; if this failure just tripped the breaker the
+                            # hint is its recovery window.
+                            headers=self._retry_after_header(candidates, classified)
+                            or None,
+                        ) from e
+
+                    # Only a stream that ran to completion proves the provider is
+                    # healthy; the first chunk alone does not.
+                    breaker.record_success()
                     return
 
             except BulkheadLimitExceededException as bhe:
@@ -495,6 +637,10 @@ class LlmRouterService:
                     )
                     continue
                 raise bhe
+            finally:
+                # See _call_provider_with_retry: never leave a HALF_OPEN probe
+                # permit claimed when no chunk was ever dispatched.
+                breaker.release_probe()
 
         last_svc = candidates[-1].service if candidates else service_name
         classified = classify_provider_error(
@@ -507,6 +653,7 @@ class LlmRouterService:
                 "error_code": classified["error_code"],
                 "provider": last_svc,
             },
+            headers=self._retry_after_header(candidates, classified) or None,
         )
 
     def _generate_cache_key(self, request: ChatCompletionRequest) -> str:
@@ -637,6 +784,7 @@ class LlmRouterService:
                 )
             except Exception:
                 logger.exception("Qdrant exact search error")
+                mark_cache_degraded("qdrant_exact_read_failed")
         return None, None
 
     async def evaluate_semantic_cache(self, request: ChatCompletionRequest) -> dict:
@@ -1145,6 +1293,7 @@ class LlmRouterService:
             return result
         except Exception:
             logger.exception("Qdrant Database read error")
+            mark_cache_degraded("qdrant_semantic_read_failed")
             return result
         finally:
             semantic_end = time.perf_counter()
@@ -1802,6 +1951,29 @@ class LlmRouterService:
         api_key: str | None = None,
         timeout_budget_ms: float | None = None,
     ) -> ChatCompletionResponse:
+        """Resolve a completion and stamp its degradation state.
+
+        The cache-degradation scope wraps the whole pipeline so a fail-open cache
+        read anywhere below (Redis, Qdrant exact, semantic search) is reported on
+        the response instead of only in the logs.
+        """
+        with cache_degradation_scope():
+            response = await self._generate_completion_impl(
+                request, api_key, timeout_budget_ms
+            )
+            served_from_cache = bool((response.cache_info or {}).get("matched"))
+            response._degradation_state = resolve_degradation_state(
+                getattr(response, "_degradation_state", None),
+                served_from_cache=served_from_cache,
+            )
+            return response
+
+    async def _generate_completion_impl(
+        self,
+        request: ChatCompletionRequest,
+        api_key: str | None = None,
+        timeout_budget_ms: float | None = None,
+    ) -> ChatCompletionResponse:
         start_time = time.perf_counter()
         breakdown: dict[str, Any] = {}
         service_name = request.service_name or config.DEFAULT_LLM_SERVICE
@@ -2059,6 +2231,33 @@ class LlmRouterService:
                 )
 
     async def generate_stream(
+        self,
+        request: ChatCompletionRequest,
+        api_key: str | None = None,
+        timeout_budget_ms: float | None = None,
+    ) -> AsyncIterator[ChatCompletionChunk]:
+        """Stream a completion, tagging the first chunk with its degradation state.
+
+        The controller reads that tag before the response headers are sent, so a
+        streamed answer served by a fallback provider or after a failed cache read
+        no longer reports ``none``.
+        """
+        with cache_degradation_scope():
+            first = True
+            async for chunk in self._generate_stream_impl(
+                request, api_key, timeout_budget_ms
+            ):
+                if first:
+                    first = False
+                    provider_state = getattr(chunk, "_degradation_state", None)
+                    chunk._degradation_state = resolve_degradation_state(
+                        provider_state,
+                        # Untagged first chunks come from the cache paths.
+                        served_from_cache=provider_state is None,
+                    )
+                yield chunk
+
+    async def _generate_stream_impl(
         self,
         request: ChatCompletionRequest,
         api_key: str | None = None,

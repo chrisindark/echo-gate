@@ -2,6 +2,7 @@ import unittest
 
 from fastapi import HTTPException
 
+from app.core.circuit_breaker import CircuitBreakerOpenException
 from app.core.error_classification import (
     PROVIDER_ERROR_AUTH,
     PROVIDER_ERROR_CONTENT_FILTER,
@@ -58,6 +59,23 @@ class TestStructuredErrors(unittest.TestCase):
             status_code=503, detail="The server is temporarily overloaded."
         )
         err = classify_provider_error(exc, provider="openrouter")
+        self.assertEqual(err["error_code"], PROVIDER_ERROR_UNAVAILABLE)
+        self.assertEqual(err["status_code"], 503)
+        self.assertTrue(err["retryable"])
+
+    def test_circuit_open_exception_is_structured(self):
+        exc = CircuitBreakerOpenException("openai", retry_after=12.4)
+        self.assertEqual(exc.status_code, 503)
+        self.assertEqual(exc.detail["error_code"], PROVIDER_ERROR_UNAVAILABLE)
+        self.assertEqual(exc.detail["provider"], "openai")
+        self.assertIn("circuit breaker is OPEN", exc.detail["message"])
+        self.assertEqual(exc.headers["Retry-After"], "12")
+
+    def test_circuit_open_exception_classifies_as_unavailable(self):
+        # A client that already handles provider failures keeps working.
+        err = classify_provider_error(
+            CircuitBreakerOpenException("openai", retry_after=0.2), provider="openai"
+        )
         self.assertEqual(err["error_code"], PROVIDER_ERROR_UNAVAILABLE)
         self.assertEqual(err["status_code"], 503)
         self.assertTrue(err["retryable"])

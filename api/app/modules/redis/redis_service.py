@@ -3,6 +3,7 @@ import logging
 from redis import asyncio as aioredis
 
 from app.core.config import config
+from app.core.degradation import mark_cache_degraded
 from app.core.logger import log_latency
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,7 @@ class RedisService:
                 return cached_data
         except Exception as e:
             logger.error(f"Failed to get data from Redis: {e}")
+            mark_cache_degraded("redis_read_failed")
 
         return None
 
@@ -75,6 +77,19 @@ class RedisService:
             return await self.redis.incr(key)
         except Exception as e:
             logger.error(f"Failed to increment key in Redis: {e}")
+
+        return None
+
+    async def remaining_ttl(self, key: str) -> int | None:
+        """Remaining TTL in seconds (-2 missing key, -1 no expiry), or None on error.
+
+        Named `remaining_ttl`, not `ttl`: the instance already carries a `ttl`
+        attribute (the default cache TTL), which would shadow a method of that name.
+        """
+        try:
+            return await self.redis.ttl(key)
+        except Exception as e:
+            logger.error(f"Failed to read TTL for {key} from Redis: {e}")
 
         return None
 

@@ -2,6 +2,7 @@ import asyncio
 import logging
 from collections.abc import Generator
 from contextlib import contextmanager
+from dataclasses import dataclass
 
 from fastapi import HTTPException, status
 from sqlalchemy import or_
@@ -12,6 +13,41 @@ from app.modules.llm_quota.llm_quota_model import LlmQuotaRule
 from app.modules.redis.redis_service import RedisService
 
 logger = logging.getLogger(__name__)
+
+#: Counter window used by the RPM/TPM Redis keys. Advertised in reset headers.
+QUOTA_WINDOW_SECONDS = 60
+
+
+@dataclass(frozen=True)
+class QuotaStatus:
+    """Per-request view of the caller's rate-limit budget.
+
+    Returned by :meth:`LlmQuotaService.check_quota` so the guard can advertise
+    the remaining budget to downstream clients instead of only failing them.
+    ``remaining_*`` already accounts for the request being served.
+    """
+
+    limit_requests: int
+    remaining_requests: int
+    reset_requests_seconds: int
+    limit_tokens: int
+    remaining_tokens: int
+    reset_tokens_seconds: int
+
+    def to_headers(self) -> dict[str, str]:
+        return {
+            "X-RateLimit-Limit-Requests": str(self.limit_requests),
+            "X-RateLimit-Remaining-Requests": str(self.remaining_requests),
+            "X-RateLimit-Reset-Requests": str(self.reset_requests_seconds),
+            "X-RateLimit-Limit-Tokens": str(self.limit_tokens),
+            "X-RateLimit-Remaining-Tokens": str(self.remaining_tokens),
+            "X-RateLimit-Reset-Tokens": str(self.reset_tokens_seconds),
+        }
+
+    def retry_after(self, *, tokens: bool = False) -> int:
+        """Seconds a throttled client should wait before retrying."""
+        reset = self.reset_tokens_seconds if tokens else self.reset_requests_seconds
+        return max(int(reset), 1)
 
 
 class LlmQuotaService:
@@ -107,7 +143,7 @@ class LlmQuotaService:
         user: str | None = None,
         tenant_id: str | None = None,
         bucket_id: str | None = None,
-    ) -> bool:
+    ) -> QuotaStatus:
         """Enforce RPM/TPM/budget limits for one request.
 
         ``bucket_id`` selects who shares a rate-limit counter. A keyed caller
@@ -117,6 +153,10 @@ class LlmQuotaService:
         in the historical shared ``rpm:None:...`` bucket and a single keyless
         caller could exhaust the default 10 RPM for every anonymous caller.
         ``api_key`` remains the identity for the paid ``budget:`` counter.
+
+        Returns the post-increment budget so callers can advertise it in
+        ``X-RateLimit-*`` headers. Raises 429/402 with the same headers when the
+        request is refused, so a throttled client is told what to wait for.
         """
         max_rpm, max_tpm = await self.get_applicable_limits(
             provider, model, user, tenant_id
@@ -137,7 +177,7 @@ class LlmQuotaService:
         try:
             budget, rpm, tpm = await asyncio.gather(
                 self.redis_service.get(f"budget:{api_key}"),
-                self.redis_service.incr_with_ttl(rpm_key, 60),
+                self.redis_service.incr_with_ttl(rpm_key, QUOTA_WINDOW_SECONDS),
                 self.redis_service.get(tpm_key),
             )
         except Exception as e:
@@ -148,23 +188,50 @@ class LlmQuotaService:
         if rpm is None:
             rpm = 0
 
+        if tpm is None:
+            tpm = 0
+
+        # The window resets when the Redis keys expire. Read the live TTLs after
+        # the increment so the advertised reset matches what Redis enforces; a
+        # failure here only costs precision, never the request.
+        reset_rpm_seconds, reset_tpm_seconds = await self._read_window_resets(
+            rpm_key, tpm_key
+        )
+
+        try:
+            used_tpm = int(float(tpm))
+        except (TypeError, ValueError):
+            logger.error(f"Error in check_quota TPM and MAX_TPM: {tpm} | {max_tpm}")
+            used_tpm = 0
+
+        quota = QuotaStatus(
+            limit_requests=int(max_rpm),
+            remaining_requests=max(0, int(max_rpm) - int(rpm)),
+            reset_requests_seconds=reset_rpm_seconds,
+            limit_tokens=int(max_tpm),
+            remaining_tokens=max(0, int(max_tpm) - used_tpm),
+            reset_tokens_seconds=reset_tpm_seconds,
+        )
+
         if rpm > max_rpm:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail=f"Rate limit exceeded (Limit: {max_rpm} RPM)",
+                headers={
+                    **quota.to_headers(),
+                    "Retry-After": str(quota.retry_after()),
+                },
             )
 
-        if tpm is None:
-            tpm = 0
-
-        try:
-            if float(tpm) > max_tpm:
-                raise HTTPException(
-                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                    detail=f"Token rate limit exceeded (Limit: {max_tpm} TPM)",
-                )
-        except (TypeError, ValueError):
-            logger.error(f"Error in check_quota TPM and MAX_TPM: {tpm} | {max_tpm}")
+        if used_tpm > max_tpm:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Token rate limit exceeded (Limit: {max_tpm} TPM)",
+                headers={
+                    **quota.to_headers(),
+                    "Retry-After": str(quota.retry_after(tokens=True)),
+                },
+            )
 
         try:
             budget_val = float(budget or "0")
@@ -175,9 +242,34 @@ class LlmQuotaService:
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
                 detail="Payment Required: Budget exhausted",
+                headers=quota.to_headers(),
             )
 
-        return True
+        return quota
+
+    async def _read_window_resets(self, rpm_key: str, tpm_key: str) -> tuple[int, int]:
+        """Seconds until the RPM/TPM windows reset, defaulting to a full window."""
+        ttl_fn = getattr(self.redis_service, "remaining_ttl", None)
+        if ttl_fn is None:
+            return QUOTA_WINDOW_SECONDS, QUOTA_WINDOW_SECONDS
+        try:
+            rpm_ttl, tpm_ttl = await asyncio.gather(ttl_fn(rpm_key), ttl_fn(tpm_key))
+        except Exception as e:
+            logger.error(f"Error reading quota window TTLs: {e}")
+            return QUOTA_WINDOW_SECONDS, QUOTA_WINDOW_SECONDS
+
+        def _clamp(value: object) -> int:
+            # Redis returns -2 for a missing key and -1 for a key without a TTL;
+            # both mean "the window is not counting down", i.e. a full window.
+            try:
+                seconds = int(value)  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                return QUOTA_WINDOW_SECONDS
+            if seconds < 0:
+                return QUOTA_WINDOW_SECONDS
+            return min(seconds, QUOTA_WINDOW_SECONDS)
+
+        return _clamp(rpm_ttl), _clamp(tpm_ttl)
 
     async def record_tokens(
         self,

@@ -90,6 +90,21 @@ class TestCircuitBreaker(unittest.TestCase):
         self.assertEqual(self.breaker.state, CircuitBreakerState.CLOSED)
         self.assertTrue(self.breaker.can_execute())
 
+    def test_release_probe_allows_another_attempt(self):
+        """A HALF_OPEN probe permit must be releasable when no call was made."""
+        exc = HTTPException(status_code=503, detail="Service Unavailable")
+        for _ in range(3):
+            self.breaker.record_failure(exc)
+        time.sleep(0.25)
+        self.assertEqual(self.breaker.state, CircuitBreakerState.HALF_OPEN)
+
+        # Claim the single probe permit without dispatching to the provider.
+        self.assertTrue(self.breaker.can_execute())
+        self.assertFalse(self.breaker.can_execute())
+
+        self.breaker.release_probe()
+        self.assertTrue(self.breaker.can_execute())
+
     def test_registry_creates_and_manages_breakers(self):
         registry = CircuitBreakerRegistry()
         b1 = registry.get_breaker("OpenAI")

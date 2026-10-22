@@ -228,14 +228,18 @@ design and a genuinely resilient gateway:
 - [x] **Per-provider circuit breaker**: added open/half-open/closed state keyed by
   provider in `app/core/circuit_breaker.py`, tripping on consecutive retryable
   failures from `RETRYABLE_STATUS_CODES` in `app/core/retry.py`. Fast-fails
-  or skips open providers with zero latency penalty.
+  or skips open providers with zero latency penalty. A half-open probe permit is
+  released when the attempt never reaches the provider (shed bulkhead, budget
+  abort), so a busy gateway cannot strand a recovered provider in `HALF_OPEN`.
 - [x] **Bulkheads and load shedding**: global concurrency cap (`GLOBAL_MAX_CONCURRENCY`)
   plus per-provider concurrency caps (`PROVIDER_MAX_CONCURRENCY`) in
   `app/core/bulkhead.py`; sheds excess load with `429 Too Many Requests`.
 - [x] **Explicit degradation contract**: formalized states — full (`none`) →
   cache-degraded (`cache_bypassed`) → provider-fallback (`provider_fallback`) →
-  hard-down `503`, exposed in `X-Gateway-Degradation` response headers and
-  documented in `docs/ARCHITECTURE.md`.
+  hard-down `503`, exposed in `X-Gateway-Degradation` response headers on both
+  JSON and SSE responses and documented in `docs/ARCHITECTURE.md`. Cache read
+  failures are marked fail-open at the source (`app/core/degradation.py`) rather
+  than inferred by the router.
 - [x] **Resilient client guidance**: documented client retry strategies,
   exponential backoff with jitter, budget propagation, and emergency bypass in
   `docs/RESILIENT_CLIENT_GUIDANCE.md`.

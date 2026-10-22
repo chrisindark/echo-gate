@@ -15,6 +15,12 @@ Every completion response from Echo Gate returns an `X-Gateway-Degradation` head
 | **PROVIDER_FALLBACK** | `provider_fallback` | Upstream resilience: Primary provider failed (or its circuit breaker was open); request was transparently fulfilled by the configured fallback provider or next candidate in an alias. |
 | **HARD_DOWN** | `hard_down` / HTTP 503 | Terminal failure: All candidate providers and fallbacks failed, or the circuit breaker is open with no remaining candidates. |
 
+The header is present on both buffered JSON responses and streamed SSE responses
+(`stream: true`). For streams it is resolved from the first chunk, so it is
+available as soon as the response headers arrive — before you consume any body
+chunks. When a request degrades twice, `provider_fallback` wins over
+`cache_bypassed`, and a cache *hit* is always reported as `none`.
+
 ---
 
 ## 2. Request Timeout Budget Propagation
@@ -80,9 +86,79 @@ Standard error codes:
 - `provider_unavailable`: Upstream 5xx or connection error.
 - `provider_timeout`: Upstream deadline exceeded.
 
+Every gateway-side provider failure uses this shape too, including the ones the
+gateway raises without calling upstream:
+
+- An **open circuit breaker** returns `503` with `error_code:
+  "provider_unavailable"`, `provider` set to the affected provider, and
+  `Retry-After` set to the breaker's remaining recovery window.
+- **Exhausting every candidate** returns `503` with the same shape, carrying
+  `Retry-After` (breaker recovery or `RETRY_AFTER_DEFAULT_SECONDS`).
+- Errors raised by the **quota guard** keep their plain string `detail`; their
+  machine-readable part is the `X-RateLimit-*` / `Retry-After` headers.
+
+Two envelopes carry these fields:
+
+| Response kind | Where the fields live |
+| --- | --- |
+| `application/json` error response | `body.detail.error_code`, `body.detail.provider`, `body.detail.message` |
+| `text/event-stream` error event | `data.error.error_code`, `data.error.provider`, `data.error.message` (the wrapper shown above) |
+
+Parse `error_code` and `provider`; never match on message text.
+
 ---
 
-## 5. Client Retry & Fallback Blueprint
+## 5. Rate-Limit Budget Headers
+
+The gateway does not make you discover your quota by being rejected. Every
+guarded response — buffered or streamed — advertises the remaining budget for
+your bucket:
+
+| Header | Meaning |
+| --- | --- |
+| `X-RateLimit-Limit-Requests` | RPM ceiling applied to this request. |
+| `X-RateLimit-Remaining-Requests` | Requests left in the current 60s window (this one already counted). |
+| `X-RateLimit-Reset-Requests` | Seconds until the request window resets. |
+| `X-RateLimit-Limit-Tokens` | TPM ceiling applied to this request. |
+| `X-RateLimit-Remaining-Tokens` | Tokens left in the current window. |
+| `X-RateLimit-Reset-Tokens` | Seconds until the token window resets. |
+| `Retry-After` | Present on retryable refusals only (`429`, `503`): seconds to wait before retrying. |
+
+Practical rules for agents:
+
+1. **Self-throttle on `Remaining-*`.** When `X-RateLimit-Remaining-Requests`
+   approaches zero, pace yourself for `X-RateLimit-Reset-Requests` seconds
+   instead of pushing until a `429`. Token budgets move in bigger steps, so
+   `Remaining-Tokens` is the better signal for long prompts.
+2. **Honour `Retry-After` exactly.** It is the gateway's own estimate of when
+   retrying becomes worthwhile, and it is sent on every retryable refusal:
+   quota (`429`), bulkhead shed (`429`), open circuit breaker (`503`), and total
+   upstream failure (`503` where no candidate answered, or a stream broke). For
+   quota it is the live Redis window TTL, so waiting that long clears the
+   counter; for upstream failures it is the longest remaining breaker recovery
+   window (or `RETRY_AFTER_DEFAULT_SECONDS`, default 5, when no breaker is open).
+   Non-retryable failures (`400`/`401`/`402`/`403`) never carry it — retrying
+   them cannot succeed.
+3. **Expect jitter between replicas.** Each gateway process reads the same Redis
+   counters, but a response produced while another request is in flight may be a
+   little stale. Treat the values as advisory, not transactional.
+4. **Retries consume budget.** A retried request is another RPM, so a naive
+   `tenacity` loop can turn a momentary throttle into a sustained one. Budget the
+   retries (see the blueprint below) and prefer fewer, longer waits.
+
+```python
+def budget_from_headers(response: httpx.Response) -> tuple[int, float]:
+    remaining = int(response.headers.get("X-RateLimit-Remaining-Requests", "1"))
+    reset_s = float(response.headers.get("X-RateLimit-Reset-Requests", "60"))
+    return remaining, reset_s
+
+# Pause for the window instead of hammering the gateway into a 429.
+remaining, reset_s = budget_from_headers(response)
+if remaining <= 1:
+    time.sleep(reset_s)
+```
+
+## 6. Client Retry & Fallback Blueprint
 
 Here is a recommended Python client pattern using `tenacity` and `httpx`:
 

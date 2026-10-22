@@ -15,7 +15,7 @@ import asyncio
 import json
 from types import SimpleNamespace
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.testclient import TestClient
 
 from app.core.dependencies import get_llm_quota_service, get_llm_router_service
@@ -61,6 +61,7 @@ def _run_guard(body: dict, *, tenant_id, user_id, x_api_key="eg_valid") -> dict:
     asyncio.run(
         llm_quota_guard(
             request=_request(body, tenant_id=tenant_id, user_id=user_id),
+            response=Response(),
             x_api_key=x_api_key,
             llm_quota_service=service,
         )

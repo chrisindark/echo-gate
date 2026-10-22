@@ -23,7 +23,7 @@ import asyncio
 import unittest
 from unittest.mock import MagicMock
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.testclient import TestClient
 
 from app.core.dependencies import get_llm_quota_service
@@ -69,6 +69,7 @@ def _run_guard(request, x_api_key=None):
     asyncio.run(
         guard(
             request=request,
+            response=Response(),
             x_api_key=x_api_key,
             llm_quota_service=service,  # type: ignore[arg-type]
         )

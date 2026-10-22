@@ -117,6 +117,12 @@ class Config:
         self.RETRY_BACKOFF_MAX_SECONDS = int(
             os.getenv("RETRY_BACKOFF_MAX_SECONDS", "10")
         )
+        # Advertised to clients as `Retry-After` when every candidate provider has
+        # failed and no circuit breaker is counting down: how long to wait before
+        # retrying the request.
+        self.RETRY_AFTER_DEFAULT_SECONDS = int(
+            os.getenv("RETRY_AFTER_DEFAULT_SECONDS", "5")
+        )
 
         # Circuit Breaker & Bulkheads
         self.CIRCUIT_BREAKER_ENABLED = (

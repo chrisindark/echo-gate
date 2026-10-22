@@ -2,7 +2,7 @@ import hashlib
 import json
 import logging
 
-from fastapi import Depends, Header, HTTPException, Request, status
+from fastapi import Depends, Header, HTTPException, Request, Response, status
 
 from app.core.dependencies import get_llm_quota_service
 from app.core.rls import ANONYMOUS_TENANT
@@ -20,6 +20,7 @@ class LlmQuotaGuard:
     async def __call__(
         self,
         request: Request,
+        response: Response,
         x_api_key: str | None = Header(default=None),
         llm_quota_service: LlmQuotaService = Depends(get_llm_quota_service),
     ):
@@ -61,7 +62,7 @@ class LlmQuotaGuard:
             logger.exception("Error reading request body")
 
         # Check quota
-        await llm_quota_service.check_quota(
+        quota_status = await llm_quota_service.check_quota(
             api_key=x_api_key,
             provider=provider,
             model=model,
@@ -69,6 +70,18 @@ class LlmQuotaGuard:
             tenant_id=tenant_id,
             bucket_id=bucket_id,
         )
+
+        # Advertise the remaining budget so clients can self-throttle instead of
+        # discovering the limit by being rejected. Stored on request.state because
+        # a StreamingResponse replaces the injected Response, so the controller has
+        # to re-apply these headers on the stream it builds.
+        headers = (
+            quota_status.to_headers() if hasattr(quota_status, "to_headers") else {}
+        )
+        if headers:
+            request.state.quota_status = quota_status
+            for name, value in headers.items():
+                response.headers[name] = value
 
         # Attach API key to request state
         request.state.api_key = x_api_key
