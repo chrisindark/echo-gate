@@ -100,6 +100,18 @@
             "title": "Created At",
             "type": "string"
           },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
           "id": {
             "title": "Id",
             "type": "integer"
@@ -157,6 +169,18 @@
             "title": "Created At",
             "type": "string"
           },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
           "id": {
             "title": "Id",
             "type": "integer"
@@ -204,6 +228,36 @@
           "updated_at"
         ],
         "title": "ApiKeyResponse",
+        "type": "object"
+      },
+      "ApiKeyRotateRequest": {
+        "properties": {
+          "grace_hours": {
+            "default": 24,
+            "description": "Grace period in hours before the old key expires",
+            "maximum": 720.0,
+            "minimum": 1.0,
+            "title": "Grace Hours",
+            "type": "integer"
+          }
+        },
+        "title": "ApiKeyRotateRequest",
+        "type": "object"
+      },
+      "ApiKeyRotateResponse": {
+        "properties": {
+          "expiring_key": {
+            "$ref": "#/components/schemas/ApiKeyResponse"
+          },
+          "new_key": {
+            "$ref": "#/components/schemas/ApiKeyCreatedResponse"
+          }
+        },
+        "required": [
+          "new_key",
+          "expiring_key"
+        ],
+        "title": "ApiKeyRotateResponse",
         "type": "object"
       },
       "BaseAPIResponse_AnalyticsDashboardResponse_": {
@@ -300,6 +354,54 @@
           }
         },
         "title": "BaseAPIResponse[ApiKeyCreatedResponse]",
+        "type": "object"
+      },
+      "BaseAPIResponse_ApiKeyRotateResponse_": {
+        "properties": {
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "response": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ApiKeyRotateResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status_code": {
+            "default": 200,
+            "title": "Status Code",
+            "type": "integer"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "BaseAPIResponse[ApiKeyRotateResponse]",
         "type": "object"
       },
       "BaseAPIResponse_ConversationResponse_": {
@@ -4549,6 +4651,80 @@
         ]
       }
     },
+    "/api/v1/admin/api-keys/{key_id}/rotate": {
+      "post": {
+        "description": "Rotate an API key: generates a new key and sets old key's expiry.",
+        "operationId": "rotate_api_key_api_v1_admin_api_keys__key_id__rotate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key_id",
+            "required": true,
+            "schema": {
+              "title": "Key Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-admin-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApiKeyRotateRequest",
+                "default": {
+                  "grace_hours": 24
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BaseAPIResponse_ApiKeyRotateResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": {
+          "AdminApiKeyAuth": []
+        },
+        "summary": "Rotate Api Key",
+        "tags": [
+          "API Keys"
+        ]
+      }
+    },
     "/api/v1/admin/llm-quota/": {
       "get": {
         "description": "List quota rules across every tenant, with optional filters.",
@@ -6974,6 +7150,101 @@
         "summary": "Rerank Predict Candidates",
         "tags": [
           "Verifier"
+        ]
+      }
+    },
+    "/health/celery": {
+      "get": {
+        "operationId": "endpoint_health_celery_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Celery worker and broker readiness probe alias",
+        "tags": [
+          "Health"
+        ]
+      }
+    },
+    "/health/deps": {
+      "get": {
+        "operationId": "endpoint_health_deps_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Non-gating dependency report alias for alerting",
+        "tags": [
+          "Health"
+        ]
+      }
+    },
+    "/health/worker": {
+      "get": {
+        "operationId": "endpoint_health_worker_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Celery worker and broker readiness probe",
+        "tags": [
+          "Health"
+        ]
+      }
+    },
+    "/live": {
+      "get": {
+        "operationId": "endpoint_live_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Process liveness probe",
+        "tags": [
+          "Health"
+        ]
+      }
+    },
+    "/ready": {
+      "get": {
+        "operationId": "endpoint_ready_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Readiness probe: gates on Postgres only, with a 1s timeout. Redis and Qdrant are degradable (a failure is a cache miss, not a wrong answer) and are reported on /health/deps instead, so a cache blip does not evict every replica",
+        "tags": [
+          "Health"
         ]
       }
     }

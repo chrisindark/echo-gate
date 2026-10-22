@@ -86,6 +86,15 @@ default in `config.py`. Copy `api/app/.env.example` to `api/app/.env.local` (or
 | `LLM_MAX_RETRIES` | `0` | Retries per provider call (`stop_after_attempt(max_retries + 1)`). |
 | `RETRY_BACKOFF_INITIAL_SECONDS` | `1` | Initial exponential-jitter backoff. |
 | `RETRY_BACKOFF_MAX_SECONDS` | `10` | Max backoff. |
+| `CIRCUIT_BREAKER_ENABLED` | `true` | Enable per-provider circuit breakers. |
+| `CIRCUIT_BREAKER_FAILURE_THRESHOLD` | `5` | Consecutive retryable errors before a provider trips OPEN. |
+| `CIRCUIT_BREAKER_RECOVERY_TIMEOUT_SECONDS` | `30.0` | Recovery window in seconds before attempting a HALF_OPEN probe. |
+| `CIRCUIT_BREAKER_HALF_OPEN_SUCCESS_THRESHOLD` | `2` | Consecutive probe successes in HALF_OPEN to close the breaker. |
+| `GLOBAL_MAX_CONCURRENCY` | `100` | Global concurrency bulkhead limit across all upstream requests. |
+| `PROVIDER_MAX_CONCURRENCY` | `25` | Maximum concurrent in-flight requests permitted per provider. |
+| `BULKHEAD_ACQUIRE_TIMEOUT_SECONDS` | `0.0` | Maximum wait in seconds before shedding load with HTTP 429. |
+| `ALLOWED_MODELS_JSON` | unset | JSON string of `{provider: [models...]}` to override/extend allowed models dynamically. |
+| `MODEL_ALIASES_JSON` | unset | JSON string of `{alias: [{service, model}, ...]}` mapping logical aliases (e.g. `fast`, `cheap`) to ranked provider/model pairs. |
 | `STREAM_MAX_CONTENT_BYTES` | `2097152` | Guardrail memory limit (bytes) on streaming response accumulator before skipping cache persistence. |
 
 Retries apply only to timeouts/connection errors and HTTP 408/429/500/502/503/504

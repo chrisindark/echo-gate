@@ -1,10 +1,11 @@
 import logging
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.core.dependencies import get_llm_router_service
+from app.core.error_classification import classify_provider_error
 from app.core.guards import api_key_auth_optional_guard, llm_quota_guard
 from app.core.responses import BaseAPIResponse
 from app.modules.chat.chat_schema import (
@@ -39,6 +40,7 @@ api_v1_router = APIRouter(prefix="/api/v1/chat", tags=["Chat"])
 async def create_chat_completion(
     http_request: Request,
     request: ChatCompletionRequest,
+    http_response: Response,
     llmRouterService: LlmRouterService = Depends(get_llm_router_service),
 ) -> ChatCompletionResponse | StreamingResponse:
     """
@@ -58,10 +60,23 @@ async def create_chat_completion(
 
     api_key = getattr(http_request.state, "api_key", None)
 
+    budget_header = http_request.headers.get("X-Timeout-Budget-Ms")
+    timeout_budget_ms: float | None = None
+    if budget_header:
+        try:
+            timeout_budget_ms = float(budget_header.strip())
+        except ValueError:
+            pass
+
     if request.stream:
-        stream_iter = llmRouterService.generate_stream(
-            request, api_key=api_key
-        ).__aiter__()
+        if timeout_budget_ms is not None:
+            stream_iter = llmRouterService.generate_stream(
+                request, api_key=api_key, timeout_budget_ms=timeout_budget_ms
+            ).__aiter__()
+        else:
+            stream_iter = llmRouterService.generate_stream(
+                request, api_key=api_key
+            ).__aiter__()
 
         first_chunk = None
         try:
@@ -78,11 +93,17 @@ async def create_chat_completion(
                 yield SSE_DONE_EVENT
             except Exception as e:
                 logger.error(f"Error during streaming completion: {e}")
+                provider = request.service_name or "upstream"
+                classified = classify_provider_error(e, provider)
                 error_payload = {
                     "error": {
-                        "message": str(e),
-                        "type": "server_error",
-                        "code": 500,
+                        "message": classified["message"],
+                        "type": "server_error"
+                        if classified["status_code"] >= 500
+                        else "invalid_request_error",
+                        "code": classified["status_code"],
+                        "error_code": classified["error_code"],
+                        "provider": classified["provider"],
                     }
                 }
                 yield format_sse_event(error_payload)
@@ -95,10 +116,20 @@ async def create_chat_completion(
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
                 "X-Accel-Buffering": "no",
+                "X-Gateway-Degradation": "none",
             },
         )
 
-    llm_response = await llmRouterService.generate_completion(request, api_key=api_key)
+    if timeout_budget_ms is not None:
+        llm_response = await llmRouterService.generate_completion(
+            request, api_key=api_key, timeout_budget_ms=timeout_budget_ms
+        )
+    else:
+        llm_response = await llmRouterService.generate_completion(
+            request, api_key=api_key
+        )
+    degradation = getattr(llm_response, "_degradation_state", "none")
+    http_response.headers["X-Gateway-Degradation"] = degradation
 
     return llm_response
 

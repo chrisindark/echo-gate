@@ -9,6 +9,8 @@ from app.modules.api_keys.api_keys_schema import (
     ApiKeyCreate,
     ApiKeyCreatedResponse,
     ApiKeyResponse,
+    ApiKeyRotateRequest,
+    ApiKeyRotateResponse,
 )
 from app.modules.api_keys.api_keys_service import ApiKeyService
 
@@ -85,3 +87,32 @@ def revoke_api_key(
             detail=f"API key with ID {key_id} not found.",
         )
     return BaseAPIResponse.success_response(None)
+
+
+@api_v1_router.post(
+    "/{key_id}/rotate",
+    response_model=BaseAPIResponse[ApiKeyRotateResponse],
+)
+def rotate_api_key(
+    key_id: int,
+    data: ApiKeyRotateRequest = ApiKeyRotateRequest(),
+    _admin: object = Depends(RequireKeysWrite),
+    api_key_service: ApiKeyService = Depends(get_api_key_service),
+):
+    """Rotate an API key: generates a new key and sets old key's expiry."""
+    result = api_key_service.rotate_api_key(key_id, grace_hours=data.grace_hours)
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Active API key with ID {key_id} not found.",
+        )
+    new_record, plaintext, old_record = result
+    base = ApiKeyResponse.model_validate(new_record)
+    new_key_payload = ApiKeyCreatedResponse(**base.model_dump(), api_key=plaintext)
+    expiring_key_payload = ApiKeyResponse.model_validate(old_record)
+    return BaseAPIResponse.success_response(
+        ApiKeyRotateResponse(
+            new_key=new_key_payload,
+            expiring_key=expiring_key_payload,
+        )
+    )

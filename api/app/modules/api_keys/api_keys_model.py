@@ -22,6 +22,7 @@ class ApiKey(Base):
     tenant_id = Column(String(100), index=True, nullable=False)
     user_id = Column(String(100), index=True, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False, index=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True, index=True)
 
     created_at = Column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), index=True

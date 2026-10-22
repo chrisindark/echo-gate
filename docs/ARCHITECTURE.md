@@ -158,6 +158,33 @@ controller fills in identity from the middleware and calls
 `qdrant_rrf_ms`, `intent_classify_ms`, `rerank_ms`, `cache_lookup_total_ms`,
 `provider_ms`, `cache_write_ms`, `total_ms`.
 
+## Degradation contract & resilience architecture
+
+Echo Gate is designed to be *degradable*, not *down*:
+
+1. **Explicit Degradation States**:
+   - `FULL` (`X-Gateway-Degradation: none`): Served via cache hit or primary provider completion.
+   - `CACHE_DEGRADED` (`X-Gateway-Degradation: cache_bypassed`): Fail-open cache. A Redis or Qdrant failure is treated as a cache miss, proceeding directly to the provider without failing client requests.
+   - `PROVIDER_FALLBACK` (`X-Gateway-Degradation: provider_fallback`): Primary provider failed or its circuit breaker was open; served by fallback provider or subsequent alias target.
+   - `HARD_DOWN` (`503 Service Unavailable`): All candidate targets and fallbacks failed, or circuit breaker is open with no remaining targets.
+
+2. **Per-Provider Circuit Breakers** (`app/core/circuit_breaker.py`):
+   - Keyed per provider (`openai`, `gemini`, `groq`, `openrouter`, `ollama`, `claude`).
+   - Tracks consecutive retryable failures (`408`, `429`, `500`, `502`, `503`, `504`, timeouts).
+   - When tripped `OPEN`, fast-fails or skips to the next candidate immediately with zero latency penalty.
+   - Transitions to `HALF_OPEN` after recovery timeout (`CIRCUIT_BREAKER_RECOVERY_TIMEOUT_SECONDS`) to probe upstream recovery.
+
+3. **Bulkheads & Load Shedding** (`app/core/bulkhead.py`):
+   - Global concurrency cap (`GLOBAL_MAX_CONCURRENCY`) and per-provider concurrency caps (`PROVIDER_MAX_CONCURRENCY`).
+   - Fast load-shedding with HTTP 429 (`Retry-After`) when bulkheads saturate, preventing runaway latency or resource exhaustion.
+
+4. **Dynamic Model Registry & Model Aliasing** (`app/modules/llm/model_registry.py`):
+   - Dynamic model registry supporting runtime addition/removal of models and runtime availability toggles.
+   - Model aliases (e.g. `fast`, `cheap`, `quality`) map to ranked lists of `(provider, model)` candidate pairs. Router tries candidates in priority order, skipping any whose breaker is open.
+
+5. **Request Timeout Budget Propagation**:
+   - Accepts `X-Timeout-Budget-Ms` header; cuts short slow primary attempts to preserve budget for fallbacks and avoids futile retries.
+
 ## Cache scoping and TTL
 
 Cache entries carry a `scope` and are only visible to queries at the same level or
