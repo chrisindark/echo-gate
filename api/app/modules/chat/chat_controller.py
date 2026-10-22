@@ -116,7 +116,12 @@ async def create_chat_completion(
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
                 "X-Accel-Buffering": "no",
-                "X-Gateway-Degradation": "none",
+                # The router tags the first chunk with the state that produced it
+                # (cache, primary, or fallback) before any bytes are streamed.
+                "X-Gateway-Degradation": getattr(
+                    first_chunk, "_degradation_state", None
+                )
+                or "none",
             },
         )
 
@@ -128,7 +133,7 @@ async def create_chat_completion(
         llm_response = await llmRouterService.generate_completion(
             request, api_key=api_key
         )
-    degradation = getattr(llm_response, "_degradation_state", "none")
+    degradation = getattr(llm_response, "_degradation_state", None) or "none"
     http_response.headers["X-Gateway-Degradation"] = degradation
 
     return llm_response

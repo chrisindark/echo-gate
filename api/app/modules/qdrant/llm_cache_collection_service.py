@@ -6,6 +6,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models
 
 from app.core.config import config
+from app.core.degradation import mark_cache_degraded
 from app.core.logger import log_latency
 from app.modules.qdrant.qdrant_client_service import QdrantClientService
 from app.modules.qdrant.qdrant_schema import QdrantPayload
@@ -241,6 +242,7 @@ class LlmCacheCollectionService:
             return None, None
         except Exception:
             logger.exception("Failed to search exact in Qdrant")
+            mark_cache_degraded("qdrant_exact_search_failed")
             return None, None
 
     @log_latency()
@@ -340,6 +342,7 @@ class LlmCacheCollectionService:
             return matches
         except Exception:
             logger.exception("Failed to search in Qdrant")
+            mark_cache_degraded("qdrant_hybrid_search_failed")
             return []
 
     @log_latency()
@@ -392,6 +395,7 @@ class LlmCacheCollectionService:
             return matches
         except Exception:
             logger.exception("Failed to search dense in Qdrant")
+            mark_cache_degraded("qdrant_dense_search_failed")
             return []
 
     @log_latency()

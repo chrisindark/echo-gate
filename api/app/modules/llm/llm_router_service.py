@@ -29,6 +29,11 @@ from app.core.constants import (
     PROMPT_VERSION,
     SCOPE_HIERARCHY,
 )
+from app.core.degradation import (
+    cache_degradation_scope,
+    mark_cache_degraded,
+    resolve_degradation_state,
+)
 from app.core.error_classification import classify_provider_error
 from app.core.logger import log_latency
 from app.core.retry import execute_with_retry
@@ -484,6 +489,12 @@ class LlmRouterService:
                     if first_chunk:
                         if first_chunk.model:
                             actual_model = first_chunk.model
+                        # Tag the chunk with the provider-path degradation state so
+                        # the controller can emit the right response header before
+                        # the SSE body starts.
+                        first_chunk._degradation_state = (
+                            "none" if idx == 0 else "provider_fallback"
+                        )
                         yield first_chunk, actual_service, actual_model
 
                     async for chunk in candidate_iter:
@@ -646,6 +657,7 @@ class LlmRouterService:
                 )
             except Exception:
                 logger.exception("Qdrant exact search error")
+                mark_cache_degraded("qdrant_exact_read_failed")
         return None, None
 
     async def evaluate_semantic_cache(self, request: ChatCompletionRequest) -> dict:
@@ -1154,6 +1166,7 @@ class LlmRouterService:
             return result
         except Exception:
             logger.exception("Qdrant Database read error")
+            mark_cache_degraded("qdrant_semantic_read_failed")
             return result
         finally:
             semantic_end = time.perf_counter()
@@ -1811,6 +1824,29 @@ class LlmRouterService:
         api_key: str | None = None,
         timeout_budget_ms: float | None = None,
     ) -> ChatCompletionResponse:
+        """Resolve a completion and stamp its degradation state.
+
+        The cache-degradation scope wraps the whole pipeline so a fail-open cache
+        read anywhere below (Redis, Qdrant exact, semantic search) is reported on
+        the response instead of only in the logs.
+        """
+        with cache_degradation_scope():
+            response = await self._generate_completion_impl(
+                request, api_key, timeout_budget_ms
+            )
+            served_from_cache = bool((response.cache_info or {}).get("matched"))
+            response._degradation_state = resolve_degradation_state(
+                getattr(response, "_degradation_state", None),
+                served_from_cache=served_from_cache,
+            )
+            return response
+
+    async def _generate_completion_impl(
+        self,
+        request: ChatCompletionRequest,
+        api_key: str | None = None,
+        timeout_budget_ms: float | None = None,
+    ) -> ChatCompletionResponse:
         start_time = time.perf_counter()
         breakdown: dict[str, Any] = {}
         service_name = request.service_name or config.DEFAULT_LLM_SERVICE
@@ -2068,6 +2104,33 @@ class LlmRouterService:
                 )
 
     async def generate_stream(
+        self,
+        request: ChatCompletionRequest,
+        api_key: str | None = None,
+        timeout_budget_ms: float | None = None,
+    ) -> AsyncIterator[ChatCompletionChunk]:
+        """Stream a completion, tagging the first chunk with its degradation state.
+
+        The controller reads that tag before the response headers are sent, so a
+        streamed answer served by a fallback provider or after a failed cache read
+        no longer reports ``none``.
+        """
+        with cache_degradation_scope():
+            first = True
+            async for chunk in self._generate_stream_impl(
+                request, api_key, timeout_budget_ms
+            ):
+                if first:
+                    first = False
+                    provider_state = getattr(chunk, "_degradation_state", None)
+                    chunk._degradation_state = resolve_degradation_state(
+                        provider_state,
+                        # Untagged first chunks come from the cache paths.
+                        served_from_cache=provider_state is None,
+                    )
+                yield chunk
+
+    async def _generate_stream_impl(
         self,
         request: ChatCompletionRequest,
         api_key: str | None = None,

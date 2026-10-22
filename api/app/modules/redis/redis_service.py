@@ -3,6 +3,7 @@ import logging
 from redis import asyncio as aioredis
 
 from app.core.config import config
+from app.core.degradation import mark_cache_degraded
 from app.core.logger import log_latency
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,7 @@ class RedisService:
                 return cached_data
         except Exception as e:
             logger.error(f"Failed to get data from Redis: {e}")
+            mark_cache_degraded("redis_read_failed")
 
         return None
 

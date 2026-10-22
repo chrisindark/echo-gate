@@ -146,6 +146,11 @@ class ChatCompletionResponse(BaseModel):
     system_fingerprint: str | None = None
     cache_info: dict[str, Any] | None = None
 
+    # Set by the router: which degradation state produced this answer. Private so
+    # it never leaks into the response body or the OpenAPI schema. ``None`` means
+    # "not resolved yet".
+    _degradation_state: str | None = PrivateAttr(default=None)
+
 
 # --- Streaming Schemas & Helpers (OpenAI SSE Protocol) ---
 
@@ -186,6 +191,10 @@ class ChatCompletionChunk(BaseModel):
     usage: Usage | None = None
     system_fingerprint: str | None = None
     cache_info: dict[str, Any] | None = None
+
+    # Set by the router on the first chunk only (see ChatCompletionResponse).
+    # ``None`` means the chunk came from a cache path, not a provider.
+    _degradation_state: str | None = PrivateAttr(default=None)
 
 
 def format_sse_event(data: str | BaseModel | dict[str, Any]) -> str:
