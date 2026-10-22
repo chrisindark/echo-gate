@@ -5,6 +5,7 @@ import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -91,11 +92,39 @@ class ApiKeyService:
         self._resolve_cache.clear()
         return True
 
+    def rotate_api_key(
+        self, key_id: int, grace_hours: int = 24
+    ) -> tuple[ApiKey, str, ApiKey] | None:
+        """Rotate an API key: generate a new active key and set old key's expiry."""
+        with self._get_session() as session:
+            old_record = session.get(ApiKey, key_id)
+            if old_record is None or not old_record.is_active:
+                return None
+
+            plaintext = self.generate_key()
+            new_record = ApiKey(
+                name=f"{old_record.name} (rotated)",
+                key_prefix=plaintext[: len(_KEY_PREFIX) + 8],
+                key_hash=hash_api_key(plaintext),
+                tenant_id=old_record.tenant_id,
+                user_id=old_record.user_id,
+                is_active=True,
+                expires_at=None,
+            )
+            session.add(new_record)
+            old_record.expires_at = datetime.now(UTC) + timedelta(hours=grace_hours)
+            session.commit()
+            session.refresh(new_record)
+            session.refresh(old_record)
+
+        self._resolve_cache.clear()
+        return new_record, plaintext, old_record
+
     def resolve_api_key(self, api_key: str) -> ApiKeyIdentity | None:
         """Resolve a plaintext API key to its tenant/user identity.
 
         Results are cached briefly so the per-request lookup does not hit the
-        database on every call. A miss or an inactive key returns ``None``.
+        database on every call. A miss, an inactive key, or an expired key returns ``None``.
         """
         if not api_key:
             return None
@@ -116,6 +145,16 @@ class ApiKeyService:
                     )
                 ).scalar_one_or_none()
                 if record is not None:
+                    if (
+                        record.expires_at is not None
+                        and record.expires_at < datetime.now(UTC)
+                    ):
+                        logger.info(
+                            "API key %d has expired (expires_at=%s)",
+                            record.id,
+                            record.expires_at,
+                        )
+                        return None
                     identity = ApiKeyIdentity(
                         api_key_id=record.id,
                         tenant_id=record.tenant_id,

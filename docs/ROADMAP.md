@@ -219,27 +219,110 @@ failure mode must be *degraded*, not *down*. The app tier is already stateless
 primary mitigation, but the following gaps stand between the fail-open cache
 design and a genuinely resilient gateway:
 
-- [ ] **Tiered health probes**: keep `/live` process-only and `/ready` minimal;
+**Status: ✅ 100% complete as of 2026-10-22**
+
+- [x] **Tiered health probes**: keep `/live` process-only and `/ready` minimal;
   ensure a cache blip never evicts gateways from load-balancer membership
-  (the `/health/deps` roll-up stays non-gating, used for alerting only).
-- [ ] **Per-provider circuit breaker**: add open/half-open/closed state keyed by
-  provider (optionally provider+model), tripping on consecutive retryable
-  failures from `RETRYABLE_STATUS_CODES` in `app/core/retry.py`. Without it a
-  dead provider means every request pays the full
-  `LLM_PROVIDER_TIMEOUT_SECONDS` wait and eats a fallback attempt.
-- [ ] **Bulkheads and load shedding**: no global or per-provider concurrency cap
-  today (only per-API-key quota). Add a max-in-flight semaphore plus
-  per-provider caps so one slow provider cannot starve all tenants; shed
-  excess load with `429`/`503`.
-- [ ] **Explicit degradation contract**: formalize and document the states —
-  full → cache-degraded (provider pass-through) → provider-fallback
-  (alternate model) → hard-down `503` — and confirm every
-  cache/Redis/Qdrant failure path stays fail-open (existing invariant).
-- [ ] **Resilient client guidance**: document a retrying client with its own
-  breaker and a bypass path (direct provider call or queue-and-replay) for
-  when the gateway itself is unavailable.
-- [ ] **Config & docs**: add all new knobs to `app/core/config.py` and
+  (the `/health/deps` roll-up stays non-gating, used for alerting only). Root
+  level `/live`, `/ready`, `/health/deps` aliases mapped.
+- [x] **Per-provider circuit breaker**: added open/half-open/closed state keyed by
+  provider in `app/core/circuit_breaker.py`, tripping on consecutive retryable
+  failures from `RETRYABLE_STATUS_CODES` in `app/core/retry.py`. Fast-fails
+  or skips open providers with zero latency penalty.
+- [x] **Bulkheads and load shedding**: global concurrency cap (`GLOBAL_MAX_CONCURRENCY`)
+  plus per-provider concurrency caps (`PROVIDER_MAX_CONCURRENCY`) in
+  `app/core/bulkhead.py`; sheds excess load with `429 Too Many Requests`.
+- [x] **Explicit degradation contract**: formalized states — full (`none`) →
+  cache-degraded (`cache_bypassed`) → provider-fallback (`provider_fallback`) →
+  hard-down `503`, exposed in `X-Gateway-Degradation` response headers and
+  documented in `docs/ARCHITECTURE.md`.
+- [x] **Resilient client guidance**: documented client retry strategies,
+  exponential backoff with jitter, budget propagation, and emergency bypass in
+  `docs/RESILIENT_CLIENT_GUIDANCE.md`.
+- [x] **Config & docs**: added all new knobs to `app/core/config.py` and
   `docs/CONFIGURATION.md`.
+- [x] **Dynamic model registry**: config-driven dynamic registry in
+  `app/modules/llm/model_registry.py` with runtime registration, unregistration,
+  and availability toggling (`ALLOWED_MODELS_JSON`).
+- [x] **Model aliasing / intelligent routing**: model aliases like `fast`, `cheap`,
+  `quality` map to ranked lists of `(provider, model)` candidate pairs; router tries
+  candidates in priority order, skipping open circuit breakers or saturated bulkheads.
+- [x] **Request timeout budget propagation**: accepts `X-Timeout-Budget-Ms` header;
+  dynamically allocates timeout across primary, retries, and fallback, cutting short
+  slow attempts before deadline exhaustion.
+- [x] **Structured provider error passthrough**: normalized error classification
+  in `app/core/error_classification.py` (`provider_content_filter`,
+  `provider_rate_limit`, `provider_quota_exceeded`, `provider_unavailable`,
+  `provider_auth_error`, `provider_timeout`), surfaced in error payloads.
+- [x] **API key rotation / expiry**: added `expires_at` column to `api_keys` with
+  Alembic migration `c3d4e5f6a7b8`; added `POST /api/v1/admin/api-keys/{id}/rotate`
+  action creating a replacement key while expiring the old key after grace period.
+
+---
+
+### Phase 1.5 — Shadow cache pipeline (production onboarding)
+
+A new `CACHE_MODE` setting (`disabled | shadow | active`) that lets operators
+run the full cache pipeline in observation-only mode before trusting it to
+serve responses. Designed for initial production adoption: deploy with
+`CACHE_MODE=shadow`, let real traffic build the cache and accumulate matching
+telemetry, validate the numbers, then flip to `active` and restart.
+
+In `shadow` mode:
+
+1. Every request goes straight to the LLM provider (zero cache latency
+   impact on the serving path).
+2. After the response is returned, a background task runs the full cache
+   pipeline asynchronously: generate embeddings → Redis exact lookup →
+   Qdrant exact lookup → dense fast-path → hybrid RRF + intent + rerank →
+   confidence gate.
+3. Results are logged to a `shadow_cache_evaluations` table: whether a match
+   would have occurred, the match type (`REDIS_EXACT`, `QDRANT_EXACT`,
+   `QDRANT_FAST`, `QDRANT_SEMANTIC`, `MISS`), scores, intent, latency
+   breakdown, the cached response text (if any), and the actual LLM response
+   for comparison.
+4. The embeddings + response are stored in the cache (Redis exact + Qdrant)
+   regardless — building up the cache corpus for when it is activated.
+5. When a shadow match is found, a lightweight judge comparison (cached vs
+   actual) pre-validates cache quality and feeds the Phase 2 audit table.
+
+This gives operators a dashboard view before enabling the cache:
+
+- "X% of requests would have been cache hits"
+- "Of those, Y% would have returned equivalent responses"
+- "Average latency that would have been saved: Z ms"
+- Intent distribution, false positive rate, per-model hit rates.
+
+When the numbers show the cache is trustworthy → `CACHE_MODE=active` →
+restart → done. The `shadow_cache_evaluations` data also seeds Phase 2's
+conformal threshold calibration.
+
+- [ ] **`CACHE_MODE` config**: add `CACHE_MODE` (`disabled` / `shadow` /
+  `active`, default `disabled`) to `app/core/config.py`. `disabled` is the
+  current default behavior (no cache). `active` is the current `true`
+  behavior of the three `USE_*` flags. `shadow` is the new mode. In `active`
+  mode the three granular `USE_*` flags still control which layers are on; in
+  `shadow` mode all layers run in the background regardless.
+- [ ] **Shadow evaluation background task**: after provider response, enqueue
+  a Celery task (or `_create_background_task`) that runs the full cache
+  lookup pipeline and logs the result. Must not block the client response.
+- [ ] **`shadow_cache_evaluations` table + migration**: Postgres table with
+  `request_id` (FK → `gateway_requests`), `tenant_id`, `model`,
+  `would_have_hit` (bool), `match_type` (varchar), `match_score` (numeric),
+  `rerank_score` (numeric), `score_breakdown` (json),
+  `cached_response_text`, `actual_response_text`, `is_equivalent` (bool,
+  nullable — populated when judge runs), `intent`, `entities`,
+  `latency_breakdown` (json), `created_at`. RLS-scoped by tenant.
+- [ ] **Shadow cache writes**: in shadow mode, always write embeddings +
+  response to Qdrant and Redis after the provider call, building the cache
+  corpus passively.
+- [ ] **Shadow analytics dashboard**: add shadow hit rate, equivalence rate,
+  and projected latency savings to the analytics dashboard and `web/`. Show a
+  "cache readiness" indicator that summarizes whether the metrics support
+  switching to `active` mode.
+- [ ] **Config & docs**: document `CACHE_MODE` in `docs/CONFIGURATION.md`.
+  Note that `shadow` supersedes the three `USE_*` flags (which remain for
+  granular control in `active` mode).
 
 ---
 
@@ -292,6 +375,22 @@ comparison and no data-driven threshold calibration. Remaining work:
   dataset, not live audit records.
 - [ ] **In-domain dataset export**: export `(query_text, cached_answer, is_equivalent)`
   triples as they accumulate to fine-tune an in-domain cross-encoder reranker.
+- [ ] **Cache warmup / pre-seeding API**: admin-scoped
+  `POST /api/v1/admin/cache/warmup` accepting a batch of `(request, response)`
+  pairs, written in parallel via the existing `_background_save_cache` logic.
+  Useful for seeding new environments from production traces, restoring cache
+  after a Qdrant reindex, or preloading high-traffic agent system prompts.
+- [ ] **Cache analytics visualizations**: add a charting library (e.g.
+  Recharts) to `web/` and render cache hit rate over time, routing decision
+  distribution, latency breakdown waterfall, intent distribution, and
+  cumulative cost savings. Data already flows through
+  `GET /api/v1/analytics/dashboard` — this is UI-only work.
+- [ ] **Cache entry inspector / manual eviction UI**: a "Cache Explorer" page
+  in `web/` to search entries by prompt text (semantic or exact), view
+  metadata (scope, intent, TTL, entities, rerank scores), one-click eviction
+  (Qdrant + Redis), and bulk eviction by intent, model, or age. Backend:
+  thin admin endpoint wrapping existing `llm_cache_collection_service`
+  methods.
 
 ---
 
@@ -310,6 +409,20 @@ comparison and no data-driven threshold calibration. Remaining work:
   retention to protect expensive responses (slow reasoning models, complex
   RAG outputs) from eviction while aggressively evicting cheap ones (short
   chitchat, greetings) — maximizing latency/dollar saved per MB of cache.
+- [ ] **Response cost estimate endpoint**: `POST /api/v1/chat/estimate`
+  returns estimated token count (prompt tokens via tokenizer approximation)
+  and estimated cost across available models, without calling any provider.
+  Helps budget-constrained callers pick the right model before committing.
+- [ ] **Streaming cache hit optimization**: when a cache hit is detected on a
+  `stream: true` request, offer an opt-in `X-Cache-Prefer: instant` header
+  that returns the full response as a single non-streaming JSON body (with
+  `X-Cache: HIT`), letting the client skip SSE parsing. Callers who need SSE
+  shape for progressive rendering keep the current replay behavior.
+- [ ] **Embedding model upgrade path**: document and verify the end-to-end
+  embedding migration workflow via `app/scripts/migrate_embeddings.py`. The
+  `embedding_version` + `embedding_model` Qdrant filters already prevent
+  cross-version matches; document the deploy-and-coexist strategy and
+  optional background re-embedding of high-value entries.
 
 ---
 
@@ -354,6 +467,12 @@ cloud monorepo reusing core as a library (cleanest IP, worst sync cost).
   retry policy) — the cloud needs this more than self-hosters.
 - [ ] **Admin surface**: keep `/api/v1/admin/*`; cloud registers `billing:*`
   routes only when the ee package is present.
+- [ ] **Event bus / webhook sink**: emit typed events from background tasks
+  (`cache.miss`, `quota.exceeded`, `provider.failure`, `audit.failed`) to a
+  configurable sink. OSS defaults to webhook URLs per event type (zero
+  serving-path impact — emitted from existing background task paths); cloud
+  installs Stripe/PagerDuty/Slack sinks. Complements the metering export seam
+  above and unlocks the integration ecosystem.
 
 #### Cloud control plane (private repo / ee package):
 
@@ -395,8 +514,45 @@ raises suspicion and slows adoption.
   disciplined by the existing OpenAPI snapshot contract test.
 - [ ] Opt-in telemetry (`TELEMETRY_ENABLED`, default off; version + instance
   id ping), documented in `docs/`.
+- [ ] **Multi-region cache federation** (architecture-only): document a
+  federation architecture where each region runs its own cache stack
+  (local-first read → provider, async replication of high-value entries
+  across regions via Celery). The scope/tenant filter already supports
+  this — entries are isolated, so cross-region replication is safe. Record
+  the design so the Qdrant collection schema does not accidentally add
+  region-incompatible assumptions.
 
 **Sequencing within this phase**: extension seams (no behavior change,
 ~4 focused PRs) → OSS launch bound to Phase 0 → cloud distribution
 (metering first, then portal, then SSO) → enterprise self-hosted (Helm +
 support playbook) last.
+
+---
+
+### Cross-cutting (independent of phase)
+
+Work that benefits every phase and can be tackled alongside any milestone.
+
+- [ ] **Prompt-level cost attribution**: add a `prompt_hash` (SHA-256 of
+  system prompt only) to `llm_usage_logs` and an analytics aggregation view.
+  System prompts often identify an application/workflow, giving cost
+  attribution per downstream app without explicit tagging. One column +
+  backfill task + analytics query.
+- [ ] **OpenTelemetry (OTel) trace export**: optional OTel instrumentation
+  emitting spans for each request lifecycle stage (cache lookup, embedding
+  generation, provider call, cache write). Attach `X-Correlation-ID` as the
+  trace ID; export via OTLP to `OTEL_EXPORTER_OTLP_ENDPOINT`. Default
+  disabled, one env var to enable. Especially valuable for Phase 1's
+  degradation contract — operators need distributed traces to diagnose
+  cross-service failures. Dependencies: `opentelemetry-api` +
+  `opentelemetry-sdk`.
+- [ ] **Test coverage expansion**: add focused tests for critical paths that
+  lack dedicated coverage:
+  - Cache write failure isolation (Qdrant/Redis down during write — core
+    invariant: must not affect the response).
+  - Fallback provider switchover (primary fails → fallback succeeds).
+  - Intent classifier timeout / fallback behavior.
+  - Conversation chat with cache hit (response + message persistence).
+  - Concurrent quota enforcement (near-limit simultaneous requests).
+  - Analytics aggregation correctness.
+  All unit-testable with mocks — no infra needed. ~6 new test files.

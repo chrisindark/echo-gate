@@ -26,7 +26,7 @@ from app.modules.conversation.conversation_controller import (
 from app.modules.gateway_requests.gateway_requests_controller import (
     api_v1_router as gateway_requests_router,
 )
-from app.modules.health import health_router
+from app.modules.health import health_router, root_health_router
 from app.modules.llm_quota.llm_quota_controller import api_v1_router as llm_quota_router
 from app.modules.llm_usage.llm_usage_controller import api_v1_router as llm_usage_router
 from app.modules.qdrant.qdrant_controller import api_v1_router as qdrant_router
@@ -96,7 +96,12 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["X-Cache", "X-Correlation-ID", "X-Request-ID"],
+    expose_headers=[
+        "X-Cache",
+        "X-Correlation-ID",
+        "X-Request-ID",
+        "X-Gateway-Degradation",
+    ],
 )
 
 
@@ -113,6 +118,7 @@ def root():
 
 
 # Register routers
+app.include_router(root_health_router)
 app.include_router(health_router)
 app.include_router(chat_router)
 app.include_router(conversation_router)

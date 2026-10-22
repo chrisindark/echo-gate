@@ -16,6 +16,7 @@ class ApiKeyResponse(BaseModel):
     tenant_id: str
     user_id: str | None = None
     is_active: bool
+    expires_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -24,3 +25,17 @@ class ApiKeyResponse(BaseModel):
 
 class ApiKeyCreatedResponse(ApiKeyResponse):
     api_key: str
+
+
+class ApiKeyRotateRequest(BaseModel):
+    grace_hours: int = Field(
+        default=24,
+        ge=1,
+        le=720,
+        description="Grace period in hours before the old key expires",
+    )
+
+
+class ApiKeyRotateResponse(BaseModel):
+    new_key: ApiKeyCreatedResponse
+    expiring_key: ApiKeyResponse

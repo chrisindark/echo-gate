@@ -120,8 +120,21 @@ async def chat_in_conversation(
 
     api_key = getattr(http_request.state, "api_key", None)
 
+    budget_header = http_request.headers.get("X-Timeout-Budget-Ms")
+    timeout_budget_ms: float | None = None
+    if budget_header:
+        try:
+            timeout_budget_ms = float(budget_header.strip())
+        except ValueError:
+            pass
+
     # Provider call first
-    llm_response = await llmService.generate_completion(chat_req, api_key=api_key)
+    if timeout_budget_ms is not None:
+        llm_response = await llmService.generate_completion(
+            chat_req, api_key=api_key, timeout_budget_ms=timeout_budget_ms
+        )
+    else:
+        llm_response = await llmService.generate_completion(chat_req, api_key=api_key)
 
     # Guard content=None: extract assistant content and persist atomic turn
     assistant_content = None

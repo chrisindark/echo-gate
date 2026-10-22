@@ -118,6 +118,27 @@ class Config:
             os.getenv("RETRY_BACKOFF_MAX_SECONDS", "10")
         )
 
+        # Circuit Breaker & Bulkheads
+        self.CIRCUIT_BREAKER_ENABLED = (
+            os.getenv("CIRCUIT_BREAKER_ENABLED", "true").lower() == "true"
+        )
+        self.CIRCUIT_BREAKER_FAILURE_THRESHOLD = int(
+            os.getenv("CIRCUIT_BREAKER_FAILURE_THRESHOLD", "5")
+        )
+        self.CIRCUIT_BREAKER_RECOVERY_TIMEOUT_SECONDS = float(
+            os.getenv("CIRCUIT_BREAKER_RECOVERY_TIMEOUT_SECONDS", "30.0")
+        )
+        self.CIRCUIT_BREAKER_HALF_OPEN_SUCCESS_THRESHOLD = int(
+            os.getenv("CIRCUIT_BREAKER_HALF_OPEN_SUCCESS_THRESHOLD", "2")
+        )
+        self.GLOBAL_MAX_CONCURRENCY = int(os.getenv("GLOBAL_MAX_CONCURRENCY", "100"))
+        self.PROVIDER_MAX_CONCURRENCY = int(os.getenv("PROVIDER_MAX_CONCURRENCY", "25"))
+        self.BULKHEAD_ACQUIRE_TIMEOUT_SECONDS = float(
+            os.getenv("BULKHEAD_ACQUIRE_TIMEOUT_SECONDS", "0.0")
+        )
+        self.ALLOWED_MODELS_JSON = os.getenv("ALLOWED_MODELS_JSON")
+        self.MODEL_ALIASES_JSON = os.getenv("MODEL_ALIASES_JSON")
+
         # Streaming
         self.STREAM_MAX_CONTENT_BYTES = int(
             os.getenv("STREAM_MAX_CONTENT_BYTES", str(2 * 1024 * 1024))

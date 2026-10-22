@@ -11,6 +11,11 @@ from typing import Any
 from fastapi import HTTPException
 from qdrant_client.http import models
 
+from app.core.bulkhead import BulkheadLimitExceededException, bulkhead_manager
+from app.core.circuit_breaker import (
+    CircuitBreakerOpenException,
+    circuit_breaker_registry,
+)
 from app.core.config import config
 from app.core.constants import (
     CACHE_KEY_VERSION,
@@ -24,6 +29,7 @@ from app.core.constants import (
     PROMPT_VERSION,
     SCOPE_HIERARCHY,
 )
+from app.core.error_classification import classify_provider_error
 from app.core.logger import log_latency
 from app.core.retry import execute_with_retry
 from app.modules.chat.chat_schema import (
@@ -49,6 +55,7 @@ from app.modules.intent_classifier.intent_classifier_service import (
 from app.modules.intent_classifier.intent_schema import IntentEnum
 from app.modules.llm.cache_confidence import CacheConfidenceEvaluator
 from app.modules.llm.llm_provider_service import LlmProviderService
+from app.modules.llm.model_registry import ModelTarget, model_registry
 from app.modules.llm_quota.llm_quota_service import LlmQuotaService
 from app.modules.llm_usage.llm_usage_schema import LlmUsageLogCreate
 from app.modules.llm_usage.llm_usage_service import LlmUsageService
@@ -136,6 +143,7 @@ class LlmRouterService:
         fallback_model: str | None = None,
         api_key: str | None = None,
         exact_hash: str | None = None,
+        timeout_budget_ms: float | None = None,
     ) -> tuple[ChatCompletionResponse | None, str, str]:
         max_retries = max_retries if max_retries is not None else config.LLM_MAX_RETRIES
         timeout_seconds = (
@@ -155,9 +163,6 @@ class LlmRouterService:
 
         async def attempt_call(svc: str, req: ChatCompletionRequest):
             llm_req = req.model_copy(deep=True)
-            # Gateway-only scoping fields never reach a provider. `user_id` and
-            # `tenant_id` are private attributes and so are already absent from
-            # the model dump; only the session/conversation scopes need stripping.
             for key in ["session_id", "conversation_id"]:
                 if hasattr(llm_req, key):
                     delattr(llm_req, key)
@@ -190,80 +195,133 @@ class LlmRouterService:
                     status_code=400, detail=f"Unsupported LLM service: {svc}"
                 )
 
+        t_budget_start = time.monotonic()
         t_primary_start = time.perf_counter()
-        try:
-            resp = await execute_with_retry(
-                attempt_call,
-                service_name,
-                request,
-                timeout_seconds=timeout_seconds,
-                max_retries=max_retries,
-            )
-            used_model = resp.model if (resp and resp.model) else request.model
-            return resp, service_name, used_model
-        except Exception as e:
-            if isinstance(e, HTTPException) and e.status_code in (400, 401, 403, 500):
-                logger.error(
-                    f"Fatal error {e.status_code} from {service_name}. Failing immediately."
-                )
-                raise e
 
-            if fallback == "true" and fallback_service:
-                logger.warning(
-                    f"Primary service {service_name} failed. Attempting fallback {fallback_service}."
+        # Build candidate target list: intelligent alias resolution or primary + fallback
+        if model_registry.is_alias(request.model):
+            candidates = model_registry.resolve_targets(service_name, request.model)
+        else:
+            candidates = [ModelTarget(service=service_name, model=request.model)]
+            if str(fallback).lower() == "true" and fallback_service:
+                candidates.append(
+                    ModelTarget(
+                        service=fallback_service,
+                        model=fallback_model or request.model,
+                    )
                 )
+
+        last_exception: BaseException | None = None
+
+        for idx, candidate in enumerate(candidates):
+            # 1. Timeout budget propagation check
+            if timeout_budget_ms is not None:
+                elapsed_s = time.monotonic() - t_budget_start
+                remaining_s = (timeout_budget_ms / 1000.0) - elapsed_s
+                if remaining_s <= 0.05:
+                    raise HTTPException(
+                        status_code=504,
+                        detail="Request timeout budget exceeded before upstream dispatch.",
+                    )
+                current_timeout = min(timeout_seconds, max(0.1, remaining_s))
+            else:
+                current_timeout = timeout_seconds
+
+            # 2. Circuit breaker check
+            breaker = circuit_breaker_registry.get_breaker(candidate.service)
+            if not breaker.can_execute():
+                logger.warning(
+                    f"Circuit breaker for provider '{candidate.service}' is OPEN. Fast-skipping."
+                )
+                if idx < len(candidates) - 1:
+                    continue
+                raise CircuitBreakerOpenException(
+                    candidate.service, breaker.remaining_recovery_time()
+                )
+
+            # 3. Bulkhead acquisition & dispatch
+            target_req = request.model_copy(deep=True)
+            target_req.model = candidate.model
+
+            try:
+                async with bulkhead_manager.acquire(
+                    candidate.service,
+                    timeout=getattr(config, "BULKHEAD_ACQUIRE_TIMEOUT_SECONDS", 0.0),
+                ):
+                    resp = await execute_with_retry(
+                        attempt_call,
+                        candidate.service,
+                        target_req,
+                        timeout_seconds=current_timeout,
+                        max_retries=max_retries if idx == 0 else 0,
+                    )
+                    breaker.record_success()
+                    used_model = (
+                        resp.model if (resp and resp.model) else candidate.model
+                    )
+                    degradation = "none" if idx == 0 else "provider_fallback"
+                    if resp:
+                        resp._degradation_state = degradation
+                    return resp, candidate.service, used_model
+            except BulkheadLimitExceededException as bhe:
+                last_exception = bhe
+                if idx < len(candidates) - 1:
+                    logger.warning(
+                        f"Bulkhead saturated for '{candidate.service}'. Trying next candidate."
+                    )
+                    continue
+                raise bhe
+            except Exception as e:
+                breaker.record_failure(e)
+                last_exception = e
+
+                # Client error fast fail (400, 401, 403)
+                if (
+                    isinstance(e, HTTPException)
+                    and e.status_code in (400, 401, 403)
+                    and not model_registry.is_alias(request.model)
+                ):
+                    logger.error(
+                        f"Fatal error {e.status_code} from {candidate.service}. Failing immediately."
+                    )
+                    raise e
+
                 primary_status = e.status_code if isinstance(e, HTTPException) else 500
                 primary_err = str(e.detail) if isinstance(e, HTTPException) else str(e)
                 self._create_background_task(
                     self._log_usage(
                         request=request,
                         response=None,
-                        service_name=service_name,
+                        service_name=candidate.service,
                         start_time=t_primary_start,
                         exact_hash=exact_hash or self._generate_cache_key(request),
                         api_key=api_key,
-                        model=request.model,
+                        model=candidate.model,
                         is_success=False,
                         status_code=primary_status,
                         error_message=primary_err,
                     )
                 )
 
-                fallback_req = request.model_copy(deep=True)
-                if fallback_model:
-                    fallback_req.model = fallback_model
+                if idx < len(candidates) - 1:
+                    logger.warning(
+                        f"Target {candidate.service}/{candidate.model} failed: {e}. Trying next candidate."
+                    )
+                    continue
 
-                try:
-                    resp = await asyncio.wait_for(
-                        attempt_call(fallback_service, fallback_req),
-                        timeout=timeout_seconds,
-                    )
-                    used_model = (
-                        resp.model
-                        if (resp and resp.model)
-                        else (fallback_model or request.model)
-                    )
-                    return resp, fallback_service, used_model
-                except Exception as fallback_e:
-                    logger.error(
-                        f"Fallback service {fallback_service} failed: {fallback_e}"
-                    )
-                    if isinstance(fallback_e, HTTPException):
-                        raise fallback_e
-                    raise HTTPException(
-                        status_code=503,
-                        detail=f"Fallback service {fallback_service} failed: {fallback_e}",
-                    )
-            else:
-                logger.error(
-                    f"Primary service {service_name} failed and no fallback configured: {e}"
-                )
-                if isinstance(e, HTTPException):
-                    raise e
-                raise HTTPException(
-                    status_code=503,
-                    detail=f"Primary service {service_name} failed: {e}",
-                )
+        # All candidates exhausted: classify structured error
+        last_svc = candidates[-1].service if candidates else service_name
+        classified = classify_provider_error(
+            last_exception or RuntimeError("All provider targets failed"), last_svc
+        )
+        raise HTTPException(
+            status_code=classified["status_code"],
+            detail={
+                "message": classified["message"],
+                "error_code": classified["error_code"],
+                "provider": last_svc,
+            },
+        )
 
     async def _stream_from_provider_with_fallback(
         self,
@@ -273,11 +331,11 @@ class LlmRouterService:
         fallback_model: str | None = None,
         api_key: str | None = None,
         exact_hash: str | None = None,
+        timeout_budget_ms: float | None = None,
     ) -> AsyncIterator[tuple[ChatCompletionChunk, str, str]]:
         """
-        Streams chunks from the primary provider.
-        If the primary provider fails before any chunks are yielded (e.g. connection/handshake failure),
-        and fallback is enabled, transparently switches to the fallback provider.
+        Streams chunks from the candidate providers (alias targets or primary+fallback).
+        Fast-skips providers whose circuit breaker is OPEN.
         Yields (chunk, actual_service_name, actual_model_name).
         """
         fallback_service = (
@@ -296,98 +354,160 @@ class LlmRouterService:
             llm_req = req.model_copy(deep=True)
             if model:
                 llm_req.model = model
-            # See `attempt_call`: user_id/tenant_id are private attributes and
-            # never appear in the serialized request.
             for key in ["session_id", "conversation_id"]:
                 if hasattr(llm_req, key):
                     delattr(llm_req, key)
             return llm_req
 
         t_primary_start = time.perf_counter()
-        primary_req = clean_req(request)
-        actual_service = service_name
-        actual_model = request.model
+        t_budget_start = time.monotonic()
 
-        primary_stream = self.llm_provider_service.generate_stream(
-            primary_req, service_name=service_name
-        )
-        primary_iter = primary_stream.__aiter__()
-        first_chunk = None
-
-        try:
-            first_chunk = await primary_iter.__anext__()
-        except StopAsyncIteration:
-            return
-        except Exception as e:
-            if isinstance(e, HTTPException) and e.status_code in (400, 401, 403, 500):
-                logger.error(
-                    f"Fatal error {e.status_code} from streaming {service_name}. Failing immediately."
+        # Build candidate target list: intelligent alias resolution or primary + fallback
+        if model_registry.is_alias(request.model):
+            candidates = model_registry.resolve_targets(service_name, request.model)
+        else:
+            candidates = [ModelTarget(service=service_name, model=request.model)]
+            if str(fallback).lower() == "true" and fallback_service:
+                candidates.append(
+                    ModelTarget(
+                        service=fallback_service,
+                        model=fallback_model or request.model,
+                    )
                 )
-                raise e
 
-            if fallback == "true" and fallback_service:
+        last_exception: BaseException | None = None
+
+        for idx, candidate in enumerate(candidates):
+            # 1. Budget check
+            if timeout_budget_ms is not None:
+                elapsed_s = time.monotonic() - t_budget_start
+                remaining_s = (timeout_budget_ms / 1000.0) - elapsed_s
+                if remaining_s <= 0.05:
+                    raise HTTPException(
+                        status_code=504,
+                        detail="Request timeout budget exceeded before streaming dispatch.",
+                    )
+
+            # 2. Circuit breaker check
+            breaker = circuit_breaker_registry.get_breaker(candidate.service)
+            if not breaker.can_execute():
                 logger.warning(
-                    f"Primary stream {service_name} failed before first chunk: {e}. Attempting fallback {fallback_service}."
+                    f"Circuit breaker for provider '{candidate.service}' is OPEN. Fast-skipping stream candidate."
                 )
-                primary_status = e.status_code if isinstance(e, HTTPException) else 500
-                primary_err = str(e.detail) if isinstance(e, HTTPException) else str(e)
-                self._create_background_task(
-                    self._log_usage(
-                        request=request,
-                        response=None,
-                        service_name=service_name,
-                        start_time=t_primary_start,
-                        exact_hash=exact_hash or self._generate_cache_key(request),
-                        api_key=api_key,
-                        model=request.model,
-                        is_success=False,
-                        status_code=primary_status,
-                        error_message=primary_err,
-                    )
+                if idx < len(candidates) - 1:
+                    continue
+                raise CircuitBreakerOpenException(
+                    candidate.service, breaker.remaining_recovery_time()
                 )
 
-                fallback_req = clean_req(request, model=fallback_model)
-                actual_service = fallback_service
-                actual_model = fallback_model or request.model
-                try:
-                    fallback_stream = self.llm_provider_service.generate_stream(
-                        fallback_req, service_name=fallback_service
+            # 3. Bulkhead acquisition & stream dispatch
+            try:
+                async with bulkhead_manager.acquire(
+                    candidate.service,
+                    timeout=getattr(config, "BULKHEAD_ACQUIRE_TIMEOUT_SECONDS", 0.0),
+                ):
+                    candidate_req = clean_req(request, model=candidate.model)
+                    actual_service = candidate.service
+                    actual_model = candidate.model
+
+                    candidate_stream = self.llm_provider_service.generate_stream(
+                        candidate_req, service_name=candidate.service
                     )
-                    async for chunk in fallback_stream:
+                    candidate_iter = candidate_stream.__aiter__()
+                    first_chunk = None
+
+                    try:
+                        first_chunk = await candidate_iter.__anext__()
+                    except StopAsyncIteration:
+                        breaker.record_success()
+                        return
+                    except Exception as e:
+                        breaker.record_failure(e)
+                        last_exception = e
+
+                        if (
+                            isinstance(e, HTTPException)
+                            and e.status_code in (400, 401, 403)
+                            and not model_registry.is_alias(request.model)
+                        ):
+                            logger.error(
+                                f"Fatal error {e.status_code} from streaming {candidate.service}. Failing immediately."
+                            )
+                            raise e
+
+                        primary_status = (
+                            e.status_code if isinstance(e, HTTPException) else 500
+                        )
+                        primary_err = (
+                            str(e.detail) if isinstance(e, HTTPException) else str(e)
+                        )
+                        self._create_background_task(
+                            self._log_usage(
+                                request=request,
+                                response=None,
+                                service_name=candidate.service,
+                                start_time=t_primary_start,
+                                exact_hash=exact_hash
+                                or self._generate_cache_key(request),
+                                api_key=api_key,
+                                model=candidate.model,
+                                is_success=False,
+                                status_code=primary_status,
+                                error_message=primary_err,
+                            )
+                        )
+
+                        if idx < len(candidates) - 1:
+                            logger.warning(
+                                f"Streaming candidate {candidate.service} failed before first chunk: {e}. Trying next."
+                            )
+                            continue
+
+                        # Last candidate failed
+                        classified = classify_provider_error(e, candidate.service)
+                        raise HTTPException(
+                            status_code=classified["status_code"],
+                            detail={
+                                "message": classified["message"],
+                                "error_code": classified["error_code"],
+                                "provider": candidate.service,
+                            },
+                        )
+
+                    # First chunk successfully received!
+                    breaker.record_success()
+                    if first_chunk:
+                        if first_chunk.model:
+                            actual_model = first_chunk.model
+                        yield first_chunk, actual_service, actual_model
+
+                    async for chunk in candidate_iter:
                         if chunk.model:
                             actual_model = chunk.model
                         yield chunk, actual_service, actual_model
                     return
-                except Exception as fallback_e:
-                    logger.error(
-                        f"Fallback streaming service {fallback_service} failed: {fallback_e}"
-                    )
-                    if isinstance(fallback_e, HTTPException):
-                        raise fallback_e
-                    raise HTTPException(
-                        status_code=503,
-                        detail=f"Fallback streaming service {fallback_service} failed: {fallback_e}",
-                    )
-            else:
-                logger.error(
-                    f"Primary stream {service_name} failed and no fallback configured: {e}"
-                )
-                if isinstance(e, HTTPException):
-                    raise e
-                raise HTTPException(
-                    status_code=503,
-                    detail=f"Primary stream {service_name} failed: {e}",
-                )
 
-        if first_chunk:
-            if first_chunk.model:
-                actual_model = first_chunk.model
-            yield first_chunk, actual_service, actual_model
+            except BulkheadLimitExceededException as bhe:
+                last_exception = bhe
+                if idx < len(candidates) - 1:
+                    logger.warning(
+                        f"Bulkhead saturated for streaming '{candidate.service}'. Trying next."
+                    )
+                    continue
+                raise bhe
 
-        async for chunk in primary_iter:
-            if chunk.model:
-                actual_model = chunk.model
-            yield chunk, actual_service, actual_model
+        last_svc = candidates[-1].service if candidates else service_name
+        classified = classify_provider_error(
+            last_exception or RuntimeError("All streaming candidates failed"), last_svc
+        )
+        raise HTTPException(
+            status_code=classified["status_code"],
+            detail={
+                "message": classified["message"],
+                "error_code": classified["error_code"],
+                "provider": last_svc,
+            },
+        )
 
     def _generate_cache_key(self, request: ChatCompletionRequest) -> str:
         # use the version keys in the cache key in future to invalidate older cache keys
@@ -1677,7 +1797,10 @@ class LlmRouterService:
 
     @log_latency()
     async def generate_completion(
-        self, request: ChatCompletionRequest, api_key: str | None = None
+        self,
+        request: ChatCompletionRequest,
+        api_key: str | None = None,
+        timeout_budget_ms: float | None = None,
     ) -> ChatCompletionResponse:
         start_time = time.perf_counter()
         breakdown: dict[str, Any] = {}
@@ -1764,6 +1887,7 @@ class LlmRouterService:
                     fallback_model=config.FALLBACK_LLM_MODEL,
                     api_key=api_key,
                     exact_hash=exact_hash,
+                    timeout_budget_ms=timeout_budget_ms,
                 )
             except Exception as e:
                 provider_error = str(e)
@@ -1935,7 +2059,10 @@ class LlmRouterService:
                 )
 
     async def generate_stream(
-        self, request: ChatCompletionRequest, api_key: str | None = None
+        self,
+        request: ChatCompletionRequest,
+        api_key: str | None = None,
+        timeout_budget_ms: float | None = None,
     ) -> AsyncIterator[ChatCompletionChunk]:
         start_time = time.perf_counter()
         breakdown: dict[str, Any] = {}
@@ -2029,6 +2156,7 @@ class LlmRouterService:
                     fallback_model=config.FALLBACK_LLM_MODEL,
                     api_key=api_key,
                     exact_hash=exact_hash,
+                    timeout_budget_ms=timeout_budget_ms,
                 )
                 async for chunk, chunk_svc, chunk_model in stream:
                     actual_service = chunk_svc
