@@ -118,6 +118,18 @@ class CircuitBreaker:
                 retry_after=self.remaining_recovery_time(),
             )
 
+    def release_probe(self) -> None:
+        """Release a HALF_OPEN probe permit that was never resolved.
+
+        ``can_execute`` claims the single HALF_OPEN probe slot before dispatch.
+        If the attempt never reaches the provider -- a saturated bulkhead, a
+        cancelled request, an exception between the claim and the call -- no
+        success or failure is recorded, so the claim must be released explicitly.
+        Otherwise the breaker stays HALF_OPEN with its only permit held forever
+        and the provider is skipped until the process restarts.
+        """
+        self._half_open_probe_in_flight = False
+
     def record_success(self) -> None:
         """Record a successful provider interaction."""
         self._evaluate_state()

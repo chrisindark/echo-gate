@@ -308,6 +308,11 @@ class LlmRouterService:
                         f"Target {candidate.service}/{candidate.model} failed: {e}. Trying next candidate."
                     )
                     continue
+            finally:
+                # Release the HALF_OPEN probe permit on every non-dispatch path
+                # (bulkhead shed, budget abort, cancellation). A resolved probe
+                # already cleared it in record_success/record_failure.
+                breaker.release_probe()
 
         # All candidates exhausted: classify structured error
         last_svc = candidates[-1].service if candidates else service_name
@@ -495,6 +500,10 @@ class LlmRouterService:
                     )
                     continue
                 raise bhe
+            finally:
+                # See _call_provider_with_retry: never leave a HALF_OPEN probe
+                # permit claimed when no chunk was ever dispatched.
+                breaker.release_probe()
 
         last_svc = candidates[-1].service if candidates else service_name
         classified = classify_provider_error(
