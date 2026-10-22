@@ -88,7 +88,52 @@ Standard error codes:
 
 ---
 
-## 5. Client Retry & Fallback Blueprint
+## 5. Rate-Limit Budget Headers
+
+The gateway does not make you discover your quota by being rejected. Every
+guarded response — buffered or streamed — advertises the remaining budget for
+your bucket:
+
+| Header | Meaning |
+| --- | --- |
+| `X-RateLimit-Limit-Requests` | RPM ceiling applied to this request. |
+| `X-RateLimit-Remaining-Requests` | Requests left in the current 60s window (this one already counted). |
+| `X-RateLimit-Reset-Requests` | Seconds until the request window resets. |
+| `X-RateLimit-Limit-Tokens` | TPM ceiling applied to this request. |
+| `X-RateLimit-Remaining-Tokens` | Tokens left in the current window. |
+| `X-RateLimit-Reset-Tokens` | Seconds until the token window resets. |
+| `Retry-After` | Present on `429` and `503` only: seconds to wait before retrying. |
+
+Practical rules for agents:
+
+1. **Self-throttle on `Remaining-*`.** When `X-RateLimit-Remaining-Requests`
+   approaches zero, pace yourself for `X-RateLimit-Reset-Requests` seconds
+   instead of pushing until a `429`. Token budgets move in bigger steps, so
+   `Remaining-Tokens` is the better signal for long prompts.
+2. **Honour `Retry-After` exactly.** It is derived from the live Redis window
+   TTL, so waiting that long is guaranteed to clear the counter. It is also sent
+   when a bulkhead sheds load (`429`) and when a provider circuit is open (`503`) —
+   both are retryable, unlike `400`/`401`/`403`/`402`.
+3. **Expect jitter between replicas.** Each gateway process reads the same Redis
+   counters, but a response produced while another request is in flight may be a
+   little stale. Treat the values as advisory, not transactional.
+4. **Retries consume budget.** A retried request is another RPM, so a naive
+   `tenacity` loop can turn a momentary throttle into a sustained one. Budget the
+   retries (see the blueprint below) and prefer fewer, longer waits.
+
+```python
+def budget_from_headers(response: httpx.Response) -> tuple[int, float]:
+    remaining = int(response.headers.get("X-RateLimit-Remaining-Requests", "1"))
+    reset_s = float(response.headers.get("X-RateLimit-Reset-Requests", "60"))
+    return remaining, reset_s
+
+# Pause for the window instead of hammering the gateway into a 429.
+remaining, reset_s = budget_from_headers(response)
+if remaining <= 1:
+    time.sleep(reset_s)
+```
+
+## 6. Client Retry & Fallback Blueprint
 
 Here is a recommended Python client pattern using `tenacity` and `httpx`:
 

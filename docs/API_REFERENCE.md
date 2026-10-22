@@ -66,6 +66,33 @@ Auth runs first so an invalid key is rejected without consuming a request from
 the rate-limit bucket. Supplying an unusable key is always an error; only
 *omitting* one is anonymous.
 
+### Rate-limit headers
+
+Every guarded route (chat completions, conversations) advertises the caller's
+remaining budget on the response, so clients can self-throttle rather than
+discover the limit by being rejected:
+
+| Header | Meaning |
+| --- | --- |
+| `X-RateLimit-Limit-Requests` | RPM ceiling that applied to this request (rule from `llm_quota_rules`, else the default 10). |
+| `X-RateLimit-Remaining-Requests` | Requests left in the current 60s window, **after** counting this one. |
+| `X-RateLimit-Reset-Requests` | Seconds until the request window resets. |
+| `X-RateLimit-Limit-Tokens` | TPM ceiling that applied (rule, else the default 20000). |
+| `X-RateLimit-Remaining-Tokens` | Tokens left in the current window. |
+| `X-RateLimit-Reset-Tokens` | Seconds until the token window resets. |
+| `Retry-After` | Sent only on `429` / `503`: seconds to wait before retrying. |
+
+The counters are per bucket: `X-API-Key` for keyed callers, or the
+`anon:<sha256-prefix>` fingerprint for anonymous ones (see
+[Rate limiting notes](#rate-limiting-notes)). Limits are resolved per
+provider/model/user/tenant, and `remaining` is clamped at zero. Reset values come
+from the live Redis key TTLs, clamped to the 60s window; if Redis is unreachable
+the gateway degrades to "unlimited" and still emits the headers using a full
+window.
+
+Streamed (`stream: true`) responses carry the same headers: they are set on the
+`text/event-stream` response before the first chunk is written.
+
 ### Error behavior
 
 - `401` — missing or invalid key. On `/api/v1/admin/*` this means a missing,
@@ -73,8 +100,13 @@ the rate-limit bucket. Supplying an unusable key is always an error; only
   means a missing or invalid `X-API-Key`; on chat it means an `X-API-Key` that
   was supplied but did not resolve.
 - `403` — an admin key that is valid but lacks the scope the route requires.
-- `429` — RPM or TPM quota exceeded (see `llm_quota`).
-- `402` — prepaid budget exhausted (`budget:<api_key>` ≤ 0 in Redis).
+- `429` — RPM or TPM quota exceeded (see `llm_quota`), carrying the
+  `X-RateLimit-*` headers plus `Retry-After`. The same status is returned when the
+  global or per-provider bulkhead sheds load, also with `Retry-After`, or when
+  every candidate provider is unavailable and a circuit breaker is open (`503`
+  with `Retry-After`).
+- `402` — prepaid budget exhausted (`budget:<api_key>` ≤ 0 in Redis), carrying the
+  `X-RateLimit-*` headers.
 - `400` — validation error, unsupported service, or a model not in the
   provider's allowlist.
 - `503` — provider (and fallback) failed.

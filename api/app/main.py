@@ -101,6 +101,13 @@ app.add_middleware(
         "X-Correlation-ID",
         "X-Request-ID",
         "X-Gateway-Degradation",
+        "X-RateLimit-Limit-Requests",
+        "X-RateLimit-Remaining-Requests",
+        "X-RateLimit-Reset-Requests",
+        "X-RateLimit-Limit-Tokens",
+        "X-RateLimit-Remaining-Tokens",
+        "X-RateLimit-Reset-Tokens",
+        "Retry-After",
     ],
 )
 

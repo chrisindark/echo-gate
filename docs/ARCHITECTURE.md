@@ -188,6 +188,10 @@ Echo Gate is designed to be *degradable*, not *down*:
 5. **Request Timeout Budget Propagation**:
    - Accepts `X-Timeout-Budget-Ms` header; cuts short slow primary attempts to preserve budget for fallbacks and avoids futile retries.
 
+6. **Quota Budget Advertisement**:
+   - `LlmQuotaService.check_quota` returns a `QuotaStatus` (limits, remaining, window resets read from the live Redis TTLs) instead of only raising. The guard sets `X-RateLimit-*` on the injected response, and the chat controller re-applies them on the `StreamingResponse` because a stream replaces that response object.
+   - Refusals reuse the same headers: `429` (RPM/TPM) and `503` (provider circuit open / bulkhead shed) carry `Retry-After`, derived from the window TTL or the breaker's remaining recovery time, so downstream clients can pace themselves.
+
 ## Cache scoping and TTL
 
 Cache entries carry a `scope` and are only visible to queries at the same level or

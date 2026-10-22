@@ -109,20 +109,25 @@ async def create_chat_completion(
                 yield format_sse_event(error_payload)
                 yield SSE_DONE_EVENT
 
+        quota_status = getattr(http_request.state, "quota_status", None)
+        stream_headers = {
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+            # The router tags the first chunk with the state that produced it
+            # (cache, primary, or fallback) before any bytes are streamed.
+            "X-Gateway-Degradation": getattr(first_chunk, "_degradation_state", None)
+            or "none",
+        }
+        # A StreamingResponse replaces the injected Response, so the quota guard's
+        # X-RateLimit-* headers have to be re-applied here.
+        if hasattr(quota_status, "to_headers"):
+            stream_headers.update(quota_status.to_headers())
+
         return StreamingResponse(
             sse_event_generator(),
             media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",
-                # The router tags the first chunk with the state that produced it
-                # (cache, primary, or fallback) before any bytes are streamed.
-                "X-Gateway-Degradation": getattr(
-                    first_chunk, "_degradation_state", None
-                )
-                or "none",
-            },
+            headers=stream_headers,
         )
 
     if timeout_budget_ms is not None:

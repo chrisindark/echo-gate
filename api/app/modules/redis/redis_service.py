@@ -80,6 +80,19 @@ class RedisService:
 
         return None
 
+    async def remaining_ttl(self, key: str) -> int | None:
+        """Remaining TTL in seconds (-2 missing key, -1 no expiry), or None on error.
+
+        Named `remaining_ttl`, not `ttl`: the instance already carries a `ttl`
+        attribute (the default cache TTL), which would shadow a method of that name.
+        """
+        try:
+            return await self.redis.ttl(key)
+        except Exception as e:
+            logger.error(f"Failed to read TTL for {key} from Redis: {e}")
+
+        return None
+
     async def incr_with_ttl(self, key: str, ttl: int) -> int | None:
         """
         Increment a counter and guarantee the key always has a TTL.
