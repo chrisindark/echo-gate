@@ -203,9 +203,11 @@ Small diffs, no behavior change. Pre-req for opening the repo publicly.
   - [x] Ignore local `.env` variants with explicit `.env.example` negation in `.gitignore`.
   - [x] Clean up stale artifacts (`run_test_results.csv` deleted and ignored).
 
-- [x] **4. Repository structure audit**
-  - [x] Audit proposed directory layout (`app/` → `api/app/`, `ui/` → `web/`, root compose to `deploy/compose/`).
-  - [x] Skipped by decision: avoid unnecessary migration churn prior to external contributor arrival.
+- [x] **4. Repository restructure**
+  - [x] Restructure backend gateway code: `app/` → `api/app/` with Poetry package root mapping (`packages = [{include = "app", from = "api"}]`) and test `pythonpath = [".", "api"]`.
+  - [x] Restructure frontend application: `ui/` → `web/` with updated Node scripts, CI steps, and documentation.
+  - [x] Relocate Compose definitions: root `docker-compose.yml` → `deploy/compose/docker-compose.yml` with updated relative build contexts (`../..`).
+  - [x] Update CI/CD workflows, Dockerfiles, `.dockerignore`, `alembic.ini`, and dev runners (`dev.sh`) to reflect the clean monorepo layout.
 
 ---
 

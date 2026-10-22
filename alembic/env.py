@@ -27,15 +27,19 @@ if config.config_file_name is not None:
 # add your model's MetaData object here
 # for 'autogenerate' support
 
-# Add the root directory to the python path so 'app' can be imported
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add the root directory and api directory to the python path so 'app' can be imported
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT_DIR)
+sys.path.insert(0, os.path.join(ROOT_DIR, "api"))
 
 
 BASE_DIR = Path(__file__).resolve().parent
 
 PYTHON_ENV = os.getenv("PYTHON_ENV", "local")
 
-ENV_FILE = BASE_DIR / "../app" / f".env.{PYTHON_ENV}"
+ENV_FILE = BASE_DIR / "../api/app" / f".env.{PYTHON_ENV}"
+if not ENV_FILE.exists():
+    ENV_FILE = BASE_DIR / "../app" / f".env.{PYTHON_ENV}"
 
 if ENV_FILE.exists():
     load_dotenv(ENV_FILE)

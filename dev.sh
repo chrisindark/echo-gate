@@ -9,9 +9,9 @@ cleanup() {
 trap cleanup SIGINT SIGTERM
 
 echo "Starting EchoGate Backend..."
-poetry run uvicorn app.main:app --port 8000 --reload &
+PYTHONPATH=api poetry run uvicorn app.main:app --port 8000 --reload &
 
 echo "Starting Next.js UI..."
-(cd ui && npm run dev) &
+(cd web && npm run dev) &
 
 wait
