@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from app.core.constants import EchoGateHeaders
 from app.core.dependencies import get_llm_router_service
 from app.core.error_classification import classify_provider_error
 from app.core.guards import api_key_auth_optional_guard, llm_quota_guard
@@ -53,14 +54,16 @@ async def create_chat_completion(
         request.user = getattr(http_request.state, "user", None)
     request.user_id = getattr(http_request.state, "user_id", None)
     request.tenant_id = getattr(http_request.state, "tenant_id", None)
-    request.session_id = request.session_id or http_request.headers.get("X-Session-ID")
+    request.session_id = request.session_id or http_request.headers.get(
+        EchoGateHeaders.SESSION_ID
+    )
     request.conversation_id = request.conversation_id or http_request.headers.get(
-        "X-Conversation-ID"
+        EchoGateHeaders.CONVERSATION_ID
     )
 
     api_key = getattr(http_request.state, "api_key", None)
 
-    budget_header = http_request.headers.get("X-Timeout-Budget-Ms")
+    budget_header = http_request.headers.get(EchoGateHeaders.TIMEOUT_BUDGET_MS)
     timeout_budget_ms: float | None = None
     if budget_header:
         try:
@@ -113,10 +116,12 @@ async def create_chat_completion(
         stream_headers = {
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
+            EchoGateHeaders.ACCEL_BUFFERING: "no",
             # The router tags the first chunk with the state that produced it
             # (cache, primary, or fallback) before any bytes are streamed.
-            "X-Gateway-Degradation": getattr(first_chunk, "_degradation_state", None)
+            EchoGateHeaders.GATEWAY_DEGRADATION: getattr(
+                first_chunk, "_degradation_state", None
+            )
             or "none",
         }
         # A StreamingResponse replaces the injected Response, so the quota guard's
@@ -139,7 +144,7 @@ async def create_chat_completion(
             request, api_key=api_key
         )
     degradation = getattr(llm_response, "_degradation_state", None) or "none"
-    http_response.headers["X-Gateway-Degradation"] = degradation
+    http_response.headers[EchoGateHeaders.GATEWAY_DEGRADATION] = degradation
 
     return llm_response
 
@@ -160,9 +165,11 @@ async def semantic_search(
         request.user = getattr(http_request.state, "user", None)
     request.user_id = getattr(http_request.state, "user_id", None)
     request.tenant_id = getattr(http_request.state, "tenant_id", None)
-    request.session_id = request.session_id or http_request.headers.get("X-Session-ID")
+    request.session_id = request.session_id or http_request.headers.get(
+        EchoGateHeaders.SESSION_ID
+    )
     request.conversation_id = request.conversation_id or http_request.headers.get(
-        "X-Conversation-ID"
+        EchoGateHeaders.CONVERSATION_ID
     )
 
     result = await llmRouterService.evaluate_semantic_cache(request)
@@ -189,9 +196,11 @@ async def exact_search(
         request.user = getattr(http_request.state, "user", None)
     request.user_id = getattr(http_request.state, "user_id", None)
     request.tenant_id = getattr(http_request.state, "tenant_id", None)
-    request.session_id = request.session_id or http_request.headers.get("X-Session-ID")
+    request.session_id = request.session_id or http_request.headers.get(
+        EchoGateHeaders.SESSION_ID
+    )
     request.conversation_id = request.conversation_id or http_request.headers.get(
-        "X-Conversation-ID"
+        EchoGateHeaders.CONVERSATION_ID
     )
 
     payload, point_id = await llmRouterService.get_exact_match(request)
@@ -217,9 +226,11 @@ async def cache_save(
         request.user = getattr(http_request.state, "user", None)
     request.user_id = getattr(http_request.state, "user_id", None)
     request.tenant_id = getattr(http_request.state, "tenant_id", None)
-    request.session_id = request.session_id or http_request.headers.get("X-Session-ID")
+    request.session_id = request.session_id or http_request.headers.get(
+        EchoGateHeaders.SESSION_ID
+    )
     request.conversation_id = request.conversation_id or http_request.headers.get(
-        "X-Conversation-ID"
+        EchoGateHeaders.CONVERSATION_ID
     )
 
     point_id, _ = await llmRouterService.save_to_qdrant_cache(

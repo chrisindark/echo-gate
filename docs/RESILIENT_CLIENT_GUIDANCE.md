@@ -152,6 +152,7 @@ def budget_from_headers(response: httpx.Response) -> tuple[int, float]:
     reset_s = float(response.headers.get("X-RateLimit-Reset-Requests", "60"))
     return remaining, reset_s
 
+
 # Pause for the window instead of hammering the gateway into a 429.
 remaining, reset_s = budget_from_headers(response)
 if remaining <= 1:
@@ -165,9 +166,15 @@ Here is a recommended Python client pattern using `tenacity` and `httpx`:
 ```python
 import os
 import httpx
-from tenacity import retry, stop_after_attempt, wait_exponential_jitter, retry_if_exception
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential_jitter,
+    retry_if_exception,
+)
 
 RETRYABLE_STATUS_CODES = {408, 429, 500, 502, 503, 504}
+
 
 def is_retryable(exc: BaseException) -> bool:
     if isinstance(exc, httpx.HTTPStatusError):
@@ -175,6 +182,7 @@ def is_retryable(exc: BaseException) -> bool:
     if isinstance(exc, (httpx.TimeoutException, httpx.NetworkError)):
         return True
     return False
+
 
 @retry(
     stop=stop_after_attempt(3),
@@ -203,6 +211,8 @@ def call_echo_gate(messages, timeout_budget_ms=5000):
         if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 503:
             # Check Retry-After header
             retry_after = e.response.headers.get("Retry-After", "5")
-            print(f"Gateway is degraded (Retry-After: {retry_after}s); engaging bypass...")
+            print(
+                f"Gateway is degraded (Retry-After: {retry_after}s); engaging bypass..."
+            )
         raise e
 ```

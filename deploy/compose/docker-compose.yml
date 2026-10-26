@@ -1,3 +1,4 @@
+name: echo-gate
 services:
   qdrant:
     image: qdrant/qdrant:latest

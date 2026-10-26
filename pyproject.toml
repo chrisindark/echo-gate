@@ -27,6 +27,7 @@ fastembed = "^0.8.1"
 billiard = "<4.3"
 fastapi-health = "^0.4.0"
 psycopg = {version = ">=3.1", extras = ["binary"]}
+opentelemetry-api = "^1.45.1"
 
 [build-system]
 requires = ["poetry-core"]

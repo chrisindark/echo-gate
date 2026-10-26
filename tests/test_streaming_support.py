@@ -786,6 +786,8 @@ class TestStreamAccumulatorGuardrails(unittest.TestCase):
 
 class TestLlmRouterServiceStreamingPhase3(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
+        self._saved_cache_mode = config.CACHE_MODE
+        config.CACHE_MODE = "active"
         self.llm_provider_service = MagicMock(spec=LlmProviderService)
         self.embedding_service = MagicMock()
         self.llm_cache_service = MagicMock()
@@ -822,6 +824,7 @@ class TestLlmRouterServiceStreamingPhase3(unittest.IsolatedAsyncioTestCase):
         self.router_service._create_background_task = MagicMock(side_effect=record_bg)
 
     async def asyncTearDown(self):
+        config.CACHE_MODE = self._saved_cache_mode
         if self.created_background_tasks:
             import asyncio
 

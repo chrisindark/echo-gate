@@ -4,6 +4,7 @@ import logging
 
 from fastapi import Depends, Header, HTTPException, Request, Response, status
 
+from app.core.constants import EchoGateHeaders
 from app.core.dependencies import get_llm_quota_service
 from app.core.rls import ANONYMOUS_TENANT
 from app.modules.admin.admin_api_keys_service import AdminKeyIdentity
@@ -176,7 +177,7 @@ class ApiKeyAuthGuard:
                 return True
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="API Key missing. Provide a valid X-API-Key header.",
+                detail=f"API Key missing. Provide a valid {EchoGateHeaders.API_KEY} header.",
             )
 
         import asyncio
@@ -236,7 +237,7 @@ class AdminApiKeyGuard:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=(
-                    "Admin API Key missing. Provide the X-Admin-Key header. "
+                    f"Admin API Key missing. Provide the {EchoGateHeaders.ADMIN_KEY} header. "
                     "Keys are created with "
                     "`python -m app.scripts.create_admin_key create`."
                 ),

@@ -7,6 +7,7 @@ from fastapi import Request
 from starlette.datastructures import Headers
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from app.core.constants import EchoGateHeaders
 from app.core.logger import correlation_id_ctx_var
 from app.core.rls import ANONYMOUS_TENANT, rls_context
 
@@ -36,8 +37,8 @@ class CorrelationIdMiddleware(BaseHTTPMiddleware):
         try:
             response = await call_next(request)
             status_code = response.status_code
-            response.headers["X-Correlation-ID"] = correlation_id
-            response.headers["X-Request-ID"] = request_id
+            response.headers[EchoGateHeaders.CORRELATION_ID] = correlation_id
+            response.headers[EchoGateHeaders.REQUEST_ID] = request_id
             return response
         finally:
             end_time = time.perf_counter()
