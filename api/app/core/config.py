@@ -1,5 +1,34 @@
 import json
+import logging
 import os
+
+logger = logging.getLogger(__name__)
+
+#: Valid values for ``CACHE_MODE``.
+CACHE_MODES = ("disabled", "shadow", "active")
+
+#: ``USE_*`` flag consulted by :meth:`Config.cache_layer_enabled` per layer.
+_CACHE_LAYER_FLAGS = {
+    "redis": "USE_REDIS_EXACT_MATCHING",
+    "qdrant_exact": "USE_QDRANT_EXACT_MATCHING",
+    "qdrant_semantic": "USE_QDRANT_SEMANTIC_MATCHING",
+}
+
+
+def _bounded_float_env(name: str, default: float, lower: float, upper: float) -> float:
+    """Read a float env var, clamped to ``[lower, upper]``.
+
+    Misconfiguration in a throttling knob must never crash startup or let the
+    shadow pipeline exceed its intended budget, so invalid input falls back to
+    the default and out-of-range input is clamped.
+    """
+    raw = os.getenv(name)
+    try:
+        value = float(raw) if raw is not None and raw.strip() else default
+    except (TypeError, ValueError):
+        logger.warning("Invalid float for %s=%r; using default %s", name, raw, default)
+        value = default
+    return min(upper, max(lower, value))
 
 
 class Config:
@@ -168,6 +197,44 @@ class Config:
             os.getenv("DEFAULT_CACHE_TTL_SECONDS", str(1 * 24 * 60 * 60))
         )
 
+        # Cache mode gate: `disabled` (no cache), `shadow` (serve every request
+        # from the provider while the full cache pipeline runs out of band), or
+        # `active` (serve from cache; the three USE_* flags above still decide
+        # which layers participate).
+        #
+        # When CACHE_MODE is unset it is derived from the legacy USE_* flags so
+        # existing deployments keep their behaviour; any explicit value wins.
+        cache_mode = os.getenv("CACHE_MODE", "").strip().lower()
+        if cache_mode in CACHE_MODES:
+            self.CACHE_MODE = cache_mode
+        else:
+            if cache_mode:
+                logger.warning(
+                    "Unknown CACHE_MODE %r; expected one of %s. Falling back to "
+                    "the legacy USE_* flags.",
+                    cache_mode,
+                    ", ".join(CACHE_MODES),
+                )
+            self.CACHE_MODE = self._legacy_cache_mode()
+
+        # Shadow cache pipeline (CACHE_MODE=shadow). The pipeline runs out of
+        # band, so these knobs throttle how much work it may do per request.
+        self.SHADOW_SAMPLE_RATE = _bounded_float_env(
+            "SHADOW_SAMPLE_RATE", 1.0, lower=0.0, upper=1.0
+        )
+        self.SHADOW_JUDGE_ENABLED = (
+            os.getenv("SHADOW_JUDGE_ENABLED", "true").lower() == "true"
+        )
+        self.SHADOW_READINESS_MIN_EVALUATIONS = int(
+            os.getenv("SHADOW_READINESS_MIN_EVALUATIONS", "200")
+        )
+        self.SHADOW_READINESS_MIN_HIT_RATE = _bounded_float_env(
+            "SHADOW_READINESS_MIN_HIT_RATE", 0.05, lower=0.0, upper=1.0
+        )
+        self.SHADOW_READINESS_MIN_EQUIVALENCE_RATE = _bounded_float_env(
+            "SHADOW_READINESS_MIN_EQUIVALENCE_RATE", 0.98, lower=0.0, upper=1.0
+        )
+
         # Cache Confidence Thresholds
         default_thresholds = {
             "code_generation": {"high": 0.95, "moderate": 0.88},
@@ -294,6 +361,35 @@ class Config:
         self.LLM_JUDGE_MODEL = os.getenv("LLM_JUDGE_MODEL", "gemini-3.5-flash-lite")
         self.LLM_JUDGE_TEMPERATURE = float(os.getenv("LLM_JUDGE_TEMPERATURE", "0.0"))
         self.LLM_JUDGE_MAX_TOKENS = int(os.getenv("LLM_JUDGE_MAX_TOKENS", "200"))
+
+    @staticmethod
+    def _legacy_cache_mode() -> str:
+        """Derive the cache mode from the pre-``CACHE_MODE`` ``USE_*`` flags.
+
+        Before ``CACHE_MODE`` existed, enabling any cache layer required setting
+        its ``USE_*`` flag, and leaving them all off meant "no cache". Deriving
+        the mode keeps that behaviour for deployments that never set
+        ``CACHE_MODE``.
+        """
+        enabled = any(
+            (os.getenv(flag, "false") or "").strip().lower() == "true"
+            for flag in _CACHE_LAYER_FLAGS.values()
+        )
+        return "active" if enabled else "disabled"
+
+    def cache_layer_enabled(self, layer: str) -> bool:
+        """Whether ``layer`` may read from / serve out of the cache.
+
+        The cache only ever *serves* in ``active`` mode. In ``shadow`` mode the
+        pipeline runs with ``force=True`` from the background evaluator, and in
+        ``disabled`` mode it does not run at all.
+        """
+        if self.CACHE_MODE != "active":
+            return False
+        flag = _CACHE_LAYER_FLAGS.get(layer)
+        if flag is None:
+            raise ValueError(f"Unknown cache layer: {layer!r}")
+        return (getattr(self, flag, "false") or "").strip().lower() == "true"
 
 
 config = Config()

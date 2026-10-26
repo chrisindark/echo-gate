@@ -8,10 +8,13 @@ import { motion } from 'framer-motion';
 import {
   Activity,
   AlertCircle,
+  AlertTriangle,
   BarChart3,
   BrainCircuit,
+  CheckCircle2,
   Clock,
   Database,
+  FlaskConical,
   Gauge,
   Layers,
   Sparkles,
@@ -40,6 +43,14 @@ const TIME_RANGES: TimeRangeOption[] = [
   { label: '14 Days', value: '14d', short: '14d' },
   { label: '30 Days', value: '30d', short: '30d' },
 ];
+
+const SHADOW_MATCH_LABELS: Record<string, string> = {
+  REDIS_EXACT: 'Redis exact',
+  QDRANT_EXACT: 'Qdrant exact',
+  QDRANT_FAST: 'Qdrant dense fast-path',
+  QDRANT_SEMANTIC: 'Qdrant semantic',
+  MISS: 'Provider (miss)',
+};
 
 interface LatencyComponentBreakdown {
   redis_exact_ms: number | null;
@@ -126,6 +137,45 @@ interface AnalyticsData {
   latency_metrics?: LatencyMetrics;
 }
 
+interface ShadowSummary {
+  cache_mode: string;
+  total_evaluations: number;
+  would_have_hits: number;
+  hit_rate: number;
+  match_type_breakdown: Array<{
+    match_type: string;
+    count: number;
+  }>;
+  compared_evaluations: number;
+  equivalent_evaluations: number;
+  non_equivalent_evaluations: number;
+  equivalence_rate: number | null;
+  avg_latency_saved_ms: number | null;
+  projected_latency_saved_ms: number | null;
+  avg_cache_lookup_ms: number | null;
+  avg_provider_ms: number | null;
+  by_intent: Array<{
+    intent: string;
+    evaluations: number;
+    would_have_hits: number;
+    hit_rate: number;
+  }>;
+  by_model: Array<{
+    model: string;
+    provider: string | null;
+    evaluations: number;
+    would_have_hits: number;
+    hit_rate: number;
+  }>;
+  readiness: {
+    status: 'READY' | 'WARMING_UP' | 'NOT_READY';
+    reasons: string[];
+    min_evaluations: number;
+    min_hit_rate: number;
+    min_equivalence_rate: number;
+  };
+}
+
 export default function AnalyticsPage() {
   const { apiKey } = useApiKey();
   const [data, setData] = useState<AnalyticsData | null>(null);
@@ -133,6 +183,8 @@ export default function AnalyticsPage() {
   const [isFetching, setIsFetching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [timeRange, setTimeRange] = useState<TimeRange>('7d');
+  const [shadow, setShadow] = useState<ShadowSummary | null>(null);
+  const [shadowError, setShadowError] = useState<string | null>(null);
 
   const refetch = useCallback(() => {
     setLoading(true);
@@ -213,6 +265,42 @@ export default function AnalyticsPage() {
     };
   }, [timeRange, apiKey]);
 
+  // Shadow-pipeline readiness is fetched separately so a slow/absent shadow
+  // window never blocks the rest of the dashboard.
+  useEffect(() => {
+    let ignore = false;
+    const headers: Record<string, string> = {};
+    if (apiKey) headers['X-API-Key'] = apiKey;
+
+    fetch(
+      `${API_ROOT}/api/v1/shadow-cache/summary?time_range=${timeRange}`,
+      { headers }
+    )
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
+        return res.json();
+      })
+      .then((result) => {
+        if (!ignore) {
+          setShadow(result.response || result);
+          setShadowError(null);
+        }
+      })
+      .catch((e: unknown) => {
+        if (!ignore) {
+          setShadowError(
+            e instanceof Error ? e.message : 'An unknown error occurred'
+          );
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [timeRange, apiKey]);
+
   const container = {
     hidden: { opacity: 0 },
     show: {
@@ -261,6 +349,36 @@ export default function AnalyticsPage() {
   const intents = data.top_intents;
   const evals = data.evaluations;
   const latency = data.latency_metrics;
+
+  const shadowReadiness = shadow?.readiness;
+  const readinessStatus = shadowReadiness?.status ?? 'NOT_READY';
+  const readinessLabel =
+    readinessStatus === 'READY'
+      ? 'Ready for active caching'
+      : readinessStatus === 'WARMING_UP'
+        ? 'Warming up'
+        : 'Not ready';
+  const readinessBadgeClass =
+    readinessStatus === 'READY'
+      ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30'
+      : readinessStatus === 'WARMING_UP'
+        ? 'bg-amber-500/10 text-amber-600 border-amber-500/30'
+        : 'bg-secondary text-muted-foreground border-border';
+  const ReadinessIcon =
+    readinessStatus === 'READY'
+      ? CheckCircle2
+      : readinessStatus === 'WARMING_UP'
+        ? Clock
+        : AlertTriangle;
+  const shadowHitRatePct = (shadow?.hit_rate ?? 0) * 100;
+  const shadowEquivalencePct =
+    shadow?.equivalence_rate !== null && shadow?.equivalence_rate !== undefined
+      ? shadow.equivalence_rate * 100
+      : null;
+  const shadowMatchBreakdown = shadow?.match_type_breakdown ?? [];
+  const shadowMaxMatchCount = shadowMatchBreakdown.length
+    ? Math.max(...shadowMatchBreakdown.map((m) => m.count))
+    : 0;
 
   const maxRequests = timeSeries?.length
     ? Math.max(...timeSeries.map((d) => d.requests))
@@ -542,6 +660,253 @@ export default function AnalyticsPage() {
               </Box>
             </Card>
           </motion.div>
+        </motion.div>
+
+        {/* Cache Readiness — Shadow Pipeline */}
+        <motion.div
+          initial={{ opacity: 0, y: 15 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05 }}
+        >
+          <Card size="3">
+            <Flex align="start" justify="between" wrap="wrap" gap="3" mb="3">
+              <Box>
+                <Flex align="center" gap="2">
+                  <FlaskConical className="w-5 h-5 text-primary" />
+                  <Heading size="4">Cache Readiness — Shadow Pipeline</Heading>
+                </Flex>
+                <Text size="2" color="gray">
+                  Providers still answer every request; the full cache pipeline
+                  replays in the background so you can see what active caching
+                  would do before switching it on.
+                </Text>
+              </Box>
+              <span
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold',
+                  readinessBadgeClass
+                )}
+              >
+                <ReadinessIcon className="w-3.5 h-3.5" />
+                {readinessLabel}
+              </span>
+            </Flex>
+
+            {shadowError ? (
+              <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+                <div className="text-xs text-muted-foreground leading-relaxed">
+                  <span className="font-semibold text-foreground">
+                    Shadow telemetry unavailable.
+                  </span>{' '}
+                  {shadowError}
+                </div>
+              </div>
+            ) : !shadow || shadow.total_evaluations === 0 ? (
+              <div className="p-3 bg-secondary/60 border border-border/60 rounded-xl flex items-start gap-3">
+                <FlaskConical className="w-5 h-5 text-muted-foreground shrink-0 mt-0.5" />
+                <div className="text-xs text-muted-foreground leading-relaxed">
+                  <span className="font-semibold text-foreground">
+                    No shadow evaluations in this window.
+                  </span>{' '}
+                  {shadow?.cache_mode === 'active' ? (
+                    <>
+                      Caching is currently{' '}
+                      <code className="font-mono text-[11px] px-1 py-0.5 rounded bg-background border border-border/60">
+                        active
+                      </code>
+                      , so requests are served from the cache and nothing is
+                      replayed. Shadow evaluations only accumulate in shadow
+                      mode.
+                    </>
+                  ) : (
+                    <>
+                      Set{' '}
+                      <code className="font-mono text-[11px] px-1 py-0.5 rounded bg-background border border-border/60">
+                        CACHE_MODE=shadow
+                      </code>{' '}
+                      on the gateway and send traffic through{' '}
+                      <code className="font-mono text-[11px] px-1 py-0.5 rounded bg-background border border-border/60">
+                        /api/v1/chat/completions
+                      </code>
+                      . Cross-check{' '}
+                      <code className="font-mono text-[11px] px-1 py-0.5 rounded bg-background border border-border/60">
+                        SHADOW_SAMPLE_RATE
+                      </code>{' '}
+                      if only a fraction of requests is recorded.
+                    </>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="bg-background/80 rounded-lg p-3 border border-border/40">
+                    <div className="text-[10px] text-muted-foreground uppercase font-medium">
+                      Would-be hit rate
+                    </div>
+                    <div className="text-xl font-bold font-mono mt-1 text-emerald-500">
+                      {shadowHitRatePct.toFixed(1)}%
+                    </div>
+                    <div className="text-[11px] text-muted-foreground mt-1">
+                      {shadow.would_have_hits.toLocaleString()} of{' '}
+                      {shadow.total_evaluations.toLocaleString()} requests would
+                      have been served from cache
+                    </div>
+                  </div>
+
+                  <div className="bg-background/80 rounded-lg p-3 border border-border/40">
+                    <div className="text-[10px] text-muted-foreground uppercase font-medium">
+                      Judge equivalence
+                    </div>
+                    <div
+                      className={cn(
+                        'text-xl font-bold font-mono mt-1',
+                        shadowEquivalencePct === null
+                          ? 'text-muted-foreground'
+                          : shadowEquivalencePct >= 90
+                            ? 'text-emerald-500'
+                            : shadowEquivalencePct >= 75
+                              ? 'text-amber-500'
+                              : 'text-rose-500'
+                      )}
+                    >
+                      {shadowEquivalencePct === null
+                        ? '—'
+                        : `${shadowEquivalencePct.toFixed(1)}%`}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground mt-1">
+                      {shadow.compared_evaluations > 0
+                        ? `${shadow.equivalent_evaluations} equivalent · ${shadow.non_equivalent_evaluations} not equivalent of ${shadow.compared_evaluations} compared`
+                        : 'No would-be hit has been judged against a fresh answer yet'}
+                    </div>
+                  </div>
+
+                  <div className="bg-background/80 rounded-lg p-3 border border-border/40">
+                    <div className="text-[10px] text-muted-foreground uppercase font-medium">
+                      Projected latency saved
+                    </div>
+                    <div className="text-xl font-bold font-mono mt-1 text-blue-500">
+                      {shadow.projected_latency_saved_ms !== null
+                        ? `${shadow.projected_latency_saved_ms.toLocaleString()} ms`
+                        : '—'}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground mt-1">
+                      {shadow.avg_latency_saved_ms !== null
+                        ? `Avg ${Math.round(shadow.avg_latency_saved_ms)} ms per would-be hit`
+                        : 'No would-be hits measured'}
+                      {shadow.avg_cache_lookup_ms !== null &&
+                      shadow.avg_provider_ms !== null
+                        ? ` · ${Math.round(shadow.avg_cache_lookup_ms)} ms lookup vs ${Math.round(shadow.avg_provider_ms)} ms provider`
+                        : ''}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-3 bg-background/80 rounded-lg p-3 border border-border/40">
+                  <div className="text-[10px] text-muted-foreground uppercase font-medium mb-2">
+                    Where matches would have come from
+                  </div>
+                  <div className="space-y-2">
+                    {shadowMatchBreakdown.map((match) => (
+                      <div key={match.match_type} className="space-y-1">
+                        <div className="flex justify-between text-xs">
+                          <span className="font-medium">
+                            {SHADOW_MATCH_LABELS[match.match_type] ??
+                              match.match_type.replace(/_/g, ' ')}
+                          </span>
+                          <span className="text-muted-foreground">
+                            {match.count.toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="w-full bg-secondary rounded-full h-1.5">
+                          <div
+                            className={cn(
+                              'h-1.5 rounded-full',
+                              match.match_type === 'MISS'
+                                ? 'bg-muted-foreground/40'
+                                : 'bg-emerald-500'
+                            )}
+                            style={{
+                              width: `${shadowMaxMatchCount > 0 ? (match.count / shadowMaxMatchCount) * 100 : 0}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {shadowReadiness && shadowReadiness.reasons.length > 0 ? (
+                  <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-start gap-3 mt-3">
+                    <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                    <div className="text-xs text-muted-foreground leading-relaxed">
+                      <span className="font-semibold text-foreground">
+                        What is keeping this from being ready:
+                      </span>
+                      <ul className="list-disc pl-4 mt-1 space-y-0.5">
+                        {shadowReadiness.reasons.map((reason, idx) => (
+                          <li key={idx}>{reason}</li>
+                        ))}
+                      </ul>
+                      <p className="mt-1">
+                        Floors: {shadowReadiness.min_evaluations} evaluations ·{' '}
+                        {(shadowReadiness.min_hit_rate * 100).toFixed(0)}%
+                        would-be hit rate ·{' '}
+                        {(shadowReadiness.min_equivalence_rate * 100).toFixed(0)}%
+                        equivalence.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-start gap-3 mt-3">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />
+                    <div className="text-xs text-muted-foreground leading-relaxed">
+                      <span className="font-semibold text-foreground">
+                        Shadow traffic supports active caching.
+                      </span>{' '}
+                      Would-be hits clear the hit-rate floor and judged answers
+                      agree. Set{' '}
+                      <code className="font-mono text-[11px] px-1 py-0.5 rounded bg-background border border-border/60">
+                        CACHE_MODE=active
+                      </code>{' '}
+                      to start serving from the cache; keep shadow mode running
+                      in a canary environment if you want a control group.
+                    </div>
+                  </div>
+                )}
+
+                {shadow.by_model.length > 0 && (
+                  <div className="mt-3">
+                    <div className="text-[10px] text-muted-foreground uppercase font-medium mb-2">
+                      Would-be hit rate by model
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {shadow.by_model.slice(0, 6).map((model) => (
+                        <div
+                          key={`${model.provider ?? 'unknown'}:${model.model}`}
+                          className="flex items-center justify-between gap-3 bg-background/80 rounded-lg px-3 py-2 border border-border/40 text-xs"
+                        >
+                          <div className="min-w-0">
+                            <div className="font-medium truncate">
+                              {model.model}
+                            </div>
+                            <div className="text-[10px] text-muted-foreground truncate">
+                              {model.provider ?? 'unknown'} ·{' '}
+                              {model.evaluations.toLocaleString()} evaluated
+                            </div>
+                          </div>
+                          <span className="font-mono font-bold shrink-0">
+                            {(model.hit_rate * 100).toFixed(1)}%
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </Card>
         </motion.div>
 
         {/* Section Header: Latency Metrics */}

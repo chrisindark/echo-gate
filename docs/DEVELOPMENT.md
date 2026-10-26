@@ -29,9 +29,12 @@ curl -X POST http://localhost:8000/api/v1/admin/api-keys/ \
   -d '{"name": "local-dev", "tenant_id": "acme", "user_id": "dev"}'
 ```
 
-Remember: the cache layers default to `"false"`. Set
+Remember: the cache is off by default (`CACHE_MODE` derives to `disabled` when it
+is unset and no `USE_*` flag is `"true"`). Set `CACHE_MODE=active` plus
 `USE_REDIS_EXACT_MATCHING=true`, `USE_QDRANT_EXACT_MATCHING=true`, and
-`USE_QDRANT_SEMANTIC_MATCHING=true` in the env file to exercise caching. See
+`USE_QDRANT_SEMANTIC_MATCHING=true` in the env file to exercise serving from the
+cache, or `CACHE_MODE=shadow` to build the corpus and collect readiness telemetry
+while every request is still answered by the provider. See
 [CONFIGURATION.md](CONFIGURATION.md).
 
 ## Running

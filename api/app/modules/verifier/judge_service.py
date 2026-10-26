@@ -40,6 +40,27 @@ Return ONLY valid JSON in the following format (use integer values):
 }}
 """
 
+# Comparative prompt used by the shadow/audit paths: two answers to the same
+# question, judged for semantic equivalence rather than scored in isolation.
+LLM_EQUIVALENCE_PROMPT = """You compare two answers to the same request.
+
+Request:
+{user_query}
+
+Answer A (from cache):
+{cached_response}
+
+Answer B (generated fresh):
+{actual_response}
+
+Question: Would Answer A satisfy the request as well as Answer B?
+Two answers are equivalent when they convey the same substantive information,
+even if worded differently. Differences in formatting, ordering, or style do not
+matter. A different fact, a missing requirement, or a contradictory instruction
+means they are NOT equivalent.
+
+Reply with exactly one word: YES or NO."""
+
 
 class JudgeService:
     def __init__(
@@ -52,19 +73,8 @@ class JudgeService:
         self.cross_encoder_service = cross_encoder_service
         self.instruction_service = instruction_service
 
-    async def evaluate_by_llm(self, query_text: str, response_text: str) -> dict:
-        prompt = LLM_JUDGE_PROMPT.format(
-            user_query=query_text, cached_response=response_text
-        )
-
-        request = ChatCompletionRequest(
-            model=config.LLM_JUDGE_MODEL,
-            messages=[ChatMessage(role="user", content=prompt)],
-            response_format={"type": "json_object"},
-            temperature=config.LLM_JUDGE_TEMPERATURE,
-            max_tokens=config.LLM_JUDGE_MAX_TOKENS,
-        )
-
+    async def _run_judge_request(self, request: ChatCompletionRequest) -> str | None:
+        """Dispatch a judge prompt to the configured judge provider."""
         try:
             if config.LLM_JUDGE_SERVICE in ["gemini", "google-genai"]:
                 response = await self.llm_provider_service.generate_gemini_completion(
@@ -84,21 +94,87 @@ class JudgeService:
                 )
             else:
                 logger.warning(
-                    f"Unsupported LLM_JUDGE_SERVICE {config.LLM_JUDGE_SERVICE}. Returning 0.0."
+                    f"Unsupported LLM_JUDGE_SERVICE {config.LLM_JUDGE_SERVICE}. Returning None."
                 )
-                return {}
+                return None
 
             if not response.choices or not response.choices[0].message.content:
                 logger.warning("LLM judge returned empty content.")
-                return {}
-
-            content = response.choices[0].message.content
-            scores = json.loads(content)
-            return scores
+                return None
+            return response.choices[0].message.content
 
         except Exception as e:
             logger.error(f"Failed to run LLM judge: {e}")
+            return None
+
+    async def evaluate_by_llm(self, query_text: str, response_text: str) -> dict:
+        prompt = LLM_JUDGE_PROMPT.format(
+            user_query=query_text, cached_response=response_text
+        )
+
+        request = ChatCompletionRequest(
+            model=config.LLM_JUDGE_MODEL,
+            messages=[ChatMessage(role="user", content=prompt)],
+            response_format={"type": "json_object"},
+            temperature=config.LLM_JUDGE_TEMPERATURE,
+            max_tokens=config.LLM_JUDGE_MAX_TOKENS,
+        )
+
+        content = await self._run_judge_request(request)
+        if content is None:
             return {}
+
+        try:
+            return json.loads(content)
+        except (json.JSONDecodeError, TypeError):
+            logger.warning("LLM judge returned non-JSON content: %r", content)
+            return {}
+
+    async def evaluate_equivalence(
+        self,
+        query_text: str,
+        cached_response: str,
+        actual_response: str,
+    ) -> bool | None:
+        """Judge whether a cached answer is equivalent to a fresh one.
+
+        Returns ``True``/``False`` when the judge answered, and ``None`` when it
+        was unavailable, errored, or gave an unparseable reply — callers store
+        ``None`` as "not compared" rather than inventing a verdict.
+        """
+        prompt = LLM_EQUIVALENCE_PROMPT.format(
+            user_query=query_text,
+            cached_response=cached_response,
+            actual_response=actual_response,
+        )
+
+        # Deliberately tiny: the answer is one word, and this runs out of band on
+        # every shadow match, so it must stay cheap.
+        request = ChatCompletionRequest(
+            model=config.LLM_JUDGE_MODEL,
+            messages=[ChatMessage(role="user", content=prompt)],
+            temperature=config.LLM_JUDGE_TEMPERATURE,
+            max_tokens=16,
+        )
+
+        content = await self._run_judge_request(request)
+        if not content:
+            return None
+
+        normalized = content.strip().upper()
+        if normalized.startswith("YES"):
+            return True
+        if normalized.startswith("NO"):
+            return False
+        # Some providers add a sentence before the verdict; fall back to the
+        # first standalone token we recognise.
+        for token in normalized.replace(".", " ").replace(",", " ").split():
+            if token == "YES":
+                return True
+            if token == "NO":
+                return False
+        logger.warning("Unparseable equivalence verdict: %r", content)
+        return None
 
     async def _extract_core_query_with_llm(self, query: str) -> str:
         prompt = (

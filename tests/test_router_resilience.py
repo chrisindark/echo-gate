@@ -106,6 +106,7 @@ class TestRouterCircuitBreaker(unittest.IsolatedAsyncioTestCase):
             for name in (
                 "USE_FALLBACK_LLM",
                 "USE_REDIS_EXACT_MATCHING",
+                "CACHE_MODE",
                 "CIRCUIT_BREAKER_FAILURE_THRESHOLD",
                 "CIRCUIT_BREAKER_RECOVERY_TIMEOUT_SECONDS",
                 "GLOBAL_MAX_CONCURRENCY",
@@ -115,6 +116,10 @@ class TestRouterCircuitBreaker(unittest.IsolatedAsyncioTestCase):
         }
         config.USE_FALLBACK_LLM = "false"
         config.USE_REDIS_EXACT_MATCHING = "false"
+        # Pin the cache mode so the per-layer flags above are what decides
+        # whether a cache layer participates, regardless of the developer's
+        # local .env file.
+        config.CACHE_MODE = "active"
         config.LLM_MAX_RETRIES = 0
         config.CIRCUIT_BREAKER_FAILURE_THRESHOLD = 2
 
@@ -178,6 +183,7 @@ class TestMidStreamProviderFailures(unittest.IsolatedAsyncioTestCase):
             for name in (
                 "USE_FALLBACK_LLM",
                 "USE_REDIS_EXACT_MATCHING",
+                "CACHE_MODE",
                 "CIRCUIT_BREAKER_FAILURE_THRESHOLD",
                 "CIRCUIT_BREAKER_RECOVERY_TIMEOUT_SECONDS",
                 "LLM_MAX_RETRIES",
@@ -185,6 +191,10 @@ class TestMidStreamProviderFailures(unittest.IsolatedAsyncioTestCase):
         }
         config.USE_FALLBACK_LLM = "false"
         config.USE_REDIS_EXACT_MATCHING = "false"
+        # Pin the cache mode so the per-layer flags above are what decides
+        # whether a cache layer participates, regardless of the developer's
+        # local .env file.
+        config.CACHE_MODE = "active"
         config.LLM_MAX_RETRIES = 0
         config.CIRCUIT_BREAKER_FAILURE_THRESHOLD = 2
 
@@ -282,6 +292,7 @@ class TestTerminalFailureRetryAfter(unittest.IsolatedAsyncioTestCase):
             for name in (
                 "USE_FALLBACK_LLM",
                 "USE_REDIS_EXACT_MATCHING",
+                "CACHE_MODE",
                 "CIRCUIT_BREAKER_FAILURE_THRESHOLD",
                 "CIRCUIT_BREAKER_RECOVERY_TIMEOUT_SECONDS",
                 "RETRY_AFTER_DEFAULT_SECONDS",
@@ -290,6 +301,10 @@ class TestTerminalFailureRetryAfter(unittest.IsolatedAsyncioTestCase):
         }
         config.USE_FALLBACK_LLM = "false"
         config.USE_REDIS_EXACT_MATCHING = "false"
+        # Pin the cache mode so the per-layer flags above are what decides
+        # whether a cache layer participates, regardless of the developer's
+        # local .env file.
+        config.CACHE_MODE = "active"
         config.LLM_MAX_RETRIES = 0
         config.CIRCUIT_BREAKER_FAILURE_THRESHOLD = 100
         config.RETRY_AFTER_DEFAULT_SECONDS = 5

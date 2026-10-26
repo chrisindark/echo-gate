@@ -8,6 +8,35 @@ The public API surface is pinned by the OpenAPI snapshot contract test
 (`tests/test_openapi_snapshot.py`); breaking API changes are called out in the
 changes' entry with a `[BREAKING]` marker.
 
+## [Unreleased]
+
+### Added
+
+- **Shadow cache pipeline (`CACHE_MODE`)**: new `disabled | shadow | active`
+  mode. `shadow` answers every request from the provider and replays the full
+  cache pipeline out of band — Redis exact → Qdrant exact → dense fast path →
+  hybrid RRF + intent + cross-encoder rerank → confidence gate — recording what
+  would have happened and warming the Redis/Qdrant corpus for activation.
+  When `CACHE_MODE` is unset it is derived from the legacy `USE_*` flags, so
+  existing deployments keep their behaviour.
+- **`shadow_cache_evaluations` table** (Alembic `d4e5f6a7b8c9`, tenant RLS):
+  would-be hit, match type, score inputs, both response texts, judge
+  equivalence, intent, entities, latency breakdown, and projected latency
+  saving per evaluation.
+- **Shadow read API**: `GET /api/v1/shadow-cache/summary` (readiness status with
+  reasons, hit/equivalence rates, match-type and per-model breakdowns) and
+  `GET /api/v1/shadow-cache/evaluations` (paginated drill-down). Additive to the
+  OpenAPI contract.
+- **Judge equivalence check**: `JudgeService.evaluate_equivalence` compares a
+  matched cached answer with the fresh one and returns
+  `True`/`False`/`None`.
+- **Analytics UI**: "Cache Readiness — Shadow Pipeline" section with would-be hit
+  rate, judge equivalence, projected latency savings, match-type breakdown,
+  readiness reasons, and per-model hit rates.
+- **Configuration**: `SHADOW_SAMPLE_RATE`, `SHADOW_JUDGE_ENABLED`,
+  `SHADOW_READINESS_MIN_EVALUATIONS`, `SHADOW_READINESS_MIN_HIT_RATE`,
+  `SHADOW_READINESS_MIN_EQUIVALENCE_RATE`.
+
 ## [0.1.0] - 2026-10-21
 
 Pre-release snapshot of the feature set; API surface locked via

@@ -38,6 +38,7 @@ api/app/
                               AdminApiKeyGuard (scoped admin)
     retry.py                  tenacity-based retry (status 408/429/5xx + timeouts)
     responses.py              BaseAPIResponse envelope
+    time_ranges.py            Shared time-range resolution for read endpoints
     pricing.py                Per-provider/model token pricing
     constants.py              Version tags, scope hierarchy, prefixes
     logger.py                 Structured/colored logging + correlation IDs
@@ -55,6 +56,8 @@ api/app/
     llm_quota/                quota rules model/service (Redis-backed enforcement)
                               + admin CRUD controller/service/schema (X-Admin-Key)
     analytics/                dashboard/latency aggregation
+    shadow_cache/             shadow evaluation model/service/controller
+                              (readiness summary + drill-down, CACHE_MODE=shadow)
     health/                   health, live, ready, worker probes
     api_keys/                 API key model/schema/service/controller (tenant identity)
     admin/                    admin API key model/service (scoped operator identity;
@@ -80,7 +83,9 @@ runs first so a bad key is rejected without consuming rate-limit budget. The
 controller fills in identity from the middleware and calls
 `LlmRouterService.generate_completion(request, api_key=...)`.
 
-`generate_completion` runs these stages, recording a latency value for each:
+`generate_completion` runs these stages, recording a latency value for each.
+Steps 1–3 are gated by `CACHE_MODE` (only `active` reaches them) and, within
+`active`, by their `USE_*` flag; see [Shadow cache mode](#shadow-cache-mode):
 
 1. **Redis exact match** — `_get_redis_exact_match`. A versioned SHA-256 cache key
    over every request field that affects the answer (service, model, temperature,
@@ -157,6 +162,73 @@ controller fills in identity from the middleware and calls
 `redis_exact_ms`, `qdrant_exact_ms`, `embedding_gen_ms`, `qdrant_dense_ms`,
 `qdrant_rrf_ms`, `intent_classify_ms`, `rerank_ms`, `cache_lookup_total_ms`,
 `provider_ms`, `cache_write_ms`, `total_ms`.
+
+## Shadow cache mode
+
+`CACHE_MODE=shadow` is the pre-activation mode: operators can validate the
+cache against real traffic before letting it answer. The serving path is
+provider-only, so the cache contributes **zero latency** and cannot change a
+response. All cache work happens in one background task per request.
+
+Gating is centralized in `Config.cache_layer_enabled(layer)` (`redis`,
+`qdrant_exact`, `qdrant_semantic`), which returns `False` unless
+`CACHE_MODE == "active"`. The lookup and save primitives accept `force=True`,
+used only by the shadow evaluator, so it can exercise every layer while nothing
+on the serving path can read from the cache.
+
+### Serving path in `shadow` mode
+
+- The Redis exact, Qdrant exact, and semantic lookups are skipped; the request
+  goes straight to the provider (`LLM` routing decision, reported as usual).
+- No cache write is scheduled on the serving path. The shadow task owns the
+  write, which guarantees the corpus is populated even when the replayed lookup
+  matched.
+- After the response is returned, the router schedules
+  `LlmRouterService._background_shadow_evaluate` when
+  `_should_run_shadow_evaluation` passes: mode is `shadow`, the response is a
+  real (non-mock, non-overflowed) completion, and `SHADOW_SAMPLE_RATE` selects
+  the request. The streaming path applies the same rule once the stream
+  completes cleanly.
+- A shadow failure is logged and swallowed. It can never surface to the client.
+
+### Background evaluator
+
+`_background_shadow_evaluate` replays the full pipeline and records one row in
+`shadow_cache_evaluations`:
+
+1. Await the sibling trace-logging task so `request_id` can be filled in when
+   it has already finished.
+2. Redis exact → Qdrant exact → `evaluate_semantic_cache`, all with
+   `force=True`. The semantic stage is the same code the active path runs, so it
+   covers the dense fast path, hybrid RRF, intent classification, cross-encoder
+   rerank, and the confidence gate. The match type records which layer would
+   have answered (`REDIS_EXACT`, `QDRANT_EXACT`, `QDRANT_FAST`,
+   `QDRANT_SEMANTIC`) or `MISS`, along with the score inputs and per-stage
+   latency breakdown.
+3. **Write after lookup.** The order is deliberate: writing first would make the
+   request match the entry it just created. The write goes to Redis and Qdrant
+   with the same tenant/model/provider-sensitive keying as the active path.
+4. Compare the cached text with the fresh answer when a match occurred. Identical
+   text counts as equivalent without a judge call; otherwise
+   `JudgeService.evaluate_equivalence` (gated by `SHADOW_JUDGE_ENABLED`) returns
+   `True`/`False`/`None`, stored in `is_equivalent`.
+5. Compute `projected_latency_saved_ms = provider_ms - cache_lookup_ms` for
+   would-be hits and persist the row. The background task inherits the request's
+   RLS context, so the insert is tenant-scoped like any other write.
+
+### Reading the results
+
+`GET /api/v1/shadow-cache/summary` aggregates a window into would-be hit rate, a
+match-type breakdown, judge equivalence, projected latency savings, and
+per-intent/per-model hit rates. `ShadowCacheService._evaluate_readiness` turns
+those numbers into `READY` / `WARMING_UP` / `NOT_READY` using
+`SHADOW_READINESS_MIN_EVALUATIONS`, `MIN_HIT_RATE`, and
+`MIN_EQUIVALENCE_RATE`, with reasons for every failed floor. The analytics
+dashboard renders that as its "Cache Readiness — Shadow Pipeline" section;
+`GET /api/v1/shadow-cache/evaluations` backs drill-down.
+
+When the indicator reports `READY`, set `CACHE_MODE=active` (and enable the
+`USE_*` layers you want) and restart.
 
 ## Degradation contract & resilience architecture
 

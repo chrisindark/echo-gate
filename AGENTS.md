@@ -60,6 +60,8 @@ provider behavior, or persistence decision is genuinely unspecified.
 - `intent_classifier/` — intent LLM classification and regex entity extraction.
 - `reranking/`, `verifier/` — cross-encoder rerank plus judge/NLI evaluation.
 - `gateway_requests/`, `llm_usage/`, `analytics/` — trace log, usage log, aggregation.
+- `shadow_cache/` — shadow-mode evaluation rows, readiness summary, and the
+  `/api/v1/shadow-cache` read API.
 - `llm_quota/`, `api_keys/` — Redis-backed quotas and tenant identity. Admin CRUD
   for quota rules is `llm_quota_controller.py` + `llm_quota_rule_service.py`.
 - `admin/` — scoped operator credentials (`admin_api_keys`), created only by
@@ -88,6 +90,11 @@ Routing decisions: `REDIS_EXACT`, `QDRANT_EXACT`, `QDRANT_FAST`, `QDRANT_SEMANTI
   is a SHA-256 over all fields that affect the answer; the Qdrant query filters on
   `prompt_version`, `model`, `embedding_*`, `cache_key_version`, `cacheable`,
   `expires_at`, and the cache scope.
+- `CACHE_MODE` is the serving switch (`disabled` / `shadow` / `active`); only
+  `active` may read from the cache. Serving gates must go through
+  `Config.cache_layer_enabled(layer)`; in `shadow` mode the provider always answers
+  and `_background_shadow_evaluate` replays the pipeline with `force=True`, writing
+  the corpus and `shadow_cache_evaluations` out of band.
 - A cache miss, or Redis/Qdrant being unavailable, must still return a provider
   response. Never let cache failures raise to the client.
 - Cache scope only widens to what the entity extractor allows; sensitive prompts must

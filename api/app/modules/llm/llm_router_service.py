@@ -3,6 +3,7 @@ import hashlib
 import json
 import logging
 import math
+import random
 import time
 import uuid
 from collections import OrderedDict
@@ -69,6 +70,12 @@ from app.modules.qdrant.llm_cache_collection_service import LlmCacheCollectionSe
 from app.modules.qdrant.qdrant_schema import CacheScope
 from app.modules.redis.redis_service import RedisService
 from app.modules.reranking.reranker_service import RerankerService
+from app.modules.shadow_cache.shadow_cache_schema import (
+    ShadowCacheEvaluationCreate,
+    ShadowMatchType,
+)
+from app.modules.shadow_cache.shadow_cache_service import ShadowCacheService
+from app.modules.verifier.judge_service import JudgeService
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +124,8 @@ class LlmRouterService:
         llm_usage_service: LlmUsageService,
         llm_quota_service: LlmQuotaService | None = None,
         gateway_requests_service: GatewayRequestsService | None = None,
+        shadow_cache_service: ShadowCacheService | None = None,
+        judge_service: JudgeService | None = None,
     ) -> None:
         self.llm_provider_service = llm_provider_service
         self.embedding_service = embedding_service
@@ -128,6 +137,8 @@ class LlmRouterService:
         self.llm_usage_service = llm_usage_service
         self.llm_quota_service = llm_quota_service
         self.gateway_requests_service = gateway_requests_service
+        self.shadow_cache_service = shadow_cache_service
+        self.judge_service = judge_service
         self._background_tasks: set[asyncio.Task[Any]] = set()
         self._embedding_cache: OrderedDict[
             str, tuple[list[float] | None, dict[str, list] | None]
@@ -787,7 +798,9 @@ class LlmRouterService:
                 mark_cache_degraded("qdrant_exact_read_failed")
         return None, None
 
-    async def evaluate_semantic_cache(self, request: ChatCompletionRequest) -> dict:
+    async def evaluate_semantic_cache(
+        self, request: ChatCompletionRequest, force: bool = False
+    ) -> dict:
         prompt_text, system_prompt, user_prompt = self._prepare_prompts(request)
         logger.debug(f"User prompt: {user_prompt}")
 
@@ -822,8 +835,8 @@ class LlmRouterService:
             "embeddings": None,
         }
 
-        use_qdrant_semantic_matching = config.USE_QDRANT_SEMANTIC_MATCHING == "true"
-        if use_qdrant_semantic_matching is False:
+        use_qdrant_semantic_matching = config.cache_layer_enabled("qdrant_semantic")
+        if use_qdrant_semantic_matching is False and not force:
             logger.info(
                 "Qdrant semantic matching is disabled, skipping semantic search"
             )
@@ -1077,8 +1090,8 @@ class LlmRouterService:
                             result["response"] = response
                             result["cache_info"] = cache_info
 
-                            use_redis_exact_matching = (
-                                config.USE_REDIS_EXACT_MATCHING == "true"
+                            use_redis_exact_matching = config.cache_layer_enabled(
+                                "redis"
                             )
                             if use_redis_exact_matching is True:
                                 expires_at = top_dense_match["payload"].get(
@@ -1271,8 +1284,8 @@ class LlmRouterService:
                             ttl = self.intent_classifier_service.calculate_ttl(
                                 intent, time_sensitivity
                             )
-                            use_redis_exact_matching = (
-                                config.USE_REDIS_EXACT_MATCHING == "true"
+                            use_redis_exact_matching = config.cache_layer_enabled(
+                                "redis"
                             )
                             if use_redis_exact_matching is True:
                                 await self._save_to_redis_cache(
@@ -1315,8 +1328,9 @@ class LlmRouterService:
         model: str | None = None,
         save_to_qdrant: bool = False,
         embeddings: dict[str, Any] | None = None,
+        force: bool = False,
     ) -> tuple[str | None, int | None]:
-        if save_to_qdrant is False:
+        if save_to_qdrant is False and not force:
             return None, None
 
         if not self.llm_cache_service:
@@ -1502,10 +1516,10 @@ class LlmRouterService:
             return None, None
 
     async def _get_redis_exact_match(
-        self, exact_hash: str, service_name: str
+        self, exact_hash: str, service_name: str, force: bool = False
     ) -> ChatCompletionResponse | None:
-        use_redis_exact_matching = config.USE_REDIS_EXACT_MATCHING == "true"
-        if use_redis_exact_matching is False:
+        use_redis_exact_matching = config.cache_layer_enabled("redis")
+        if use_redis_exact_matching is False and not force:
             logger.info("Redis exact matching and semantic matching is disabled")
             return None
 
@@ -1555,10 +1569,14 @@ class LlmRouterService:
         return None
 
     async def _get_qdrant_exact_match(
-        self, exact_hash: str, tenant_id: str | None, prompt_text: str
+        self,
+        exact_hash: str,
+        tenant_id: str | None,
+        prompt_text: str,
+        force: bool = False,
     ) -> tuple[ChatCompletionResponse | None, str | None, int | None]:
-        use_qdrant_exact_matching = config.USE_QDRANT_EXACT_MATCHING == "true"
-        if use_qdrant_exact_matching is False:
+        use_qdrant_exact_matching = config.cache_layer_enabled("qdrant_exact")
+        if use_qdrant_exact_matching is False and not force:
             logger.info("Qdrant exact matching is disabled, skipping exact search")
             return None, None, None
 
@@ -1609,8 +1627,9 @@ class LlmRouterService:
         ttl: int | None = -1,
         save_to_redis: bool = False,
         point_id: str | None = None,
+        force: bool = False,
     ) -> None:
-        if save_to_redis is False:
+        if save_to_redis is False and not force:
             return
 
         if is_mock_response(response):
@@ -1658,11 +1677,20 @@ class LlmRouterService:
         subject_modifier: str | None = None,
         action_modifier: str | None = None,
         embeddings: dict[str, Any] | None = None,
+        force: bool = False,
     ) -> None:
+        """Persist a response to the Qdrant and Redis cache layers.
+
+        ``force`` is used by the shadow pipeline, which writes every layer
+        regardless of the serving-path flags so the corpus is warm by the time
+        the cache is switched on.
+        """
         try:
             point_id = None
             ttl = None
-            use_qdrant_exact_matching = config.USE_QDRANT_EXACT_MATCHING == "true"
+            use_qdrant_exact_matching = (
+                config.cache_layer_enabled("qdrant_exact") or force
+            )
             if use_qdrant_exact_matching:
                 point_id, ttl = await self.save_to_qdrant_cache(
                     request=request,
@@ -1678,7 +1706,7 @@ class LlmRouterService:
                     save_to_qdrant=use_qdrant_exact_matching,
                     embeddings=embeddings,
                 )
-            use_redis_exact_matching = config.USE_REDIS_EXACT_MATCHING == "true"
+            use_redis_exact_matching = config.cache_layer_enabled("redis") or force
             if use_redis_exact_matching:
                 ttl = config.REDIS_TTL
                 await self._save_to_redis_cache(
@@ -1694,6 +1722,216 @@ class LlmRouterService:
             )
         except Exception:
             logger.exception(f"Background cache write failed for {exact_hash}")
+
+    def _should_run_shadow_evaluation(
+        self, response: ChatCompletionResponse | None
+    ) -> bool:
+        """Whether this request should be replayed through the cache pipeline."""
+        if config.CACHE_MODE != "shadow" or not self.shadow_cache_service:
+            return False
+        if response is None or not response.choices or is_mock_response(response):
+            return False
+        if (response.cache_info or {}).get("overflowed"):
+            # A truncated stream is not the answer that would have been cached.
+            return False
+        sample_rate = config.SHADOW_SAMPLE_RATE
+        return sample_rate >= 1.0 or random.random() < sample_rate
+
+    @staticmethod
+    async def _await_gateway_log_id(
+        gateway_log_task: asyncio.Task[int | None] | None,
+    ) -> int | None:
+        """Wait for the sibling trace-log task so the shadow row can link to it."""
+        if gateway_log_task is None:
+            return None
+        try:
+            return await gateway_log_task
+        except Exception:
+            return None
+
+    @staticmethod
+    def _response_text(response: ChatCompletionResponse | None) -> str | None:
+        """The user-visible answer text, including tool calls when present."""
+        if not response or not response.choices:
+            return None
+        message = response.choices[0].message
+        if message is None:
+            return None
+        if message.content:
+            return message.content
+        if message.tool_calls:
+            return json.dumps([tc.model_dump() for tc in message.tool_calls])
+        return None
+
+    async def _background_shadow_evaluate(
+        self,
+        request: ChatCompletionRequest,
+        response: ChatCompletionResponse,
+        exact_hash: str,
+        service_name: str,
+        model: str,
+        gateway_log_task: asyncio.Task[int | None] | None = None,
+    ) -> None:
+        """Replay the cache pipeline for a request that was served by a provider.
+
+        Order matters: the lookup runs first and the write second, otherwise this
+        request's own freshly written entry would be the match it reports. Every
+        failure is swallowed — this task observes traffic and must never affect
+        it.
+        """
+        if not self.shadow_cache_service:
+            return
+
+        try:
+            request_id = await self._await_gateway_log_id(gateway_log_task)
+            prompt_text, _, user_prompt = self._prepare_prompts(request)
+
+            lookup_start = time.perf_counter()
+            breakdown: dict[str, Any] = {}
+            semantic_result: dict[str, Any] = {}
+            cached_response: ChatCompletionResponse | None = None
+            match_type = ShadowMatchType.MISS
+            point_id: str | None = None
+
+            t_redis = time.perf_counter()
+            cached_response = await self._get_redis_exact_match(
+                exact_hash, service_name, force=True
+            )
+            breakdown["redis_exact_ms"] = round(
+                (time.perf_counter() - t_redis) * 1000, 2
+            )
+
+            if cached_response:
+                match_type = ShadowMatchType.REDIS_EXACT
+                point_id = (cached_response.cache_info or {}).get("point_id")
+            else:
+                t_qdrant = time.perf_counter()
+                (
+                    cached_response,
+                    point_id,
+                    _remaining_ttl,
+                ) = await self._get_qdrant_exact_match(
+                    exact_hash, request.tenant_id, prompt_text, force=True
+                )
+                breakdown["qdrant_exact_ms"] = round(
+                    (time.perf_counter() - t_qdrant) * 1000, 2
+                )
+                if cached_response:
+                    match_type = ShadowMatchType.QDRANT_EXACT
+                else:
+                    semantic_result = await self.evaluate_semantic_cache(
+                        request, force=True
+                    )
+                    breakdown.update(semantic_result.get("latency_breakdown") or {})
+                    cached_response = semantic_result.get("response")
+                    if cached_response:
+                        source = (cached_response.cache_info or {}).get("source")
+                        match_type = (
+                            ShadowMatchType.QDRANT_FAST
+                            if source == "qdrant_fast_path"
+                            else ShadowMatchType.QDRANT_SEMANTIC
+                        )
+                        point_id = (cached_response.cache_info or {}).get("point_id")
+
+            lookup_ms = round((time.perf_counter() - lookup_start) * 1000, 2)
+            breakdown["cache_lookup_total_ms"] = lookup_ms
+
+            cache_info = (
+                dict(cached_response.cache_info or {}) if cached_response else {}
+            )
+            intent_value = cache_info.get("intent") or getattr(
+                semantic_result.get("intent"), "value", None
+            )
+            entities, _max_scope = self.entity_extractor_service.get_tags_and_max_scope(
+                user_prompt or prompt_text
+            )
+            cached_text = self._response_text(cached_response)
+            actual_text = self._response_text(response)
+            would_have_hit = cached_response is not None
+            provider_ms = (
+                ((response.cache_info or {}).get("latency_breakdown") or {}).get(
+                    "provider_ms"
+                )
+                if response.cache_info
+                else None
+            )
+
+            # Build the corpus for activation: write every layer regardless of the
+            # serving-path flags, now that the lookup has been recorded.
+            await self._background_save_cache(
+                request=request,
+                response=response,
+                exact_hash=exact_hash,
+                service_name=service_name,
+                model=model,
+                intent=semantic_result.get("intent"),
+                time_sensitivity=semantic_result.get("time_sensitivity", 0.0) or 0.0,
+                core_operation=semantic_result.get("core_operation"),
+                core_subject=semantic_result.get("core_subject"),
+                subject_modifier=semantic_result.get("subject_modifier"),
+                action_modifier=semantic_result.get("action_modifier"),
+                embeddings=semantic_result.get("embeddings"),
+                force=True,
+            )
+
+            is_equivalent: bool | None = None
+            if would_have_hit and cached_text and actual_text:
+                if cached_text.strip() == actual_text.strip():
+                    is_equivalent = True
+                elif config.SHADOW_JUDGE_ENABLED and self.judge_service:
+                    is_equivalent = await self.judge_service.evaluate_equivalence(
+                        query_text=prompt_text,
+                        cached_response=cached_text,
+                        actual_response=actual_text,
+                    )
+
+            projected_latency_saved_ms = None
+            if would_have_hit and provider_ms is not None:
+                projected_latency_saved_ms = max(0, int(round(provider_ms - lookup_ms)))
+
+            rerank_score = cache_info.get("rerank_score")
+            if rerank_score is None:
+                rerank_score = cache_info.get("top_1_rerank_score")
+
+            evaluation = ShadowCacheEvaluationCreate(
+                request_id=request_id,
+                exact_hash=exact_hash,
+                tenant_id=request.tenant_id,
+                user_id=request.user_id,
+                model=model,
+                provider=service_name,
+                would_have_hit=would_have_hit,
+                match_type=match_type,
+                point_id=point_id,
+                match_score=cache_info.get("score"),
+                rerank_score=rerank_score,
+                score_breakdown=cache_info.get("score_breakdown"),
+                cached_response_text=cached_text,
+                actual_response_text=actual_text,
+                is_equivalent=is_equivalent,
+                intent=intent_value,
+                entities=entities or None,
+                latency_breakdown=breakdown,
+                provider_latency_ms=(
+                    int(provider_ms) if provider_ms is not None else None
+                ),
+                cache_lookup_latency_ms=int(lookup_ms),
+                projected_latency_saved_ms=projected_latency_saved_ms,
+            )
+            await asyncio.to_thread(
+                self.shadow_cache_service.log_evaluation, evaluation
+            )
+            logger.info(
+                "Shadow evaluation for %s: match_type=%s would_have_hit=%s "
+                "equivalent=%s cache_lookup_ms=%.2f",
+                exact_hash,
+                match_type.value,
+                would_have_hit,
+                is_equivalent,
+                lookup_ms,
+            )
+        except Exception:
+            logger.exception("Shadow cache evaluation failed for %s", exact_hash)
 
     async def _log_usage(
         self,
@@ -1831,9 +2069,14 @@ class LlmRouterService:
         core_subject: str | None = None,
         subject_modifier: str | None = None,
         action_modifier: str | None = None,
-    ) -> None:
+    ) -> int | None:
+        """Persist a gateway request trace and return its row id.
+
+        The id is returned so the shadow evaluator can link its row to the trace
+        of the request it observed; callers that do not need it may ignore it.
+        """
         if not self.gateway_requests_service:
-            return
+            return None
 
         try:
             end_time = time.perf_counter()
@@ -1940,9 +2183,13 @@ class LlmRouterService:
                 error_message=error_message,
                 evaluation_status=eval_status,
             )
-            await asyncio.to_thread(self.gateway_requests_service.log_request, log_data)
+            row = await asyncio.to_thread(
+                self.gateway_requests_service.log_request, log_data
+            )
+            return getattr(row, "id", None)
         except Exception:
             logger.exception("Failed to log gateway request")
+            return None
 
     @log_latency()
     async def generate_completion(
@@ -1985,64 +2232,79 @@ class LlmRouterService:
 
         actual_service = service_name
         actual_model = request.model
+        provider_error: str | None = None
+        provider_exception: BaseException | None = None
+        response: ChatCompletionResponse | None = None
         intent: IntentEnum | None = None
+        time_sensitivity = 0.0
         core_operation: str | None = None
         core_subject: str | None = None
         subject_modifier: str | None = None
         action_modifier: str | None = None
-        provider_error: str | None = None
-        provider_exception: BaseException | None = None
-        response: ChatCompletionResponse | None = None
+        miss_cache_info = None
+        embeddings = None
+        shadow_mode = config.CACHE_MODE == "shadow"
 
         try:
-            # 1. Try exact match from Redis first
-            t_redis_start = time.perf_counter()
-            response = await self._get_redis_exact_match(exact_hash, service_name)
-            t_redis_end = time.perf_counter()
-            breakdown["redis_exact_ms"] = round((t_redis_end - t_redis_start) * 1000, 2)
-            if response:
-                return response
+            if shadow_mode:
+                # Observation-only: no cache read may touch the serving path, and
+                # the response is served exclusively by a provider. The cache
+                # pipeline (lookup + write) runs after the response is returned.
+                logger.info(
+                    "CACHE_MODE=shadow: bypassing serving-time cache lookups for %s",
+                    exact_hash,
+                )
+            else:
+                # 1. Try exact match from Redis first
+                t_redis_start = time.perf_counter()
+                response = await self._get_redis_exact_match(exact_hash, service_name)
+                t_redis_end = time.perf_counter()
+                breakdown["redis_exact_ms"] = round(
+                    (t_redis_end - t_redis_start) * 1000, 2
+                )
+                if response:
+                    return response
 
-            # 2. Try Exact Match in Qdrant
-            t_qdrant_exact_start = time.perf_counter()
-            response, point_id, remaining_ttl = await self._get_qdrant_exact_match(
-                exact_hash, tenant_id, prompt_text
-            )
-            t_qdrant_exact_end = time.perf_counter()
-            breakdown["qdrant_exact_ms"] = round(
-                (t_qdrant_exact_end - t_qdrant_exact_start) * 1000, 2
-            )
-            if response:
-                use_redis_exact_matching = config.USE_REDIS_EXACT_MATCHING == "true"
-                if use_redis_exact_matching:
-                    await self._save_to_redis_cache(
-                        exact_hash,
-                        response,
-                        "Saving Qdrant exact search query matched response in Redis",
-                        ttl=remaining_ttl,
-                        save_to_redis=use_redis_exact_matching,
-                        point_id=point_id,
-                    )
-                return response
+                # 2. Try Exact Match in Qdrant
+                t_qdrant_exact_start = time.perf_counter()
+                response, point_id, remaining_ttl = await self._get_qdrant_exact_match(
+                    exact_hash, tenant_id, prompt_text
+                )
+                t_qdrant_exact_end = time.perf_counter()
+                breakdown["qdrant_exact_ms"] = round(
+                    (t_qdrant_exact_end - t_qdrant_exact_start) * 1000, 2
+                )
+                if response:
+                    use_redis_exact_matching = config.cache_layer_enabled("redis")
+                    if use_redis_exact_matching:
+                        await self._save_to_redis_cache(
+                            exact_hash,
+                            response,
+                            "Saving Qdrant exact search query matched response in Redis",
+                            ttl=remaining_ttl,
+                            save_to_redis=use_redis_exact_matching,
+                            point_id=point_id,
+                        )
+                    return response
 
-            # 3. Try Semantic Match if Exact misses
-            semantic_result = await self.evaluate_semantic_cache(request)
-            if "latency_breakdown" in semantic_result:
-                breakdown.update(semantic_result["latency_breakdown"])
+                # 3. Try Semantic Match if Exact misses
+                semantic_result = await self.evaluate_semantic_cache(request)
+                if "latency_breakdown" in semantic_result:
+                    breakdown.update(semantic_result["latency_breakdown"])
 
-            if semantic_result.get("response"):
-                response = semantic_result["response"]
-                return response
+                if semantic_result.get("response"):
+                    response = semantic_result["response"]
+                    return response
 
-            # Extract intent and other metadata if intent classification has been called already
-            intent = semantic_result.get("intent", None)
-            time_sensitivity = semantic_result.get("time_sensitivity", 0.0)
-            core_operation = semantic_result.get("core_operation", None)
-            core_subject = semantic_result.get("core_subject", None)
-            subject_modifier = semantic_result.get("subject_modifier", None)
-            action_modifier = semantic_result.get("action_modifier", None)
-            miss_cache_info = semantic_result.get("miss_cache_info")
-            embeddings = semantic_result.get("embeddings")
+                # Extract intent and other metadata if intent classification has been called already
+                intent = semantic_result.get("intent", None)
+                time_sensitivity = semantic_result.get("time_sensitivity", 0.0)
+                core_operation = semantic_result.get("core_operation", None)
+                core_subject = semantic_result.get("core_subject", None)
+                subject_modifier = semantic_result.get("subject_modifier", None)
+                action_modifier = semantic_result.get("action_modifier", None)
+                miss_cache_info = semantic_result.get("miss_cache_info")
+                embeddings = semantic_result.get("embeddings")
 
             t_provider_start = time.perf_counter()
             try:
@@ -2103,23 +2365,32 @@ class LlmRouterService:
                 response.cache_info = cache_info
                 breakdown["cache_write_ms"] = 0.0
 
-                # Offload cache persistence to background task so client latency is unaffected
-                self._create_background_task(
-                    self._background_save_cache(
-                        request=request,
-                        response=response.model_copy(deep=True),
-                        exact_hash=exact_hash,
-                        service_name=actual_service,
-                        model=actual_model,
-                        intent=intent,
-                        time_sensitivity=time_sensitivity,
-                        core_operation=core_operation,
-                        core_subject=core_subject,
-                        subject_modifier=subject_modifier,
-                        action_modifier=action_modifier,
-                        embeddings=embeddings,
+                if shadow_mode:
+                    # The shadow evaluator performs the cache write itself, after
+                    # it has recorded what the lookup would have returned.
+                    logger.info(
+                        "CACHE_MODE=shadow: deferring cache write for %s to the "
+                        "shadow evaluator",
+                        exact_hash,
                     )
-                )
+                else:
+                    # Offload cache persistence to background task so client latency is unaffected
+                    self._create_background_task(
+                        self._background_save_cache(
+                            request=request,
+                            response=response.model_copy(deep=True),
+                            exact_hash=exact_hash,
+                            service_name=actual_service,
+                            model=actual_model,
+                            intent=intent,
+                            time_sensitivity=time_sensitivity,
+                            core_operation=core_operation,
+                            core_subject=core_subject,
+                            subject_modifier=subject_modifier,
+                            action_modifier=action_modifier,
+                            embeddings=embeddings,
+                        )
+                    )
             elif response and is_mock_response(response):
                 logger.warning(
                     f"Mock response generated for {exact_hash}. Skipping cache writes."
@@ -2173,7 +2444,7 @@ class LlmRouterService:
                         model=actual_model,
                     )
                 )
-                self._create_background_task(
+                gateway_log_task = self._create_background_task(
                     self._log_gateway_request(
                         request=request,
                         response=response,
@@ -2184,6 +2455,17 @@ class LlmRouterService:
                         latency_breakdown=breakdown,
                     )
                 )
+                if shadow_mode and self._should_run_shadow_evaluation(response):
+                    self._create_background_task(
+                        self._background_shadow_evaluate(
+                            request=request,
+                            response=response.model_copy(deep=True),
+                            exact_hash=exact_hash,
+                            service_name=actual_service,
+                            model=actual_model,
+                            gateway_log_task=gateway_log_task,
+                        )
+                    )
             elif provider_exception is not None:
                 status_code = (
                     provider_exception.status_code
@@ -2274,70 +2556,82 @@ class LlmRouterService:
 
         actual_service = service_name
         actual_model = request.model
+        provider_error: str | None = None
+        provider_exception: BaseException | None = None
+        response: ChatCompletionResponse | None = None
         intent: IntentEnum | None = None
+        time_sensitivity = 0.0
         core_operation: str | None = None
         core_subject: str | None = None
         subject_modifier: str | None = None
         action_modifier: str | None = None
-        provider_error: str | None = None
-        provider_exception: BaseException | None = None
-        response: ChatCompletionResponse | None = None
+        miss_cache_info = None
+        embeddings = None
+        shadow_mode = config.CACHE_MODE == "shadow"
 
         try:
-            # 1. Try exact match from Redis first
-            t_redis_start = time.perf_counter()
-            response = await self._get_redis_exact_match(exact_hash, service_name)
-            t_redis_end = time.perf_counter()
-            breakdown["redis_exact_ms"] = round((t_redis_end - t_redis_start) * 1000, 2)
-            if response:
-                for chunk in response_to_stream_chunks(response):
-                    yield chunk
-                return
+            if shadow_mode:
+                logger.info(
+                    "CACHE_MODE=shadow: bypassing serving-time cache lookups for %s",
+                    exact_hash,
+                )
+            else:
+                # 1. Try exact match from Redis first
+                t_redis_start = time.perf_counter()
+                response = await self._get_redis_exact_match(exact_hash, service_name)
+                t_redis_end = time.perf_counter()
+                breakdown["redis_exact_ms"] = round(
+                    (t_redis_end - t_redis_start) * 1000, 2
+                )
+                if response:
+                    for chunk in response_to_stream_chunks(response):
+                        yield chunk
+                    return
 
-            # 2. Try Exact Match in Qdrant
-            t_qdrant_exact_start = time.perf_counter()
-            response, point_id, remaining_ttl = await self._get_qdrant_exact_match(
-                exact_hash, tenant_id, prompt_text
-            )
-            t_qdrant_exact_end = time.perf_counter()
-            breakdown["qdrant_exact_ms"] = round(
-                (t_qdrant_exact_end - t_qdrant_exact_start) * 1000, 2
-            )
-            if response:
-                use_redis_exact_matching = config.USE_REDIS_EXACT_MATCHING == "true"
-                if use_redis_exact_matching:
-                    await self._save_to_redis_cache(
-                        exact_hash,
-                        response,
-                        "Saving Qdrant exact search query matched response in Redis",
-                        ttl=remaining_ttl,
-                        save_to_redis=use_redis_exact_matching,
-                        point_id=point_id,
-                    )
-                for chunk in response_to_stream_chunks(response):
-                    yield chunk
-                return
+                # 2. Try Exact Match in Qdrant
+                t_qdrant_exact_start = time.perf_counter()
+                response, point_id, remaining_ttl = await self._get_qdrant_exact_match(
+                    exact_hash, tenant_id, prompt_text
+                )
+                t_qdrant_exact_end = time.perf_counter()
+                breakdown["qdrant_exact_ms"] = round(
+                    (t_qdrant_exact_end - t_qdrant_exact_start) * 1000, 2
+                )
+                if response:
+                    use_redis_exact_matching = config.cache_layer_enabled("redis")
+                    if use_redis_exact_matching:
+                        await self._save_to_redis_cache(
+                            exact_hash,
+                            response,
+                            "Saving Qdrant exact search query matched response in Redis",
+                            ttl=remaining_ttl,
+                            save_to_redis=use_redis_exact_matching,
+                            point_id=point_id,
+                        )
+                    for chunk in response_to_stream_chunks(response):
+                        yield chunk
+                    return
 
-            # 3. Try Semantic Match if Exact misses
-            semantic_result = await self.evaluate_semantic_cache(request)
-            if "latency_breakdown" in semantic_result:
-                breakdown.update(semantic_result["latency_breakdown"])
+                # 3. Try Semantic Match if Exact misses
+                semantic_result = await self.evaluate_semantic_cache(request)
+                if "latency_breakdown" in semantic_result:
+                    breakdown.update(semantic_result["latency_breakdown"])
 
-            if semantic_result.get("response"):
-                response = semantic_result["response"]
-                for chunk in response_to_stream_chunks(response):
-                    yield chunk
-                return
+                if semantic_result.get("response"):
+                    response = semantic_result["response"]
+                    for chunk in response_to_stream_chunks(response):
+                        yield chunk
+                    return
 
-            # Extract intent and other metadata if intent classification has been called already
-            intent = semantic_result.get("intent", None)
-            time_sensitivity = semantic_result.get("time_sensitivity", 0.0)
-            core_operation = semantic_result.get("core_operation", None)
-            core_subject = semantic_result.get("core_subject", None)
-            subject_modifier = semantic_result.get("subject_modifier", None)
-            action_modifier = semantic_result.get("action_modifier", None)
-            miss_cache_info = semantic_result.get("miss_cache_info")
-            embeddings = semantic_result.get("embeddings")
+                # Extract intent and other metadata if intent classification has been called already
+                intent = semantic_result.get("intent", None)
+                time_sensitivity = semantic_result.get("time_sensitivity", 0.0)
+                core_operation = semantic_result.get("core_operation", None)
+                core_subject = semantic_result.get("core_subject", None)
+                subject_modifier = semantic_result.get("subject_modifier", None)
+                action_modifier = semantic_result.get("action_modifier", None)
+                miss_cache_info = semantic_result.get("miss_cache_info")
+                embeddings = semantic_result.get("embeddings")
 
             # 4. Stream from provider with guarded accumulator
             accumulator = StreamAccumulator(
@@ -2416,23 +2710,32 @@ class LlmRouterService:
                     response.cache_info = cache_info
                     breakdown["cache_write_ms"] = 0.0
 
-                    # Offload cache persistence to background task so client latency is unaffected
-                    self._create_background_task(
-                        self._background_save_cache(
-                            request=request,
-                            response=response.model_copy(deep=True),
-                            exact_hash=exact_hash,
-                            service_name=actual_service,
-                            model=actual_model,
-                            intent=intent,
-                            time_sensitivity=time_sensitivity,
-                            core_operation=core_operation,
-                            core_subject=core_subject,
-                            subject_modifier=subject_modifier,
-                            action_modifier=action_modifier,
-                            embeddings=embeddings,
+                    if shadow_mode:
+                        # The shadow evaluator performs the cache write itself,
+                        # after recording what the lookup would have returned.
+                        logger.info(
+                            "CACHE_MODE=shadow: deferring cache write for %s to "
+                            "the shadow evaluator",
+                            exact_hash,
                         )
-                    )
+                    else:
+                        # Offload cache persistence to background task so client latency is unaffected
+                        self._create_background_task(
+                            self._background_save_cache(
+                                request=request,
+                                response=response.model_copy(deep=True),
+                                exact_hash=exact_hash,
+                                service_name=actual_service,
+                                model=actual_model,
+                                intent=intent,
+                                time_sensitivity=time_sensitivity,
+                                core_operation=core_operation,
+                                core_subject=core_subject,
+                                subject_modifier=subject_modifier,
+                                action_modifier=action_modifier,
+                                embeddings=embeddings,
+                            )
+                        )
             elif response and is_mock_response(response):
                 logger.warning(
                     f"Mock response generated for {exact_hash}. Skipping cache writes."
@@ -2486,7 +2789,7 @@ class LlmRouterService:
                         model=actual_model,
                     )
                 )
-                self._create_background_task(
+                gateway_log_task = self._create_background_task(
                     self._log_gateway_request(
                         request=request,
                         response=response,
@@ -2497,6 +2800,17 @@ class LlmRouterService:
                         latency_breakdown=breakdown,
                     )
                 )
+                if shadow_mode and self._should_run_shadow_evaluation(response):
+                    self._create_background_task(
+                        self._background_shadow_evaluate(
+                            request=request,
+                            response=response.model_copy(deep=True),
+                            exact_hash=exact_hash,
+                            service_name=actual_service,
+                            model=actual_model,
+                            gateway_log_task=gateway_log_task,
+                        )
+                    )
             elif provider_exception is not None:
                 status_code = (
                     provider_exception.status_code
