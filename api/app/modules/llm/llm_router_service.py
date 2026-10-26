@@ -27,9 +27,12 @@ from app.core.constants import (
     EMBEDDING_QUERY_PREFIX,
     EMBEDDING_VERSION,
     INTENT_PROMPT_VERSION,
+    JUDGE_PROMPT_VERSION,
     MOCK_RESPONSE_TEXT,
     PROMPT_VERSION,
+    RERANKER_VERSION,
     SCOPE_HIERARCHY,
+    SPARSE_EMBEDDING_VERSION,
 )
 from app.core.degradation import (
     cache_degradation_scope,
@@ -39,6 +42,29 @@ from app.core.degradation import (
 from app.core.error_classification import classify_provider_error
 from app.core.logger import log_latency
 from app.core.retry import execute_with_retry
+from app.core.telemetry import (
+    ECHOGATE_CACHE_HIT,
+    ECHOGATE_CONVERSATION_ID,
+    ECHOGATE_DEGRADATION_STATE,
+    ECHOGATE_EXACT_HASH,
+    ECHOGATE_SESSION_ID,
+    ECHOGATE_TENANT_ID,
+    ECHOGATE_USER_ID,
+    GEN_AI_REQUEST_MAX_TOKENS,
+    GEN_AI_REQUEST_MODEL,
+    GEN_AI_REQUEST_TEMPERATURE,
+    GEN_AI_REQUEST_TOP_P,
+    GEN_AI_SYSTEM,
+    GEN_AI_USAGE_COMPLETION_TOKENS,
+    GEN_AI_USAGE_PROMPT_TOKENS,
+    GEN_AI_USAGE_TOTAL_TOKENS,
+    SPAN_CACHE_QDRANT_EXACT,
+    SPAN_CACHE_REDIS,
+    SPAN_GENERATE_COMPLETION,
+    SPAN_GENERATE_STREAM,
+    SPAN_PROVIDER_CALL,
+    trace_span,
+)
 from app.modules.chat.chat_schema import (
     ChatCompletionChunk,
     ChatCompletionRequest,
@@ -195,38 +221,60 @@ class LlmRouterService:
         fallback = config.USE_FALLBACK_LLM
 
         async def attempt_call(svc: str, req: ChatCompletionRequest):
-            llm_req = req.model_copy(deep=True)
-            for key in ["session_id", "conversation_id"]:
-                if hasattr(llm_req, key):
-                    delattr(llm_req, key)
+            span_attrs = {
+                GEN_AI_SYSTEM: svc,
+                GEN_AI_REQUEST_MODEL: req.model,
+                GEN_AI_REQUEST_TEMPERATURE: req.temperature,
+                GEN_AI_REQUEST_MAX_TOKENS: req.max_tokens,
+            }
+            with trace_span(SPAN_PROVIDER_CALL, span_attrs) as span:
+                llm_req = req.model_copy(deep=True)
+                for key in ["session_id", "conversation_id"]:
+                    if hasattr(llm_req, key):
+                        delattr(llm_req, key)
 
-            if svc in ["gemini", "google-genai"]:
-                return await self.llm_provider_service.generate_gemini_completion(
-                    llm_req
-                )
-            elif svc == "openai":
-                return await self.llm_provider_service.generate_openai_completion(
-                    llm_req
-                )
-            elif svc == "groq":
-                return await self.llm_provider_service.generate_groq_completion(llm_req)
-            elif svc == "openrouter":
-                return await self.llm_provider_service.generate_openrouter_completion(
-                    llm_req
-                )
-            elif svc == "ollama":
-                return await self.llm_provider_service.generate_ollama_completion(
-                    llm_req
-                )
-            elif svc in ["claude", "anthropic"]:
-                return await self.llm_provider_service.generate_claude_completion(
-                    llm_req
-                )
-            else:
-                logger.error(f"Unsupported LLM service: {svc}")
-                raise HTTPException(
-                    status_code=400, detail=f"Unsupported LLM service: {svc}"
-                )
+                if svc in ["gemini", "google-genai"]:
+                    res = await self.llm_provider_service.generate_gemini_completion(
+                        llm_req
+                    )
+                elif svc == "openai":
+                    res = await self.llm_provider_service.generate_openai_completion(
+                        llm_req
+                    )
+                elif svc == "groq":
+                    res = await self.llm_provider_service.generate_groq_completion(
+                        llm_req
+                    )
+                elif svc == "openrouter":
+                    res = (
+                        await self.llm_provider_service.generate_openrouter_completion(
+                            llm_req
+                        )
+                    )
+                elif svc == "ollama":
+                    res = await self.llm_provider_service.generate_ollama_completion(
+                        llm_req
+                    )
+                elif svc in ["claude", "anthropic"]:
+                    res = await self.llm_provider_service.generate_claude_completion(
+                        llm_req
+                    )
+                else:
+                    logger.error(f"Unsupported LLM service: {svc}")
+                    raise HTTPException(
+                        status_code=400, detail=f"Unsupported LLM service: {svc}"
+                    )
+                if span.is_recording() and hasattr(res, "usage") and res.usage:
+                    span.set_attribute(
+                        GEN_AI_USAGE_PROMPT_TOKENS, res.usage.prompt_tokens
+                    )
+                    span.set_attribute(
+                        GEN_AI_USAGE_COMPLETION_TOKENS, res.usage.completion_tokens
+                    )
+                    span.set_attribute(
+                        GEN_AI_USAGE_TOTAL_TOKENS, res.usage.total_tokens
+                    )
+                return res
 
         t_budget_start = time.monotonic()
         t_primary_start = time.perf_counter()
@@ -688,6 +736,7 @@ class LlmRouterService:
             messages_list.append(msg_dict)
 
         key_dict = {
+            "cache_key_version": CACHE_KEY_VERSION,
             "service_name": request.service_name,
             "model": request.model,
             "temperature": request.temperature,
@@ -815,10 +864,10 @@ class LlmRouterService:
         embedding_model_name = (
             self.embedding_service.model_name if self.embedding_service else "unknown"
         )
-        # Set embedding version; this can be updated based on changes to embedding model versioning strategy
+        # Pipeline component versions (config-driven)
         embedding_version = EMBEDDING_VERSION
-        # Set cache key version; this can be updated based on changes to cache key generation strategy
         cache_key_version = CACHE_KEY_VERSION
+        prompt_version = PROMPT_VERSION
         now = int(time.time())
 
         semantic_start = time.perf_counter()
@@ -888,7 +937,7 @@ class LlmRouterService:
 
             must_conditions = [
                 models.FieldCondition(
-                    key="prompt_version", match=models.MatchValue(value="1.0")
+                    key="prompt_version", match=models.MatchValue(value=prompt_version)
                 ),
                 models.FieldCondition(
                     key="model", match=models.MatchValue(value=request.model)
@@ -1454,6 +1503,9 @@ class LlmRouterService:
             metadata = {
                 "prompt_version": PROMPT_VERSION,
                 "intent_prompt_version": INTENT_PROMPT_VERSION,
+                "sparse_embedding_version": SPARSE_EMBEDDING_VERSION,
+                "reranker_version": RERANKER_VERSION,
+                "judge_prompt_version": JUDGE_PROMPT_VERSION,
                 "temperature": request.temperature,
                 "subject_modifier": subject_modifier,
                 "action_modifier": action_modifier,
@@ -1518,55 +1570,62 @@ class LlmRouterService:
     async def _get_redis_exact_match(
         self, exact_hash: str, service_name: str, force: bool = False
     ) -> ChatCompletionResponse | None:
-        use_redis_exact_matching = config.cache_layer_enabled("redis")
-        if use_redis_exact_matching is False and not force:
-            logger.info("Redis exact matching and semantic matching is disabled")
-            return None
-
-        if not self.redis_service:
-            return None
-
-        cached_data = await self.redis_service.get(exact_hash)
-        if cached_data:
-            try:
-                data = json.loads(cached_data)
-            except Exception:
-                logger.error(f"Failed to parse cached JSON from Redis for {exact_hash}")
+        with trace_span(SPAN_CACHE_REDIS, {ECHOGATE_EXACT_HASH: exact_hash}) as span:
+            use_redis_exact_matching = config.cache_layer_enabled("redis")
+            if use_redis_exact_matching is False and not force:
+                logger.info("Redis exact matching and semantic matching is disabled")
                 return None
 
-            point_id = None
-            if (
-                isinstance(data, dict)
-                and "response" in data
-                and isinstance(data["response"], dict)
-            ):
-                response = ChatCompletionResponse(**data["response"])
-                point_id = data.get("point_id")
-            elif isinstance(data, dict):
-                response = ChatCompletionResponse(**data)
-                point_id = data.get("point_id")
-            else:
+            if not self.redis_service:
                 return None
 
-            if is_mock_response(response):
-                logger.warning(
-                    f"Found cached mock response in Redis for {exact_hash}. Purging and ignoring."
+            cached_data = await self.redis_service.get(exact_hash)
+            if cached_data:
+                try:
+                    data = json.loads(cached_data)
+                except Exception:
+                    logger.error(
+                        f"Failed to parse cached JSON from Redis for {exact_hash}"
+                    )
+                    return None
+
+                point_id = None
+                if (
+                    isinstance(data, dict)
+                    and "response" in data
+                    and isinstance(data["response"], dict)
+                ):
+                    response = ChatCompletionResponse(**data["response"])
+                    point_id = data.get("point_id")
+                elif isinstance(data, dict):
+                    response = ChatCompletionResponse(**data)
+                    point_id = data.get("point_id")
+                else:
+                    return None
+
+                if is_mock_response(response):
+                    logger.warning(
+                        f"Found cached mock response in Redis for {exact_hash}. Purging and ignoring."
+                    )
+                    await self.redis_service.delete(exact_hash)
+                    return None
+
+                logger.info(
+                    f"Serving response from Redis Cache for {exact_hash} using {service_name} (point_id: {point_id})"
                 )
-                await self.redis_service.delete(exact_hash)
-                return None
-
-            logger.info(
-                f"Serving response from Redis Cache for {exact_hash} using {service_name} (point_id: {point_id})"
-            )
-            response.cache_info = {
-                "matched": True,
-                "score": 0.0,
-                "source": "redis",
-                "cache_hit": True,
-                "point_id": point_id,
-            }
-            return response
-        return None
+                response.cache_info = {
+                    "matched": True,
+                    "score": 0.0,
+                    "source": "redis",
+                    "cache_hit": True,
+                    "point_id": point_id,
+                }
+                if span.is_recording():
+                    span.set_attribute(ECHOGATE_CACHE_HIT, True)
+                return response
+            if span.is_recording():
+                span.set_attribute(ECHOGATE_CACHE_HIT, False)
+            return None
 
     async def _get_qdrant_exact_match(
         self,
@@ -1575,49 +1634,58 @@ class LlmRouterService:
         prompt_text: str,
         force: bool = False,
     ) -> tuple[ChatCompletionResponse | None, str | None, int | None]:
-        use_qdrant_exact_matching = config.cache_layer_enabled("qdrant_exact")
-        if use_qdrant_exact_matching is False and not force:
-            logger.info("Qdrant exact matching is disabled, skipping exact search")
-            return None, None, None
+        with trace_span(
+            SPAN_CACHE_QDRANT_EXACT, {ECHOGATE_EXACT_HASH: exact_hash}
+        ) as span:
+            use_qdrant_exact_matching = config.cache_layer_enabled("qdrant_exact")
+            if use_qdrant_exact_matching is False and not force:
+                logger.info("Qdrant exact matching is disabled, skipping exact search")
+                return None, None, None
 
-        if not self.llm_cache_service:
-            logger.info("Qdrant cache service is not available, skipping exact search")
-            return None, None, None
-
-        cached_payload, point_id = await asyncio.to_thread(
-            self.llm_cache_service.search_exact,
-            exact_hash=exact_hash,
-            tenant_id=tenant_id,
-        )
-        if cached_payload and "response" in cached_payload:
-            response = ChatCompletionResponse(**cached_payload["response"])
-            if is_mock_response(response):
-                logger.warning(
-                    f"Found cached mock response in Qdrant exact search for {exact_hash}. Ignoring."
+            if not self.llm_cache_service:
+                logger.info(
+                    "Qdrant cache service is not available, skipping exact search"
                 )
                 return None, None, None
 
-            logger.info(
-                f"Serving response from Qdrant exact search query for {exact_hash}"
+            cached_payload, point_id = await asyncio.to_thread(
+                self.llm_cache_service.search_exact,
+                exact_hash=exact_hash,
+                tenant_id=tenant_id,
             )
-            intent = cached_payload.get("intent", IntentEnum.EMPTY.value)
-            response.cache_info = {
-                "matched": True,
-                "score": 1.0,
-                "rerank_score": 0.0,
-                "source": "qdrant_exact_path",
-                "cache_hit": True,
-                "point_id": point_id,
-                "intent": intent,
-                "query": prompt_text,
-                "accepted": True,
-            }
-            expires_at = cached_payload.get("expires_at")
-            remaining_ttl = (
-                max(0, expires_at - int(time.time())) if expires_at else None
-            )
-            return response, point_id, remaining_ttl
-        return None, None, None
+            if cached_payload and "response" in cached_payload:
+                response = ChatCompletionResponse(**cached_payload["response"])
+                if is_mock_response(response):
+                    logger.warning(
+                        f"Found cached mock response in Qdrant exact search for {exact_hash}. Ignoring."
+                    )
+                    return None, None, None
+
+                logger.info(
+                    f"Serving response from Qdrant exact search query for {exact_hash}"
+                )
+                intent = cached_payload.get("intent", IntentEnum.EMPTY.value)
+                response.cache_info = {
+                    "matched": True,
+                    "score": 1.0,
+                    "rerank_score": 0.0,
+                    "source": "qdrant_exact_path",
+                    "cache_hit": True,
+                    "point_id": point_id,
+                    "intent": intent,
+                    "query": prompt_text,
+                    "accepted": True,
+                }
+                expires_at = cached_payload.get("expires_at")
+                remaining_ttl = (
+                    max(0, expires_at - int(time.time())) if expires_at else None
+                )
+                if span.is_recording():
+                    span.set_attribute(ECHOGATE_CACHE_HIT, True)
+                return response, point_id, remaining_ttl
+            if span.is_recording():
+                span.set_attribute(ECHOGATE_CACHE_HIT, False)
+            return None, None, None
 
     async def _save_to_redis_cache(
         self,
@@ -2204,16 +2272,44 @@ class LlmRouterService:
         read anywhere below (Redis, Qdrant exact, semantic search) is reported on
         the response instead of only in the logs.
         """
-        with cache_degradation_scope():
-            response = await self._generate_completion_impl(
-                request, api_key, timeout_budget_ms
-            )
-            served_from_cache = bool((response.cache_info or {}).get("matched"))
-            response._degradation_state = resolve_degradation_state(
-                getattr(response, "_degradation_state", None),
-                served_from_cache=served_from_cache,
-            )
-            return response
+        service_name = request.service_name or config.DEFAULT_LLM_SERVICE
+        span_attrs = {
+            GEN_AI_SYSTEM: service_name,
+            GEN_AI_REQUEST_MODEL: request.model,
+            GEN_AI_REQUEST_TEMPERATURE: request.temperature,
+            GEN_AI_REQUEST_TOP_P: request.top_p,
+            GEN_AI_REQUEST_MAX_TOKENS: request.max_tokens,
+            ECHOGATE_TENANT_ID: request.tenant_id,
+            ECHOGATE_USER_ID: request.user_id,
+            ECHOGATE_SESSION_ID: request.session_id,
+            ECHOGATE_CONVERSATION_ID: request.conversation_id,
+        }
+        with trace_span(SPAN_GENERATE_COMPLETION, span_attrs) as span:
+            with cache_degradation_scope():
+                response = await self._generate_completion_impl(
+                    request, api_key, timeout_budget_ms
+                )
+                served_from_cache = bool((response.cache_info or {}).get("matched"))
+                degradation = resolve_degradation_state(
+                    getattr(response, "_degradation_state", None),
+                    served_from_cache=served_from_cache,
+                )
+                response._degradation_state = degradation
+                if span.is_recording():
+                    span.set_attribute(ECHOGATE_CACHE_HIT, served_from_cache)
+                    span.set_attribute(ECHOGATE_DEGRADATION_STATE, degradation)
+                    if response.usage:
+                        span.set_attribute(
+                            GEN_AI_USAGE_PROMPT_TOKENS, response.usage.prompt_tokens
+                        )
+                        span.set_attribute(
+                            GEN_AI_USAGE_COMPLETION_TOKENS,
+                            response.usage.completion_tokens,
+                        )
+                        span.set_attribute(
+                            GEN_AI_USAGE_TOTAL_TOKENS, response.usage.total_tokens
+                        )
+                return response
 
     async def _generate_completion_impl(
         self,
@@ -2524,20 +2620,30 @@ class LlmRouterService:
         streamed answer served by a fallback provider or after a failed cache read
         no longer reports ``none``.
         """
-        with cache_degradation_scope():
-            first = True
-            async for chunk in self._generate_stream_impl(
-                request, api_key, timeout_budget_ms
-            ):
-                if first:
-                    first = False
-                    provider_state = getattr(chunk, "_degradation_state", None)
-                    chunk._degradation_state = resolve_degradation_state(
-                        provider_state,
-                        # Untagged first chunks come from the cache paths.
-                        served_from_cache=provider_state is None,
-                    )
-                yield chunk
+        service_name = request.service_name or config.DEFAULT_LLM_SERVICE
+        span_attrs = {
+            GEN_AI_SYSTEM: service_name,
+            GEN_AI_REQUEST_MODEL: request.model,
+            ECHOGATE_TENANT_ID: request.tenant_id,
+            ECHOGATE_USER_ID: request.user_id,
+            ECHOGATE_SESSION_ID: request.session_id,
+            ECHOGATE_CONVERSATION_ID: request.conversation_id,
+        }
+        with trace_span(SPAN_GENERATE_STREAM, span_attrs):
+            with cache_degradation_scope():
+                first = True
+                async for chunk in self._generate_stream_impl(
+                    request, api_key, timeout_budget_ms
+                ):
+                    if first:
+                        first = False
+                        provider_state = getattr(chunk, "_degradation_state", None)
+                        chunk._degradation_state = resolve_degradation_state(
+                            provider_state,
+                            # Untagged first chunks come from the cache paths.
+                            served_from_cache=provider_state is None,
+                        )
+                    yield chunk
 
     async def _generate_stream_impl(
         self,

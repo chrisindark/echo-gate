@@ -188,6 +188,15 @@ Default `INTENT_TTL_SECONDS`: `weather` 300 · `product_info` 3600 ·
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `EMBEDDING_MODEL_NAME` | `all-MiniLM-L6-v2` | Dense embedding model (384-dim). |
+| `EMBEDDING_VERSION` | `v1` | Version tag for dense embeddings in Qdrant; bump to partition vector space when switching embedding models without dropped indices. |
+| `SPARSE_EMBEDDING_VERSION` | `v1` | Version tag for sparse BM25 embeddings in Qdrant; bump when BM25 tokenizer or corpus changes. |
+| `CACHE_KEY_VERSION` | `v1` | Version tag for Redis and Qdrant cache keys; bump to invalidate or segregate cache entries globally. |
+| `PROMPT_VERSION` | `v1` | Prompt structure version tag stored in cache payloads and checked in exact/semantic lookups. |
+| `INTENT_PROMPT_VERSION` | `v1` | Intent classification prompt version tag; bump to invalidate cached classifications. |
+| `INTENT_CLASSIFIER_VERSION` | `v1` | Intent classifier model/rubric version tag. |
+| `CORE_QUERY_EXTRACTOR_VERSION` | `v1` | Core query extractor prompt and model version tag. |
+| `RERANKER_VERSION` | `v1` | Reranker scoring logic and model version tag. |
+| `JUDGE_PROMPT_VERSION` | `v1` | Equivalence judge prompt template version tag for verifier and shadow cache. |
 | `RERANKER_MODEL_NAME` | `BAAI/bge-reranker-base` | Declared reranker model name. |
 | `RERANKER_SCORING_MODE` | `multiplicative` | How reranker signals combine: `multiplicative` (bounded factors multiplied into the cross-encoder score) or `additive` (symmetric bounded deltas). |
 | `CROSS_ENCODER_RELEVANCE_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Relevance cross-encoder. |
@@ -223,6 +232,14 @@ Default `INTENT_TTL_SECONDS`: `weather` 300 · `product_info` 3600 ·
 | `LLM_JUDGE_MODEL` | `gemini-3.5-flash-lite` |
 | `LLM_JUDGE_TEMPERATURE` | `0.0` |
 | `LLM_JUDGE_MAX_TOKENS` | `200` |
+
+## Observability & Telemetry
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `OTEL_ENABLED` | `true` | Enable OpenTelemetry tracing instrumentation. When no exporter is configured, acts as zero-overhead NoOp. |
+| `OTEL_SERVICE_NAME` | `echo-gate` | Service name attached to emitted traces and spans. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `""` | Target OTLP HTTP/gRPC collector (e.g., Langfuse `/api/public/otel`, Datadog, or Jaeger). |
 
 ## Not read by anything
 

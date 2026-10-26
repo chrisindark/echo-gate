@@ -75,6 +75,18 @@ class QdrantPayload(BaseModel):
     embedding_version: str | None = Field(
         None, description="The version of the model used for embeddings"
     )
+    sparse_embedding_version: str | None = Field(
+        None, description="The version of the sparse embedding model/tokenizer"
+    )
+    prompt_version: str | None = Field(
+        None, description="The version of the prompt structure"
+    )
+    intent_prompt_version: str | None = Field(
+        None, description="The version of the intent prompt rubric"
+    )
+    reranker_version: str | None = Field(
+        None, description="The version of the reranker scoring model"
+    )
     cacheable: bool = Field(
         False, description="Value to denote if the result is to be cached"
     )

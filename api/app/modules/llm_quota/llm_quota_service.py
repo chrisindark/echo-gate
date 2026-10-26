@@ -8,6 +8,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+from app.core.constants import EchoGateHeaders
 from app.core.database import SessionFactory, SessionLocal
 from app.modules.llm_quota.llm_quota_model import LlmQuotaRule
 from app.modules.redis.redis_service import RedisService
@@ -36,12 +37,12 @@ class QuotaStatus:
 
     def to_headers(self) -> dict[str, str]:
         return {
-            "X-RateLimit-Limit-Requests": str(self.limit_requests),
-            "X-RateLimit-Remaining-Requests": str(self.remaining_requests),
-            "X-RateLimit-Reset-Requests": str(self.reset_requests_seconds),
-            "X-RateLimit-Limit-Tokens": str(self.limit_tokens),
-            "X-RateLimit-Remaining-Tokens": str(self.remaining_tokens),
-            "X-RateLimit-Reset-Tokens": str(self.reset_tokens_seconds),
+            EchoGateHeaders.RATE_LIMIT_LIMIT_REQUESTS: str(self.limit_requests),
+            EchoGateHeaders.RATE_LIMIT_REMAINING_REQUESTS: str(self.remaining_requests),
+            EchoGateHeaders.RATE_LIMIT_RESET_REQUESTS: str(self.reset_requests_seconds),
+            EchoGateHeaders.RATE_LIMIT_LIMIT_TOKENS: str(self.limit_tokens),
+            EchoGateHeaders.RATE_LIMIT_REMAINING_TOKENS: str(self.remaining_tokens),
+            EchoGateHeaders.RATE_LIMIT_RESET_TOKENS: str(self.reset_tokens_seconds),
         }
 
     def retry_after(self, *, tokens: bool = False) -> int:

@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 
 from app.core.config import config
+from app.core.constants import EchoGateHeaders
 from app.core.dependencies import DependencyContainer
 from app.core.logger import setup_logger
 from app.core.middlewares import (
@@ -87,8 +88,8 @@ app = FastAPI(
     ],
 )
 
-API_KEY_HEADER = {"type": "apiKey", "in": "header", "name": "X-API-Key"}
-ADMIN_KEY_HEADER = {"type": "apiKey", "in": "header", "name": "X-Admin-Key"}
+API_KEY_HEADER = {"type": "apiKey", "in": "header", "name": EchoGateHeaders.API_KEY}
+ADMIN_KEY_HEADER = {"type": "apiKey", "in": "header", "name": EchoGateHeaders.ADMIN_KEY}
 
 app.add_middleware(CorrelationIdMiddleware)
 app.add_middleware(UserMiddleware)
@@ -99,19 +100,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=[
-        "X-Cache",
-        "X-Correlation-ID",
-        "X-Request-ID",
-        "X-Gateway-Degradation",
-        "X-RateLimit-Limit-Requests",
-        "X-RateLimit-Remaining-Requests",
-        "X-RateLimit-Reset-Requests",
-        "X-RateLimit-Limit-Tokens",
-        "X-RateLimit-Remaining-Tokens",
-        "X-RateLimit-Reset-Tokens",
-        "Retry-After",
-    ],
+    expose_headers=list(EchoGateHeaders.EXPOSED_CORS_HEADERS),
 )
 
 

@@ -39,6 +39,10 @@ class Config:
         self.PROJECT_NAME = os.getenv("PROJECT_NAME", "")
         self.VERSION = os.getenv("VERSION", "0.1.0")
 
+        # Telemetry & Observability
+        self.OTEL_ENABLED = os.getenv("OTEL_ENABLED", "true").lower() == "true"
+        self.OTEL_SERVICE_NAME = os.getenv("OTEL_SERVICE_NAME", "echo-gate")
+
         # Urls
         self.OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
         self.REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
@@ -290,10 +294,21 @@ class Config:
         else:
             self.INTENT_TTL_SECONDS = default_intent_ttls
 
-        # Model Configuration
+        # Model Configuration & Pipeline Versioning
         self.EMBEDDING_MODEL_NAME = os.getenv(
             "EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2"
         )
+        self.EMBEDDING_VERSION = os.getenv("EMBEDDING_VERSION", "v1")
+        self.SPARSE_EMBEDDING_VERSION = os.getenv("SPARSE_EMBEDDING_VERSION", "v1")
+        self.CACHE_KEY_VERSION = os.getenv("CACHE_KEY_VERSION", "v1")
+        self.PROMPT_VERSION = os.getenv("PROMPT_VERSION", "v1")
+        self.INTENT_PROMPT_VERSION = os.getenv("INTENT_PROMPT_VERSION", "v1")
+        self.INTENT_CLASSIFIER_VERSION = os.getenv("INTENT_CLASSIFIER_VERSION", "v1")
+        self.CORE_QUERY_EXTRACTOR_VERSION = os.getenv(
+            "CORE_QUERY_EXTRACTOR_VERSION", "v1"
+        )
+        self.RERANKER_VERSION = os.getenv("RERANKER_VERSION", "v1")
+        self.JUDGE_PROMPT_VERSION = os.getenv("JUDGE_PROMPT_VERSION", "v1")
         self.RERANKER_MODEL_NAME = os.getenv(
             "RERANKER_MODEL_NAME", "BAAI/bge-reranker-base"
         )

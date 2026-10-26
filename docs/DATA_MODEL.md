@@ -293,6 +293,6 @@ Celery Beat (`delete_expired_vectors`). Exact and semantic reads also filter on
 
 ### Constants (`app/core/constants.py`)
 
-`EMBEDDING_VERSION="v1"`, `CACHE_KEY_VERSION="v1"`, `PROMPT_VERSION="1.0"`,
-`INTENT_PROMPT_VERSION="1.0"`, `CALLER_SERVICE_NAME="echo-gate-api"`,
+`EMBEDDING_VERSION="v1"`, `SPARSE_EMBEDDING_VERSION="v1"`, `CACHE_KEY_VERSION="v1"`,
+`PROMPT_VERSION="v1"`, `INTENT_PROMPT_VERSION="v1"`, `CALLER_SERVICE_NAME="echo-gate-api"`,
 `CACHE_NEGATIVE_TTL_OFFSET=-1000`, and the mock-response sentinel text.
