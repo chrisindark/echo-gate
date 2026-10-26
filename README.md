@@ -42,6 +42,7 @@ Echo Gate accepts OpenAI-compatible `chat/completions` requests and routes them 
   - **Reciprocal Rank Fusion (RRF)**: Merges dense and sparse vector queries over system and user prompt segments.
   - **Fast-Path Dense Bypass**: Bypasses expensive reranking and intent pipelines when dense cosine similarity exceeds the high-confidence threshold (`QDRANT_DENSE_SEARCH_HIGH_THRESHOLD`, default `0.98`).
   - **Asynchronous Background Persistence**: Responses are returned to the client immediately on cache misses; cache vectorization and database insertion run out-of-band via background tasks.
+  - **Shadow Cache Pipeline (`CACHE_MODE=shadow`)**: Serve every request from the provider while replaying the full cache pipeline in the background — recording would-be hits, match types, judge equivalence, and projected latency savings, and warming the cache corpus before you flip to `active`.
   - **Toggleable Infrastructure**: Ability to independently disable Redis or Qdrant search layers via environment configuration.
 
 ### 3. Semantic Verification & Request Intelligence
@@ -87,7 +88,7 @@ Echo Gate accepts OpenAI-compatible `chat/completions` requests and routes them 
   - **Chat Playground (`/`)**: Interactive chat interface with real-time streaming, cache hit indicators, provider and model selectors, and configuration toggles.
   - **Traces Dashboard (`/traces`)**: Real-time table of all gateway traffic with routing decisions, cache statuses, and latencies.
   - **Trace Detail View (`/traces/[id]`)**: Interactive waterfall visualization displaying the exact lifecycle latency of each pipeline stage, extracted intent metadata, and judge scores.
-  - **Analytics Dashboard (`/analytics`)**: Visual summaries of KPIs, cache hit rates, cost and latency saved, model breakdowns, and time-series trends.
+  - **Analytics Dashboard (`/analytics`)**: Visual summaries of KPIs, cache hit rates, cost and latency saved, model breakdowns, and time-series trends, plus a cache-readiness indicator backed by shadow-mode telemetry.
   - **Quota Management (`/quota`)**: Scoped admin interface for Tokens-Per-Minute (TPM) and budget rules.
 
 | Chat Playground | Traces & Latency Waterfall |
@@ -236,14 +237,17 @@ QDRANT_URL=http://localhost:6333
 OLLAMA_URL=http://localhost:11434
 
 # Caching Configuration
+CACHE_MODE=active
 USE_REDIS_EXACT_MATCHING=true
 USE_QDRANT_EXACT_MATCHING=true
 USE_QDRANT_SEMANTIC_MATCHING=true
 DEFAULT_LLM_SERVICE=ollama
 ```
 
-> The `USE_*_MATCHING` flags default to `"false"`, so caching is off until you set
-> them to the literal string `true`. `DEFAULT_LLM_SERVICE` otherwise defaults to
+> `CACHE_MODE` defaults to `disabled`; set it to `shadow` to observe the cache
+> pipeline without serving from it, or `active` to serve from it. When it is
+> unset, the `USE_*_MATCHING` flags decide (`active` if any is `"true"`), and
+> those flags default to `"false"`. `DEFAULT_LLM_SERVICE` otherwise defaults to
 > `google-genai`. See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for the full
 > list, including the semantic-search thresholds and model settings.
 
@@ -384,6 +388,9 @@ curl -X POST "http://localhost:8000/api/v1/chat/completions/semantic-search" \
 - **Analytics Dashboard** (KPIs + cache performance + model breakdown + latency):
   `GET /api/v1/analytics/dashboard`
 - **Latency Metrics Detail**: `GET /api/v1/analytics/latency`
+- **Shadow Cache Readiness** (would-be hit rate, equivalence, projected savings):
+  `GET /api/v1/shadow-cache/summary`
+- **Shadow Evaluations Drill-Down**: `GET /api/v1/shadow-cache/evaluations`
 
 ### 5. Other Endpoints
 

@@ -160,6 +160,40 @@ any tenant context exists, so the row must be readable regardless of the active
 tenant. Access control is by key possession and is enforced in
 `app/core/guards.py`.
 
+#### `shadow_cache_evaluations`
+
+What the cache *would* have done for a request that a provider answered
+(`CACHE_MODE=shadow`). One row per shadow evaluation, written by a background
+task after the client already has its response. See
+[ARCHITECTURE.md](ARCHITECTURE.md#shadow-cache-mode).
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | int PK | |
+| `created_at` | timestamptz | Indexed; the aggregation window column. |
+| `request_id` | int NULL FK → `gateway_requests.id` | `ON DELETE SET NULL`. Nullable because the trace row is written by a sibling task; join on `exact_hash` when absent. |
+| `exact_hash` | varchar(64) NULL | Derived cache key for the request. |
+| `tenant_id` / `user_id` | varchar(100) NULL | Identity at evaluation time; drives the RLS policy. |
+| `model` / `provider` | varchar(100) NULL | Routed target. |
+| `would_have_hit` | bool | Whether any cache layer would have answered. |
+| `match_type` | varchar(50) | `REDIS_EXACT`, `QDRANT_EXACT`, `QDRANT_FAST`, `QDRANT_SEMANTIC`, or `MISS`. |
+| `point_id` | varchar(36) NULL | Matched Qdrant point, when applicable. |
+| `match_score` / `rerank_score` | numeric(6,5) NULL | Confidence-gate inputs. |
+| `score_breakdown` | json NULL | Reranker factor decomposition, same shape as the trace row's. |
+| `cached_response_text` / `actual_response_text` | text NULL | The two answers compared by the judge. |
+| `is_equivalent` | bool NULL | Judge verdict; NULL when no match occurred or the comparison was skipped/failed. |
+| `intent` | varchar(100) NULL | Classified intent. |
+| `entities` | json NULL | Extracted entities. |
+| `latency_breakdown` | json NULL | Per-stage shadow pipeline timings. |
+| `provider_latency_ms` / `cache_lookup_latency_ms` | int NULL | The two sides of the projected saving. |
+| `projected_latency_saved_ms` | int NULL | `provider - lookup`; only set on would-be hits. |
+
+Indexes: `created_at`, `request_id`, `exact_hash`, `tenant_id`, `user_id`,
+`model`, `would_have_hit`, `match_type`, `point_id`, `is_equivalent`, `intent`.
+Surfaced read-only through `/api/v1/shadow-cache` (see
+[API_REFERENCE.md](API_REFERENCE.md#shadow-cache--apiv1shadow-cache)), which the
+analytics dashboard uses for its cache-readiness indicator.
+
 ### Indexes
 
 Each table indexes its scope and filter columns (`tenant_id`, `user_id`,
@@ -178,6 +212,7 @@ RLS is then enabled per table. Every policy begins with
 | Table | Policy shape |
 | --- | --- |
 | `gateway_requests`, `llm_usage_logs` | **Tenant:** visible when `tenant_id = current_setting('app.current_tenant')`. |
+| `shadow_cache_evaluations` | **Tenant:** same shape as `gateway_requests`; shadow rows inherit the request's tenant context from the background task. |
 | `llm_quota_rules` | **Quota:** visible when `tenant_id IS NULL` **or** matches the current tenant. |
 | `conversations`, `messages` | **User:** visible when tenant matches and `app.current_user = ''` **or** `user_id` matches. |
 | `api_keys`, `admin_api_keys` | **No RLS** by design; key resolution happens before a tenant context exists. |

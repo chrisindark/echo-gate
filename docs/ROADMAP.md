@@ -272,6 +272,8 @@ serve responses. Designed for initial production adoption: deploy with
 `CACHE_MODE=shadow`, let real traffic build the cache and accumulate matching
 telemetry, validate the numbers, then flip to `active` and restart.
 
+**Status: ✅ 100% complete as of 2026-10-26**
+
 In `shadow` mode:
 
 1. Every request goes straight to the LLM provider (zero cache latency
@@ -301,32 +303,43 @@ When the numbers show the cache is trustworthy → `CACHE_MODE=active` →
 restart → done. The `shadow_cache_evaluations` data also seeds Phase 2's
 conformal threshold calibration.
 
-- [ ] **`CACHE_MODE` config**: add `CACHE_MODE` (`disabled` / `shadow` /
+- [x] **`CACHE_MODE` config**: add `CACHE_MODE` (`disabled` / `shadow` /
   `active`, default `disabled`) to `app/core/config.py`. `disabled` is the
   current default behavior (no cache). `active` is the current `true`
   behavior of the three `USE_*` flags. `shadow` is the new mode. In `active`
   mode the three granular `USE_*` flags still control which layers are on; in
   `shadow` mode all layers run in the background regardless.
-- [ ] **Shadow evaluation background task**: after provider response, enqueue
+- [x] **Shadow evaluation background task**: after provider response, enqueue
   a Celery task (or `_create_background_task`) that runs the full cache
   lookup pipeline and logs the result. Must not block the client response.
-- [ ] **`shadow_cache_evaluations` table + migration**: Postgres table with
+- [x] **`shadow_cache_evaluations` table + migration**: Postgres table with
   `request_id` (FK → `gateway_requests`), `tenant_id`, `model`,
   `would_have_hit` (bool), `match_type` (varchar), `match_score` (numeric),
   `rerank_score` (numeric), `score_breakdown` (json),
   `cached_response_text`, `actual_response_text`, `is_equivalent` (bool,
   nullable — populated when judge runs), `intent`, `entities`,
   `latency_breakdown` (json), `created_at`. RLS-scoped by tenant.
-- [ ] **Shadow cache writes**: in shadow mode, always write embeddings +
+- [x] **Shadow cache writes**: in shadow mode, always write embeddings +
   response to Qdrant and Redis after the provider call, building the cache
   corpus passively.
-- [ ] **Shadow analytics dashboard**: add shadow hit rate, equivalence rate,
+- [x] **Shadow analytics dashboard**: add shadow hit rate, equivalence rate,
   and projected latency savings to the analytics dashboard and `web/`. Show a
   "cache readiness" indicator that summarizes whether the metrics support
   switching to `active` mode.
-- [ ] **Config & docs**: document `CACHE_MODE` in `docs/CONFIGURATION.md`.
+- [x] **Config & docs**: document `CACHE_MODE` in `docs/CONFIGURATION.md`.
   Note that `shadow` supersedes the three `USE_*` flags (which remain for
   granular control in `active` mode).
+
+Implementation notes: the resolution rule is explicit `CACHE_MODE` → legacy
+`USE_*` derivation, so pre-existing deployments keep behaving the same. Serving
+gates go through `Config.cache_layer_enabled(layer)` and are bypassed only by the
+shadow evaluator (`force=True`). Readiness is served by
+`GET /api/v1/shadow-cache/summary` (with `GET /api/v1/shadow-cache/evaluations`
+for drill-down) rather than being folded into the analytics dashboard response,
+keeping the dashboard contract unchanged. Cost is bounded by
+`SHADOW_SAMPLE_RATE`, `SHADOW_JUDGE_ENABLED`, and the three
+`SHADOW_READINESS_*` floors.
+
 
 ---
 

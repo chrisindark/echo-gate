@@ -6,7 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, s
 from app.core.dependencies import get_gateway_requests_service
 from app.core.guards import api_key_auth_guard
 from app.core.responses import BaseAPIResponse
-from app.modules.analytics.analytics_service import TIME_RANGE_MAP
+from app.core.time_ranges import TIME_RANGE_MAP
 from app.modules.gateway_requests.gateway_requests_schema import (
     GatewayRequestLogCreate,
     GatewayRequestLogResponse,

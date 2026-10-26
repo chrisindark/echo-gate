@@ -18,6 +18,7 @@ from app.modules.qdrant.llm_cache_collection_service import LlmCacheCollectionSe
 from app.modules.qdrant.qdrant_client_service import QdrantClientService
 from app.modules.redis.redis_service import RedisService
 from app.modules.reranking.reranker_service import RerankerService
+from app.modules.shadow_cache.shadow_cache_service import ShadowCacheService
 from app.modules.verifier.cross_encoder_service import CrossEncoderService
 from app.modules.verifier.instruction_service import InstructionVerifier
 from app.modules.verifier.judge_service import JudgeService
@@ -40,6 +41,7 @@ class DependencyContainer:
     _judge_service: JudgeService | None = None
     _instruction_service: InstructionVerifier | None = None
     _gateway_requests_service: GatewayRequestsService | None = None
+    _shadow_cache_service: ShadowCacheService | None = None
 
     @classmethod
     async def initialize(cls) -> None:
@@ -59,6 +61,7 @@ class DependencyContainer:
         cls.get_instruction_service()
         cls.get_judge_service()
         cls.get_gateway_requests_service()
+        cls.get_shadow_cache_service()
 
     @classmethod
     async def shutdown(cls) -> None:
@@ -89,6 +92,7 @@ class DependencyContainer:
             cls._judge_service = None
             cls._instruction_service = None
             cls._gateway_requests_service = None
+            cls._shadow_cache_service = None
 
     @classmethod
     def get_embedding_service(cls) -> EmbeddingService:
@@ -168,6 +172,8 @@ class DependencyContainer:
                 llm_usage_service=cls.get_llm_usage_service(),
                 llm_quota_service=cls.get_llm_quota_service(),
                 gateway_requests_service=cls.get_gateway_requests_service(),
+                shadow_cache_service=cls.get_shadow_cache_service(),
+                judge_service=cls.get_judge_service(),
             )
         return cls._llm_router_service
 
@@ -231,6 +237,14 @@ class DependencyContainer:
             )
         return cls._gateway_requests_service
 
+    @classmethod
+    def get_shadow_cache_service(cls) -> ShadowCacheService:
+        if cls._shadow_cache_service is None:
+            cls._shadow_cache_service = ShadowCacheService(
+                session_factory=SessionLocal, session_factory_read=SessionLocalRead
+            )
+        return cls._shadow_cache_service
+
 
 # FastAPI Depends compatible functions
 def get_embedding_service() -> EmbeddingService:
@@ -287,6 +301,10 @@ def get_cross_encoder_service() -> CrossEncoderService:
 
 def get_gateway_requests_service() -> GatewayRequestsService:
     return DependencyContainer.get_gateway_requests_service()
+
+
+def get_shadow_cache_service() -> ShadowCacheService:
+    return DependencyContainer.get_shadow_cache_service()
 
 
 def get_judge_service() -> JudgeService:

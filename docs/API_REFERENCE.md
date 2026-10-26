@@ -350,6 +350,81 @@ Aggregated dashboard data. Query: `time_range`, `start_time`, `end_time`,
 
 ---
 
+## Shadow cache — `/api/v1/shadow-cache`
+
+Read-only views over `shadow_cache_evaluations`
+([DATA_MODEL.md](DATA_MODEL.md#shadow_cache_evaluations)). Rows exist only when
+the gateway runs `CACHE_MODE=shadow`
+([CONFIGURATION.md](CONFIGURATION.md#shadow-pipeline-tuning)). Both endpoints
+require `X-API-Key` and are tenant-scoped by RLS.
+
+### `GET /api/v1/shadow-cache/summary`
+
+Readiness view for a window. Query: `time_range` (`1h` … `30d`, default `7d`
+when no bounds are given), `start_time`, `end_time`, `tenant_id`.
+
+```json
+{
+  "cache_mode": "shadow",
+  "start_time": "2026-10-19T00:00:00Z",
+  "end_time": "2026-10-26T00:00:00Z",
+  "time_range": "7d",
+  "total_evaluations": 0,
+  "would_have_hits": 0,
+  "hit_rate": 0.0,
+  "match_type_breakdown": [{ "match_type": "MISS", "count": 0 }],
+  "compared_evaluations": 0,
+  "equivalent_evaluations": 0,
+  "non_equivalent_evaluations": 0,
+  "equivalence_rate": null,
+  "avg_latency_saved_ms": null,
+  "projected_latency_saved_ms": null,
+  "avg_cache_lookup_ms": null,
+  "avg_provider_ms": null,
+  "by_intent": [{ "intent": "code_generation", "evaluations": 0, "would_have_hits": 0, "hit_rate": 0.0 }],
+  "by_model": [{ "model": "...", "provider": "...", "evaluations": 0, "would_have_hits": 0, "hit_rate": 0.0 }],
+  "readiness": {
+    "status": "NOT_READY",
+    "reasons": [],
+    "min_evaluations": 200,
+    "min_hit_rate": 0.05,
+    "min_equivalence_rate": 0.98
+  }
+}
+```
+
+`hit_rate` / `equivalence_rate` / `readiness` thresholds are fractions (`0–1`);
+`equivalence_rate` is `null` until at least one would-be hit has been compared.
+`readiness.status` is `READY`, `WARMING_UP` (not enough data yet), or
+`NOT_READY`, with one human-readable string per unmet floor in `reasons`.
+`projected_latency_saved_ms` is the summed provider time that cache hits would
+have avoided; `avg_latency_saved_ms` is the per-hit average.
+
+### `GET /api/v1/shadow-cache/evaluations`
+
+Paginated evaluations, newest first.
+
+| Query | Default | Notes |
+| --- | --- | --- |
+| `skip` | `0` | Offset. |
+| `limit` | `100` | 1–500. |
+| `tenant_id` | unset | Optional filter. |
+| `would_have_hit` | unset | `true`/`false`. |
+| `match_type` | unset | `REDIS_EXACT`, `QDRANT_EXACT`, `QDRANT_FAST`, `QDRANT_SEMANTIC`, `MISS`. |
+| `is_equivalent` | unset | Judge verdict filter. |
+| `model`, `intent` | unset | Exact-match filters. |
+| `start_time`, `end_time` | unset | Window; unset means no time bound. |
+
+Response: `{ "items": [...], "total": 0, "skip": 0, "limit": 100 }`, where each
+item is a `ShadowCacheEvaluationResponse` (`id`, `created_at`, `request_id`,
+`exact_hash`, `tenant_id`, `user_id`, `model`, `provider`, `would_have_hit`,
+`match_type`, `point_id`, `match_score`, `rerank_score`, `score_breakdown`,
+`cached_response_text`, `actual_response_text`, `is_equivalent`, `intent`,
+`entities`, `latency_breakdown`, `provider_latency_ms`,
+`cache_lookup_latency_ms`, `projected_latency_saved_ms`).
+
+---
+
 ## LLM usage — `/api/v1/llm-usage`
 
 | Method | Path | Description |

@@ -30,6 +30,9 @@ from app.modules.health import health_router, root_health_router
 from app.modules.llm_quota.llm_quota_controller import api_v1_router as llm_quota_router
 from app.modules.llm_usage.llm_usage_controller import api_v1_router as llm_usage_router
 from app.modules.qdrant.qdrant_controller import api_v1_router as qdrant_router
+from app.modules.shadow_cache.shadow_cache_controller import (
+    api_v1_router as shadow_cache_router,
+)
 from app.modules.verifier.verifier_controller import api_v1_router as verifier_router
 
 # Initialize the custom colored logger with correlation ID
@@ -134,6 +137,7 @@ app.include_router(llm_usage_router)
 app.include_router(verifier_router)
 app.include_router(gateway_requests_router)
 app.include_router(analytics_router)
+app.include_router(shadow_cache_router)
 app.include_router(api_keys_router)
 app.include_router(llm_quota_router)
 

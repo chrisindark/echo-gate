@@ -104,12 +104,55 @@ fallback entirely.
 
 ## Cache layers
 
+`CACHE_MODE` selects how the cache pipeline is allowed to affect serving.
+
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `CACHE_MODE` | derived (see below) | `disabled`, `shadow`, or `active`. Only `active` lets the cache answer requests. |
 | `USE_REDIS_EXACT_MATCHING` | `false` | Enable the Redis exact cache (layer 1). |
 | `REDIS_TTL` | `3600` | Default Redis TTL (seconds). |
 | `USE_QDRANT_EXACT_MATCHING` | `false` | Enable the Qdrant exact cache (layer 2). |
 | `USE_QDRANT_SEMANTIC_MATCHING` | `false` | Enable the semantic cache (layer 3). |
+
+`CACHE_MODE` values:
+
+| Mode | Behaviour |
+| --- | --- |
+| `disabled` | No cache reads and no cache writes. Requests always hit the provider. |
+| `shadow` | Requests always hit the provider; a background task replays the whole pipeline, logs what *would* have happened to `shadow_cache_evaluations`, and still writes embeddings + responses to Redis/Qdrant to warm the corpus. |
+| `active` | Normal serving path: Redis exact → Qdrant exact → semantic, per the `USE_*` flags, with background cache writes. |
+
+Resolution rules (`app/core/config.py`):
+
+1. An explicit `CACHE_MODE` (case-insensitive) wins.
+2. An unrecognized value logs a warning and falls through to rule 3.
+3. When unset, the value is derived from the legacy `USE_*` flags: `active` if
+   any of `USE_REDIS_EXACT_MATCHING`, `USE_QDRANT_EXACT_MATCHING`, or
+   `USE_QDRANT_SEMANTIC_MATCHING` is `"true"`, otherwise `disabled`. This keeps
+   deployments created before `CACHE_MODE` existed working unchanged.
+
+All three serving-path gates go through `Config.cache_layer_enabled(layer)`,
+which returns `False` unless `CACHE_MODE == "active"`. Background and shadow
+callers bypass those gates explicitly (`force=True`) so `shadow` mode can
+exercise every layer while `disabled`/`shadow` never serve a cached answer.
+
+In `active` mode the three `USE_*` flags still choose which layers are enabled.
+In `shadow` mode every layer runs in the background regardless of the flags, so
+`shadow` supersedes them for observation; leave the flags unset until you flip to
+`active`.
+
+### Shadow pipeline tuning
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SHADOW_SAMPLE_RATE` | `1.0` | Fraction (0–1) of provider responses replayed through the shadow pipeline. Lower it to cap judge/embedding cost on high-volume deployments. |
+| `SHADOW_JUDGE_ENABLED` | `true` | Run the LLM equivalence judge when a shadow match is found; the judge is what populates `is_equivalent`. |
+| `SHADOW_READINESS_MIN_EVALUATIONS` | `200` | Evaluations required before `/api/v1/shadow-cache/summary` can report `READY`. |
+| `SHADOW_READINESS_MIN_HIT_RATE` | `0.05` | Would-be hit rate floor for `READY`. |
+| `SHADOW_READINESS_MIN_EQUIVALENCE_RATE` | `0.98` | Judge-equivalence floor for `READY`. |
+
+`SHADOW_*` settings are read even when the mode is not `shadow`; they only take
+effect while shadow evaluation runs.
 
 ## Semantic search tuning
 

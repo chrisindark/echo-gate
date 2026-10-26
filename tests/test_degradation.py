@@ -182,6 +182,7 @@ class TestRouterDegradationStates(unittest.IsolatedAsyncioTestCase):
                 "USE_REDIS_EXACT_MATCHING",
                 "USE_QDRANT_EXACT_MATCHING",
                 "USE_QDRANT_SEMANTIC_MATCHING",
+                "CACHE_MODE",
                 "FALLBACK_LLM_SERVICE",
                 "CIRCUIT_BREAKER_FAILURE_THRESHOLD",
                 "LLM_MAX_RETRIES",
@@ -189,6 +190,9 @@ class TestRouterDegradationStates(unittest.IsolatedAsyncioTestCase):
         }
         config.USE_FALLBACK_LLM = "false"
         config.LLM_MAX_RETRIES = 0
+        # Cache reads only run in `active` mode; pin it so these tests do not
+        # depend on whether the local .env file enables caching.
+        config.CACHE_MODE = "active"
         config.USE_QDRANT_EXACT_MATCHING = "false"
         config.USE_QDRANT_SEMANTIC_MATCHING = "false"
         config.USE_REDIS_EXACT_MATCHING = "false"
