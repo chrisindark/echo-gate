@@ -297,6 +297,28 @@ only.
   warns on an embedding-dimension or model-id mismatch, since a silent model swap
   corrupts the vector space rather than raising an error.
 
+### Image and process cost
+
+Measured on the same Dockerfile (arm64, `docker image inspect`):
+
+| Build | Image (docker-reported) |
+| --- | ---: |
+| Gateway, engine-backed (image default) | **0.71GB** |
+| Gateway with `--build-arg INSTALL_LOCAL_MODELS=true` | 9.4GB |
+| Single-stage predecessor (poetry + wheel cache in the image) | 1.04GB |
+
+The `local-models` extra adds ~5.2GB of installed content, dominated by `nvidia`
+CUDA libraries (3.3GB), `torch` (0.9GB) and `triton` (0.8GB) — GPU support these
+CPU-sized models never use on the request path.
+
+Of the 0.71GB floor, `onnxruntime` (59MB, for BM25) and numpy (70MB) are the
+largest single items; the rest is grpcio, psycopg, cryptography, SQLAlchemy, and the
+Celery/OpenTelemetry clients. Bytecode is deliberately kept (0.61GB without it):
+pip compiles it at install time, `PYTHONDONTWRITEBYTECODE=1` stops the
+interpreter writing more, and it halves cold import (2.4s → 1.17s). Going below
+~0.7GB means moving BM25 off `onnxruntime`, which is a separate trade (tokenizer
+fidelity against existing Qdrant vectors).
+
 Sparse BM25 is deliberately excluded from the shared contract: `fastembed`'s
 sparse vectors are tokenizer-coupled to the points already in Qdrant, so serving
 them remotely would risk breaking hybrid search to save ~1ms.

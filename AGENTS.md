@@ -130,6 +130,10 @@ Routing decisions: `REDIS_EXACT`, `QDRANT_EXACT`, `QDRANT_FAST`, `QDRANT_SEMANTI
 ## Verify
 
 - Unit tests: `poetry run pytest` (suite in `tests/`, configured in `pyproject.toml`)
+- In-process models are an optional extra (`poetry install --extras local-models`);
+  without it, model roles come from `INFERENCE_BASE_URL`. Do not move
+  `sentence-transformers` back into the main dependencies — it pulls ~5GB of
+  CUDA libraries into every image (0.71GB image becomes 9.4GB).
 - Backend syntax/import check: `poetry run python -m compileall api/app`
 - Infra for local runs: `docker compose -f deploy/compose/docker-compose.yml up -d qdrant redis postgres`
 - Run the API: `poetry run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload`

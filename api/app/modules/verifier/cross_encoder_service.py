@@ -56,7 +56,15 @@ class CrossEncoderService:
 
         # torch is imported only on the in-process path so that a deployment
         # running against the inference platform never pays its import cost.
-        from sentence_transformers import CrossEncoder
+        try:
+            from sentence_transformers import CrossEncoder
+        except ImportError as exc:  # pragma: no cover - deployment shape
+            raise RuntimeError(
+                "Cross-encoder roles are configured in-process but "
+                "sentence-transformers is not installed. Set INFERENCE_BASE_URL to "
+                "serve them from the inference platform, or install the local-models "
+                "extra: poetry install --extras local-models"
+            ) from exc
 
         # Initialize the reranker model for semantic cache matching
         if config.USE_RERANKER_MODEL:

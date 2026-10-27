@@ -43,6 +43,12 @@ services:
     ports:
       - "8000:8000"
     environment:
+      # Dense embeddings, reranking, relevance and NLI come from the shared
+      # inference platform, which is its own compose project so it can scale and
+      # deploy independently:
+      #   docker compose -f inference-platform/deploy/compose/inference.yml up -d
+      # Override with the engine's service name when both share a network.
+      - INFERENCE_BASE_URL=${INFERENCE_BASE_URL:-http://host.docker.internal:7997}
       - QDRANT_URL=http://qdrant:6333
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1
@@ -63,6 +69,12 @@ services:
     build:
       context: ../..
     environment:
+      # Dense embeddings, reranking, relevance and NLI come from the shared
+      # inference platform, which is its own compose project so it can scale and
+      # deploy independently:
+      #   docker compose -f inference-platform/deploy/compose/inference.yml up -d
+      # Override with the engine's service name when both share a network.
+      - INFERENCE_BASE_URL=${INFERENCE_BASE_URL:-http://host.docker.internal:7997}
       - QDRANT_URL=http://qdrant:6333
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1

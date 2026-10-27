@@ -415,23 +415,23 @@ comparison and no data-driven threshold calibration. Remaining work:
 
 *Detailed execution tracker, architecture specs, and multi-project integration plans live in [`docs/PHASE_3_EXECUTION_PLAN.md`](./PHASE_3_EXECUTION_PLAN.md).*
 
-> **Status (2026-10-27):** the model-serving split is in place. A separate
+> **Status (2026-10-27):** model serving is split. A separate
 > `inference-platform/` dependency root serves dense embeddings, reranking,
 > relevance, and NLI over HTTP; the gateway consumes it via `INFERENCE_BASE_URL`
-> with role routing, fail-open semantics, and no torch import when enabled
-> (parity with the in-process models is float-exact). Remaining for this item:
-> remove `sentence-transformers` / `transformers` / `torch` from
-> `pyproject.toml` and take the image to the <300MB target — now unblocked,
-> since both service classes import them lazily.
+> with role routing, fail-open semantics, and no torch import. `torch`,
+> `transformers`, and `sentence-transformers` are now an optional
+> `local-models` extra, and the gateway image is **0.71GB** (measured; the same
+> Dockerfile with the extra is 9.4GB). The original `<300MB` estimate was wrong:
+> `onnxruntime` + BM25 put the floor near 0.7GB.
 
-- [ ] **High-performance model serving**: strip `sentence-transformers`,
-  `transformers`, and `torch` from the core gateway container (image from
-  ~5GB+ toward <300MB, faster startup, horizontal autoscaling); offload
-  embeddings and cross-encoder reranking to a dedicated inference server
-  (TEI or Infinity) with GPU/dynamic batching; refactor `CrossEncoderService`
-  into an async HTTP client (`httpx.AsyncClient`) calling the inference
-  server (note `RerankerService` imports it, so both consumers must move off
-  the in-process model).
+- [x] **High-performance model serving**: embeddings, reranking, relevance, and
+  NLI are served by `inference-platform/` over HTTP; `CrossEncoderService` and
+  `EmbeddingService` are HTTP clients with fail-open semantics, and
+  `sentence-transformers`/`transformers`/`torch` moved to an optional
+  `local-models` extra. Image: 0.71GB engine-backed (9.4GB with the extra baked
+  in — CUDA libraries dominate). Multi-stage build keeps poetry and its wheel
+  cache out of the runtime image. Implementations: `dev/native_server.py`
+  for laptops, Infinity for GPU hosts.
 - [ ] **Cost-aware cache retention (vCache-style)**: record generation metrics
   (latency seconds, token usage, model tier) in cache-entry metadata; weight
   retention to protect expensive responses (slow reasoning models, complex

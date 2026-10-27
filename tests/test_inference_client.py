@@ -392,6 +392,42 @@ class _EmbeddingServiceTest(unittest.TestCase):
         )
         self.assertEqual(client.embed_calls, [["hi"]])
 
+    def test_bm25_artifact_cache_is_explicit_and_env_overridable(self):
+        """The ONNX artifact must not land in the library's temp default.
+
+        fastembed keeps two caches: `cache_folder` (Hugging Face) and `cache_dir`
+        (the extracted model). Passing only the former puts the model in a temp
+        directory that is empty on every container start, which is exactly how a
+        baked image ended up unable to load BM25 offline.
+        """
+        from app.core.config import config
+
+        builder = MagicMock()
+        with patch("fastembed.SparseTextEmbedding", builder):
+            from app.modules.embedding.embedding_service import EmbeddingService
+
+            EmbeddingService(use_ollama=False, inference_client=_FakeInferenceClient())
+        kwargs = builder.call_args.kwargs
+        self.assertTrue(
+            kwargs["cache_dir"].endswith("/fastembed"),
+            f"cache_dir must be explicit, got {kwargs['cache_dir']!r}",
+        )
+
+        with patch.dict("os.environ", {"FASTEMBED_CACHE_PATH": "/somewhere/bm25"}):
+            with patch("fastembed.SparseTextEmbedding", builder):
+                EmbeddingService(
+                    use_ollama=False, inference_client=_FakeInferenceClient()
+                )
+        self.assertEqual(builder.call_args.kwargs["cache_dir"], "/somewhere/bm25")
+
+        with patch.dict("os.environ", {"BM25_LOCAL_FILES_ONLY": "true"}):
+            with patch("fastembed.SparseTextEmbedding", builder):
+                EmbeddingService(
+                    use_ollama=False, inference_client=_FakeInferenceClient()
+                )
+        self.assertTrue(builder.call_args.kwargs["local_files_only"])
+        self.assertTrue(config is not None)
+
     def test_sparse_stays_local(self):
         service = self._service(_FakeInferenceClient())
         service.sparse_model.embed.return_value = []

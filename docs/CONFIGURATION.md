@@ -245,7 +245,21 @@ Default `INTENT_TTL_SECONDS`: `weather` 300 · `product_info` 3600 ·
 | `USE_RELEVANCE_MODEL` | `true` | Load the relevance model. |
 | `USE_NLI_MODEL` | `true` | Load the NLI model. |
 | `HF_HOME` | `./.model_cache` | Hugging Face cache dir (read directly in services). |
-| `BM25_MODEL_PATH` | `""` | Optional local BM25 model path (read directly). |
+| `BM25_MODEL_PATH` | `""` | Pins the extracted BM25 model directory. When set, fastembed loads from it and skips its cache logic entirely — this is how the container makes the model deterministic. |
+| `FASTEMBED_CACHE_PATH` | `<HF_HOME>/fastembed` | fastembed's own cache dir for the BM25 artifact (read directly in services). Distinct from `HF_HOME`: fastembed downloads two things into two caches, and only `cache_dir` holds the model it actually reads. |
+| `BM25_LOCAL_FILES_ONLY` | `false` | When `true`, never download BM25 at runtime (read directly in services; the container sets this, since the model is baked in). |
+
+In-process dense/cross-encoder models are an optional install:
+
+```bash
+poetry install --extras local-models   # torch, transformers, sentence-transformers
+```
+
+Without it, the gateway serves those roles from the inference platform
+(`INFERENCE_BASE_URL`) and raises an explicit error if it is asked to do
+otherwise. The published image does not include the extra: it takes the image
+from 0.71GB to 9.4GB, and ~5.2GB of that is CUDA libraries (`nvidia` 3.3GB,
+`torch` 0.9GB, `triton` 0.8GB) that these CPU-sized models never use.
 
 ### Intent classifier
 

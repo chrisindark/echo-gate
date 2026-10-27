@@ -73,7 +73,13 @@ class _CrossEncoderAdapter:
     """
 
     def __init__(self, model_name: str, cache_folder: str) -> None:
-        from sentence_transformers import CrossEncoder
+        try:
+            from sentence_transformers import CrossEncoder
+        except ImportError as exc:  # pragma: no cover - deployment shape
+            raise SystemExit(
+                "This script needs the in-process cross-encoder. Install the "
+                "local-models extra: poetry install --extras local-models"
+            ) from exc
 
         self._model = CrossEncoder(
             model_name, local_files_only=True, cache_folder=cache_folder

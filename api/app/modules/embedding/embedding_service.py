@@ -42,6 +42,21 @@ class EmbeddingService:
         self.ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434")
         self.hf_home = os.getenv("HF_HOME", "./.model_cache")
         self.bm25_model_path = os.getenv("BM25_MODEL_PATH", "")
+        # fastembed downloads two different things and keeps them in two
+        # different caches: `cache_folder` is the Hugging Face hub cache, while
+        # the ONNX artifact lives in `cache_dir`. Passing only the former leaves
+        # the artifact in the library default (a temp directory), which is empty
+        # on every container start -- so the model has to be baked into an
+        # explicit, image-stable path.
+        self.bm25_cache_dir = os.getenv("FASTEMBED_CACHE_PATH") or os.path.join(
+            self.hf_home, "fastembed"
+        )
+        # Allow the first run to fetch the model when the cache is cold, unless a
+        # deployment pins it (the container sets BM25_LOCAL_FILES_ONLY=true, since
+        # the model is baked in and must never be downloaded at runtime).
+        self.bm25_local_files_only = (
+            os.getenv("BM25_LOCAL_FILES_ONLY", "false").lower() == "true"
+        )
 
         self.inference: InferenceClient | None = None
         if inference_client is not None:
@@ -54,9 +69,15 @@ class EmbeddingService:
 
         self.sparse_model = SparseTextEmbedding(
             model_name="Qdrant/bm25",
-            local_files_only=True,
+            cache_dir=self.bm25_cache_dir,
+            local_files_only=self.bm25_local_files_only,
             specific_model_path=self.bm25_model_path,
             cache_folder=self.hf_home,
+        )
+        logger.info(
+            "Sparse BM25 ready (cache_dir=%s, local_files_only=%s)",
+            self.bm25_cache_dir,
+            self.bm25_local_files_only,
         )
 
         self.model = None
@@ -75,7 +96,15 @@ class EmbeddingService:
             logger.info(f"Model loaded. Dimension: {self.embedding_dimension}")
         else:
             logger.info(f"Loading local embedding model: {self.model_name}")
-            from sentence_transformers import SentenceTransformer
+            try:
+                from sentence_transformers import SentenceTransformer
+            except ImportError as exc:  # pragma: no cover - deployment shape
+                raise RuntimeError(
+                    "Dense embeddings are configured in-process but "
+                    "sentence-transformers is not installed. Set INFERENCE_BASE_URL "
+                    "to serve them from the inference platform, or install the "
+                    "local-models extra: poetry install --extras local-models"
+                ) from exc
 
             self.model = SentenceTransformer(
                 self.model_name, local_files_only=True, cache_folder=self.hf_home
