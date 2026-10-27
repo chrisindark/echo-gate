@@ -80,7 +80,9 @@ class Role:
             self.dim = None
 
         self.device = device
-        logger.info("role %s ready: %s (%s, %s)", name, self.model_id, self.kind, device)
+        logger.info(
+            "role %s ready: %s (%s, %s)", name, self.model_id, self.kind, device
+        )
 
     def encode(self, texts: list[str], batch_size: int) -> np.ndarray:
         with self._lock:
@@ -116,33 +118,53 @@ class Registry:
         self.failed: dict[str, str] = {}
         self.spec: dict[str, Any] = {}
 
-    def require(self, model_id: str | None, default_role: str) -> Role:
-        role = self._resolve(model_id, default_role)
-        if role is None:
+    def require(
+        self, model_id: str | None, default_role: str, role_name: str | None = None
+    ) -> Role:
+        """Resolve a request to a loaded role.
+
+        Precedence: explicit ``model`` -> explicit ``role`` -> the endpoint's
+        default role. Accepting a role is what stops distinct roles from
+        collapsing: without it an unpinned ``/rerank`` call is always served by
+        the default reranker, so a consumer asking for the relevance model would
+        silently get the primary one.
+        """
+        if model_id is not None:
+            for role in self.roles.values():
+                if role.model_id == model_id:
+                    return role
+            # An explicit but unknown model is a caller bug, not a load failure.
             raise HTTPException(
-                status_code=503,
+                status_code=400,
                 detail={
-                    "error": "model_not_loaded",
+                    "error": "unknown_model",
                     "model": model_id,
-                    "loaded": sorted(self.roles),
-                    "unloaded": sorted(self.failed),
+                    "available": sorted(r.model_id for r in self.roles.values()),
                 },
             )
-        return role
 
-    def _resolve(self, model_id: str | None, default_role: str) -> Role | None:
-        if model_id is None:
-            return self.roles.get(default_role)
-        for role in self.roles.values():
-            if role.model_id == model_id:
-                return role
-        # An explicit but unknown model is a caller bug, not a load failure.
+        target = role_name or default_role
+        role = self.roles.get(target)
+        if role is not None:
+            return role
+
+        declared = self.spec.get("roles") or {}
+        if target not in declared:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "unknown_role",
+                    "role": target,
+                    "declared": sorted(declared),
+                },
+            )
         raise HTTPException(
-            status_code=400,
+            status_code=503,
             detail={
-                "error": "unknown_model",
-                "model": model_id,
-                "available": sorted(r.model_id for r in self.roles.values()),
+                "error": "model_not_loaded",
+                "role": target,
+                "loaded": sorted(self.roles),
+                "unloaded": sorted(self.failed),
             },
         )
 
@@ -196,8 +218,12 @@ def load_roles() -> None:
 async def lifespan(_app: FastAPI):
     await asyncio.to_thread(load_roles)
     ready = sorted(registry.roles)
-    logger.info("inference ready on %s; roles=%s failed=%s",
-                resolve_device(), ready, sorted(registry.failed))
+    logger.info(
+        "inference ready on %s; roles=%s failed=%s",
+        resolve_device(),
+        ready,
+        sorted(registry.failed),
+    )
     yield
 
 
@@ -211,6 +237,7 @@ app = FastAPI(title="inference-platform", version=CONTRACT_VERSION, lifespan=lif
 
 class EmbeddingsRequest(BaseModel):
     model: str | None = None
+    role: str | None = None
     input: str | list[str]
     dimensions: int | None = None
     batch_size: int = Field(default=32, ge=1, le=256)
@@ -218,6 +245,7 @@ class EmbeddingsRequest(BaseModel):
 
 class RerankRequest(BaseModel):
     model: str | None = None
+    role: str | None = None
     query: str = Field(min_length=1)
     documents: list[str] = Field(min_length=1, max_length=MAX_DOCUMENTS)
     top_n: int | None = Field(default=None, ge=1)
@@ -227,6 +255,7 @@ class RerankRequest(BaseModel):
 
 class ClassifyRequest(BaseModel):
     model: str | None = None
+    role: str | None = None
     pairs: list[tuple[str, str]] = Field(min_length=1, max_length=MAX_DOCUMENTS)
     batch_size: int = Field(default=32, ge=1, le=256)
 
@@ -272,9 +301,7 @@ async def health() -> Any:
     body = {
         "status": "degraded" if degraded else "ok",
         "version": CONTRACT_VERSION,
-        "roles": {
-            name: role.describe(True) for name, role in registry.roles.items()
-        },
+        "roles": {name: role.describe(True) for name, role in registry.roles.items()},
     }
     if registry.failed:
         body["unloaded"] = registry.failed
@@ -299,7 +326,7 @@ async def models() -> Any:
 
 @app.post("/embeddings")
 async def embeddings(request: EmbeddingsRequest) -> Any:
-    role = registry.require(request.model, "embed")
+    role = registry.require(request.model, "embed", request.role)
     if role.kind != "embedder":
         raise HTTPException(
             status_code=400,
@@ -340,7 +367,7 @@ async def embeddings(request: EmbeddingsRequest) -> Any:
 
 @app.post("/rerank")
 async def rerank(request: RerankRequest) -> Any:
-    role = registry.require(request.model, "rerank")
+    role = registry.require(request.model, "rerank", request.role)
     if role.kind == "embedder":
         raise HTTPException(
             status_code=400,
@@ -376,7 +403,7 @@ async def rerank(request: RerankRequest) -> Any:
 
 @app.post("/classify")
 async def classify(request: ClassifyRequest) -> Any:
-    role = registry.require(request.model, "nli")
+    role = registry.require(request.model, "nli", request.role)
     if not role.labels:
         raise HTTPException(
             status_code=400,

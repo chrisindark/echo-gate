@@ -38,6 +38,12 @@ Qdrant sparse vectors stop matching. Each app keeps its own copy.
 Exactly one listens on the port at a time. Consumers set `INFERENCE_BASE_URL` and
 never learn which one is behind it.
 
+Requests are routed by **role** (`embed`, `rerank`, `relevance`, `nli`) so that
+two roles sharing a route cannot be confused for one another. An explicit
+`model` pin takes precedence and is mandatory when running Infinity, which routes
+by model id only — set `INFERENCE_EMBED_MODEL` and friends in the gateway's
+environment for a production deployment.
+
 **Which to use:**
 
 - **Mac M4 laptop** -> `native_server.py`. No Linux VM, no lost GPU, ~2 GB

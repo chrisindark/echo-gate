@@ -79,6 +79,7 @@ from app.modules.gateway_requests.gateway_requests_schema import (
     RoutingDecision,
 )
 from app.modules.gateway_requests.gateway_requests_service import GatewayRequestsService
+from app.modules.inference.inference_client import InferenceUnavailable
 from app.modules.intent_classifier.entity_extractor_service import (
     EntityExtractorService,
 )
@@ -1352,6 +1353,16 @@ class LlmRouterService:
                         result["miss_cache_info"] = base_cache_info
 
                 return result
+            return result
+        except InferenceUnavailable as exc:
+            # The embedding/model engine is down. That is a cache-layer failure,
+            # not a request failure: fall through to the provider exactly as a
+            # cache miss would, and record a precise degradation reason instead
+            # of reporting it as a Qdrant error.
+            logger.warning(
+                "inference platform unavailable; skipping semantic cache: %s", exc
+            )
+            mark_cache_degraded("inference_unavailable")
             return result
         except Exception:
             logger.exception("Qdrant Database read error")

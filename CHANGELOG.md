@@ -12,6 +12,45 @@ changes' entry with a `[BREAKING]` marker.
 
 ### Added
 
+- **Shared inference platform (`INFERENCE_BASE_URL`)**: dense embeddings,
+  reranking, relevance, and NLI can be served over HTTP by `inference-platform/`
+  instead of being loaded into every gateway process. One contract
+  (`inference-platform/contract/INFERENCE_CONTRACT.md`) with two
+  implementations: a native FastAPI server for laptops, and Infinity for GPU
+  hosts. Requests route by **role** (`embed` / `rerank` / `relevance` / `nli`)
+  so the two distinct cross-encoders cannot be confused for one another.
+  Leaving `INFERENCE_BASE_URL` empty preserves the previous in-process
+  behaviour exactly.
+- **`api/app/modules/inference/`**: `InferenceClient` — connection-pooled
+  `httpx` client with role routing, retries for transient faults, and error
+  classification (`InferenceUnavailable` vs `InferenceUnreachable` vs
+  `InferenceRequestError`).
+- **`inference-platform/`**: models lockfile with Hugging Face revisions,
+  a drift-guard eval set, a latency bench, and a compose file for the Infinity
+  deployment.
+
+### Changed
+
+- **Model calls across the HTTP boundary are fail-open**: an unreachable
+  inference engine now degrades the request to the provider and reports
+  `cache_bypassed` (log reason `inference_unavailable`) instead of raising. A
+  refused connection fails fast in ~1-3ms rather than spending the latency
+  budget on retry backoff.
+- **`CrossEncoderService` and `EmbeddingService` import torch lazily**, so a
+  deployment running against the inference platform never loads it
+  (verified: `torch`, `transformers`, and `sentence_transformers` are absent
+  from `sys.modules`). `JudgeService` now awaits the cross-encoder async
+  variants instead of blocking the event loop.
+- Measured parity with the in-process models is float-exact (max abs diff
+  ~5e-7 for rerank, relevance, and NLI logits; cosine 1.0 for embeddings).
+
+### Fixed
+
+- **Relevance scoring could silently use the reranker model** when the
+  inference request named no model: both roles share `/rerank`, so the engine
+  fell back to its default. Role routing fixes this and a regression test
+  covers it.
+
 - **Shadow cache pipeline (`CACHE_MODE`)**: new `disabled | shadow | active`
   mode. `shadow` answers every request from the provider and replays the full
   cache pipeline out of band — Redis exact → Qdrant exact → dense fast path →

@@ -17,8 +17,18 @@ the probes. No authentication: the service is expected on a private network only
    without a second migration.
 3. **NLI returns labeled probabilities.** Consumers index by `labels`, never by
    position.
-4. **Model selection is explicit.** Every request carries `model`; the server
-   rejects a model it was not started with rather than silently substituting.
+4. **Requests are routed by role.** Every request carries exactly one of
+   `role` or `model`. `role` selects one of the roles in `models.lock.yaml`
+   (`embed`, `rerank`, `relevance`, `nli`); `model` names a served model id
+   explicitly and wins over `role`. The server rejects an unknown role or model
+   rather than substituting one.
+
+   This rule exists because two roles share the `/rerank` route: without it an
+   unpinned rerank call is served by the engine's default reranker, so a
+   consumer that wanted the relevance model silently gets the primary one.
+   Engines that route by model id only (Infinity) require consumers to pin
+   `model`; the role form is the native backend's convenience for callers that
+   do not want to duplicate the lock file.
 5. **Batch in, batch out.** `input`, `documents`, and `pairs` accept arrays and
    the response preserves input order with an `index` field.
 6. **Errors are structured.** `4xx` = caller error, `503` = model not loaded,
@@ -55,11 +65,14 @@ OpenAI-compatible request shape.
 
 ```json
 {
-  "model": "sentence-transformers/all-MiniLM-L6-v2",
+  "role": "embed",
   "input": ["first text", "second text"],
   "dimensions": null
 }
 ```
+
+`model` may replace `role` to pin an explicit id (e.g.
+`sentence-transformers/all-MiniLM-L6-v2`).
 
 ```json
 {
@@ -90,7 +103,7 @@ Cohere-compatible, extended with the raw score.
 
 ```json
 {
-  "model": "BAAI/bge-reranker-base",
+  "role": "rerank",
   "query": "how do I rotate an api key",
   "documents": ["Rotating API keys is done in the console.", "The weather is mild."],
   "top_n": 2,
@@ -111,9 +124,9 @@ Cohere-compatible, extended with the raw score.
 - `results` is sorted by descending `score`.
 - `top_n` truncates after sorting. Omitted means "all documents".
 - `documents` max 256 per request; larger batches get `413`.
-- The `relevance` role uses the same route with a different `model`. It is a
+- The `relevance` role uses the same route with `"role": "relevance"`. It is a
   different model with a different calibration — do not assume score parity
-  between roles.
+  between roles, and always name the role you mean.
 
 ## `POST /classify`
 
@@ -121,7 +134,7 @@ NLI over premise/hypothesis pairs. Echo Gate sends `[user_prompt, cached_answer]
 
 ```json
 {
-  "model": "cross-encoder/nli-deberta-v3-small",
+  "role": "nli",
   "pairs": [
     ["What is the refund window?", "Refunds are accepted within 30 days."]
   ]
@@ -150,7 +163,8 @@ NLI over premise/hypothesis pairs. Echo Gate sends `[user_prompt, cached_answer]
 
 ## Consumer obligations
 
-- Send `model` on every request; never rely on a server-side default.
+- Send `role` or `model` on every request; never rely on a server-side default.
+  The default-role fallback exists for probes only, not for application traffic.
 - Treat `503` (model not loaded) and connection failure identically: degrade to
   the LLM provider path. Semantic caching is never allowed to fail a request.
 - Persist the model id + revision used to produce a vector alongside that vector.

@@ -361,6 +361,37 @@ class Config:
             "CROSS_ENCODER_NLI_MODEL", "cross-encoder/nli-deberta-v3-small"
         )
 
+        # Shared Inference Platform
+        #
+        # When INFERENCE_BASE_URL is set, dense embeddings, reranking and NLI are
+        # served over HTTP by `inference-platform/` instead of being loaded into
+        # this process. Empty (the default) keeps the in-process models, so an
+        # existing deployment is unchanged until it opts in.
+        #
+        # Sparse BM25 is never remote: fastembed's vectors are tokenizer-coupled
+        # to what is already in Qdrant, and it costs ~1ms locally.
+        self.INFERENCE_BASE_URL = os.getenv("INFERENCE_BASE_URL", "").rstrip("/")
+        self.INFERENCE_ENABLED = bool(self.INFERENCE_BASE_URL)
+        self.INFERENCE_TIMEOUT_SECONDS = _bounded_float_env(
+            "INFERENCE_TIMEOUT_SECONDS", 5.0, 0.1, 120.0
+        )
+        self.INFERENCE_MAX_RETRIES = int(
+            _bounded_float_env("INFERENCE_MAX_RETRIES", 1, 0, 5)
+        )
+        # Dimension of the dense vectors the engine serves. Locked into the
+        # Qdrant collection at creation time; a mismatch is a silent cache
+        # corruption, so subclasses verify it against /models at startup.
+        self.INFERENCE_EMBEDDING_DIM = int(
+            _bounded_float_env("INFERENCE_EMBEDDING_DIM", 384, 1, 8192)
+        )
+        # Optional explicit pins. Empty means "use the engine's default role",
+        # which keeps laptop development working without duplicating the lock
+        # file here; production should pin all three.
+        self.INFERENCE_EMBED_MODEL = os.getenv("INFERENCE_EMBED_MODEL", "")
+        self.INFERENCE_RERANK_MODEL = os.getenv("INFERENCE_RERANK_MODEL", "")
+        self.INFERENCE_RELEVANCE_MODEL = os.getenv("INFERENCE_RELEVANCE_MODEL", "")
+        self.INFERENCE_NLI_MODEL = os.getenv("INFERENCE_NLI_MODEL", "")
+
         # Conditional Model Loading for Deployment Separation
         self.USE_RERANKER_MODEL = (
             os.getenv("USE_RERANKER_MODEL", "true").lower() == "true"

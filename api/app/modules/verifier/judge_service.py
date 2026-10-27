@@ -5,7 +5,10 @@ import math
 from app.core.config import config
 from app.modules.chat.chat_schema import ChatCompletionRequest, ChatMessage
 from app.modules.llm.llm_provider_service import LlmProviderService
-from app.modules.verifier.cross_encoder_service import CrossEncoderService
+from app.modules.verifier.cross_encoder_service import (
+    CrossEncoderService,
+    InferenceUnavailable,
+)
 from app.modules.verifier.instruction_service import InstructionVerifier
 
 logger = logging.getLogger(__name__)
@@ -242,9 +245,13 @@ class JudgeService:
             # 1. Relevance Score (1 to 5)
             # Cross-encoder typically returns logits (e.g., -10 to +10).
             # We map this approximately to a 1-5 scale.
-            rel_scores = self.cross_encoder_service.relevance_predict(
-                semantic_query_text, [semantic_response_text]
-            )
+            try:
+                rel_scores = await self.cross_encoder_service.relevance_predict_async(
+                    semantic_query_text, [semantic_response_text]
+                )
+            except InferenceUnavailable as exc:
+                logger.warning("relevance cross-encoder unavailable: %s", exc)
+                rel_scores = []
             logger.debug(f"rel_scores: {rel_scores}")
             rel_score_raw = rel_scores[0] if rel_scores else 0.0
             logger.debug(f"rel_score_raw: {rel_score_raw}")
@@ -253,9 +260,13 @@ class JudgeService:
 
             # 2. Contradiction & Entailment Score from DeBERTa-v3 NLI
             # NLI models output logits for [Contradiction, Entailment, Neutral]
-            nli_scores = self.cross_encoder_service.nli_predict(
-                semantic_query_text, [semantic_response_text]
-            )
+            try:
+                nli_scores = await self.cross_encoder_service.nli_predict_async(
+                    semantic_query_text, [semantic_response_text]
+                )
+            except InferenceUnavailable as exc:
+                logger.warning("NLI cross-encoder unavailable: %s", exc)
+                nli_scores = []
             logger.debug(f"nli_scores: {nli_scores}")
             nli_score_raw = nli_scores[0] if nli_scores else [0.0, 0.0, 0.0]
             logger.debug(f"nli_score_raw: {nli_score_raw}")

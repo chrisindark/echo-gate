@@ -59,6 +59,32 @@ cd ui && npm install && npm run dev   # http://localhost:3000
 
 Interactive API docs: `http://localhost:8000/docs`.
 
+### Shared inference platform (optional)
+
+Dense embeddings, reranking, and NLI can be served by `inference-platform/`
+instead of being loaded in-process. See its
+[README](../inference-platform/README.md); the short version:
+
+```bash
+cd inference-platform
+python3.11 -m venv .venv && source .venv/bin/activate
+pip install -r dev/requirements.txt
+./dev/serve.sh                      # http://localhost:7997, runs on the host
+```
+
+Then set `INFERENCE_BASE_URL=http://localhost:7997` in `api/app/.env.local`
+(`http://host.docker.internal:7997` if the API runs in a container and the engine
+on the host). Leaving it empty keeps the in-process models.
+
+Run it natively rather than in a container on macOS: a Linux container has no
+Metal, so containerizing forfeits the GPU for the small models. `evals/check.py`
+is the drift guard — it fails on a swapped model, an inverted NLI label order, or
+a changed score scale:
+
+```bash
+INFERENCE_BASE_URL=http://localhost:7997 python inference-platform/evals/check.py
+```
+
 ## Tests
 
 ```bash

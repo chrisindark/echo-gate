@@ -413,6 +413,17 @@ comparison and no data-driven threshold calibration. Remaining work:
 
 ### Phase 3 — Performance and cost of serving
 
+*Detailed execution tracker, architecture specs, and multi-project integration plans live in [`docs/PHASE_3_EXECUTION_PLAN.md`](./PHASE_3_EXECUTION_PLAN.md).*
+
+> **Status (2026-10-27):** the model-serving split is in place. A separate
+> `inference-platform/` dependency root serves dense embeddings, reranking,
+> relevance, and NLI over HTTP; the gateway consumes it via `INFERENCE_BASE_URL`
+> with role routing, fail-open semantics, and no torch import when enabled
+> (parity with the in-process models is float-exact). Remaining for this item:
+> remove `sentence-transformers` / `transformers` / `torch` from
+> `pyproject.toml` and take the image to the <300MB target — now unblocked,
+> since both service classes import them lazily.
+
 - [ ] **High-performance model serving**: strip `sentence-transformers`,
   `transformers`, and `torch` from the core gateway container (image from
   ~5GB+ toward <300MB, faster startup, horizontal autoscaling); offload

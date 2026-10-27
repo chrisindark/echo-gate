@@ -55,7 +55,10 @@ provider behavior, or persistence decision is genuinely unspecified.
 
 - `chat/` — public completions API and request/response schema.
 - `llm/` — router service (orchestration), provider adapters, cache confidence.
-- `embedding/` — dense (`sentence-transformers`) and sparse (BM25) embeddings.
+- `embedding/` — dense embeddings (remote via `inference-platform/`, or
+  `sentence-transformers` in-process) and sparse (BM25, always local).
+- `inference/` — HTTP client for the shared inference platform (`/embeddings`,
+  `/rerank`, `/classify`), role routing, and error classification.
 - `redis/`, `qdrant/` — exact + vector cache storage and Qdrant cache collection.
 - `intent_classifier/` — intent LLM classification and regex entity extraction.
 - `reranking/`, `verifier/` — cross-encoder rerank plus judge/NLI evaluation.
@@ -102,6 +105,9 @@ Routing decisions: `REDIS_EXACT`, `QDRANT_EXACT`, `QDRANT_FAST`, `QDRANT_SEMANTI
   `finance_market`) are not cacheable.
 - The app must connect as the non-owner role so Postgres RLS applies; trusted
   background jobs use the system RLS context to cross tenants.
+- Inference-platform calls are fail-open: an unreachable engine degrades to the
+  provider path (`mark_cache_degraded("inference_unavailable")`), never to a 5xx.
+  A refused connection is not retried; timeouts, throttling, and 5xx are.
 - Blocking ML/Qdrant work goes through `asyncio.to_thread`; provider calls are async
   and go through `app/core/retry.py`. Cache writes and logging are background tasks.
 - The public API surface is contract-tested (see Verify); treat changes as additive
