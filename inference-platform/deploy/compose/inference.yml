@@ -1,0 +1,76 @@
+# Production vector-worker pool: the off-the-shelf implementation of
+# contract/INFERENCE_CONTRACT.md.
+#
+# This file is intentionally NOT part of ../echo-gate/deploy/compose/. The engine
+# has a lifecycle of its own (GPU nodes, model pins, independent release) and
+# three consumers, so it must not be rebuilt when the gateway is rebuilt.
+#
+# Laptop (macOS): do not use this. A Linux container has no Metal, and Infinity's
+# batching buys nothing at single-user rates. Run dev/serve.sh on the host.
+#
+#   docker compose -f inference.yml --env-file .env up -d
+#
+# Verify arm64 availability before running this on Apple Silicon — an amd64-only
+# image runs under Rosetta and is 2-3x slower for numeric work:
+#   docker buildx imagetools inspect michaelfeil/infinity:latest
+
+services:
+  inference:
+    image: michaelfeil/infinity:0.0.76
+    restart: unless-stopped
+    ports:
+      # Bind to loopback in single-host deployments. Consumers on the same
+      # docker network should use the service name, not this mapping.
+      - "${INFERENCE_BIND:-127.0.0.1}:7997:7997"
+    command:
+      - infinity_emb
+      - --port
+      - "7997"
+      - --host
+      - "0.0.0.0"
+      # Dense embeddings. The dim here is locked into Qdrant collections on the
+      # consumer side — changing it requires a new collection, not a redeploy.
+      - --model-id
+      - "${EMBED_MODEL:-sentence-transformers/all-MiniLM-L6-v2}"
+      # Primary reranker.
+      - --model-id
+      - "${RERANK_MODEL:-BAAI/bge-reranker-base}"
+      # Relevance cross-encoder (separate role: different model, different
+      # calibration; see models.lock.yaml).
+      - --model-id
+      - "${RELEVANCE_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}"
+      # NLI / contradiction. Label order drives /classify output; keep it in
+      # sync with models.lock.yaml.
+      - --model-id
+      - "${NLI_MODEL:-cross-encoder/nli-deberta-v3-small}"
+      - --batch-size
+      - "${INFERENCE_BATCH_SIZE:-32}"
+      - --device
+      - "${INFERENCE_DEVICE:-cpu}"
+      # Keep the pipeline warm so the first request after a deploy does not pay
+      # a 30s cold start on GPU hosts.
+      - --no-model-warmup
+    environment:
+      HF_HOME: /data/hf
+      HF_HUB_ENABLE_HF_TRANSFER: "1"
+    volumes:
+      - inference_hf_cache:/data/hf
+    healthcheck:
+      # Infinity exposes /health; a 200 means the pipeline is resident.
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:7997/health', timeout=2).status == 200 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
+    # Uncomment on a GPU host. Without this the container silently falls back to
+    # CPU, which looks like a latency regression rather than a config error.
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+volumes:
+  inference_hf_cache:
