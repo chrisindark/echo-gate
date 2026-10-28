@@ -63,7 +63,9 @@ def main() -> int:
             changed = True
             print(f"pinned  {name:10s} {model_id} -> {sha[:12]}")
         elif args.write and revision and revision != sha:
-            print(f"note    {name:10s} pinned at {revision[:12]}, main is now {sha[:12]}")
+            print(
+                f"note    {name:10s} pinned at {revision[:12]}, main is now {sha[:12]}"
+            )
         elif args.check:
             print(f"ok      {name:10s} {model_id} @ {sha[:12]}")
 

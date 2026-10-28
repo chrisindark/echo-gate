@@ -83,10 +83,15 @@ class EmbeddingService:
         self.model = None
         if self.inference is not None:
             self.embedding_dimension = config.INFERENCE_EMBEDDING_DIM
+            target_url = getattr(
+                self.inference,
+                "url_for",
+                lambda role: getattr(self.inference, "base_url", ""),
+            )("embed")
             logger.info(
                 "Dense embeddings delegated to the inference platform at %s "
                 "(dim=%s); no local transformer is loaded",
-                self.inference.base_url,
+                target_url,
                 self.embedding_dimension,
             )
         elif self.use_ollama:

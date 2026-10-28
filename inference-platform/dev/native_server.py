@@ -421,7 +421,7 @@ async def classify(request: ClassifyRequest) -> Any:
         results.append(
             {
                 "index": index,
-                "probabilities": dict(zip(role.labels, probs)),
+                "probabilities": dict(zip(role.labels, probs, strict=False)),
                 "label": role.labels[max(range(len(probs)), key=probs.__getitem__)],
                 "logits": logits,
             }

@@ -240,19 +240,27 @@ instead of being loaded into the gateway process. One contract, two
 implementations: a native FastAPI server for laptops and Infinity for GPU hosts.
 
 ```
+Local / Single-node:
 gateway / doc-nexus / agent-forge
-              │  INFERENCE_BASE_URL
+              │  INFERENCE_BASE_URL (http://localhost:7997)
               ▼
       inference-platform :7997     ollama :11434
       /embeddings /rerank         (generative: intent, judge)
       /classify /health
+
+Production Split (inference-split.yml):
+gateway / doc-nexus / agent-forge
+      ├── INFERENCE_EMBED_URL    ──► inference-embed:7997   (/embeddings)
+      ├── INFERENCE_RERANK_URL   ──► inference-rerank:7998  (/rerank)
+      └── INFERENCE_NLI_URL      ──► inference-classify:7999 (/classify)
 ```
 
 `INFERENCE_BASE_URL` empty keeps everything in-process (the previous behaviour);
 setting it switches `EmbeddingService` and `CrossEncoderService` to HTTP and stops
-them importing torch at all. Verified: with the variable set, `torch`,
-`transformers`, and `sentence_transformers` are absent from `sys.modules` after
-building both services.
+them importing torch at all. In production, setting `INFERENCE_EMBED_URL`,
+`INFERENCE_RERANK_URL`, and `INFERENCE_NLI_URL` splits the three roles into
+independent containers with separate connection pools and failure domains,
+eliminating cross-encoder head-of-line blocking on cache embeddings.
 
 ### Roles
 

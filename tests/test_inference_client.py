@@ -247,6 +247,9 @@ class _FakeInferenceClient:
 
     base_url = BASE
 
+    def url_for(self, role="embed"):
+        return self.base_url
+
     def __init__(self, *, fail=False):
         self.fail = fail
         self.rerank_calls: list[tuple[str, list[str], str | None]] = []
@@ -505,6 +508,134 @@ class _FailOpenTest(unittest.TestCase):
             degraded,
             "the request must be reported as cache-degraded (served by provider)",
         )
+
+
+class _SplitRoutingTest(unittest.IsolatedAsyncioTestCase):
+    """Verifies that the inference client can split endpoints per role in production."""
+
+    def test_url_resolution_defaults_to_base_url(self):
+        client = InferenceClient("http://shared.local:7997")
+        self.assertEqual(client.url_for("embed"), "http://shared.local:7997")
+        self.assertEqual(client.url_for("rerank"), "http://shared.local:7997")
+        self.assertEqual(client.url_for("relevance"), "http://shared.local:7997")
+        self.assertEqual(client.url_for("nli"), "http://shared.local:7997")
+        self.assertEqual(client.url_for("classify"), "http://shared.local:7997")
+
+    def test_url_resolution_with_role_overrides(self):
+        client = InferenceClient(
+            "http://shared.local:7997",
+            embed_url="http://embed-svc:7997",
+            rerank_url="http://rerank-svc:7998",
+            nli_url="http://classify-svc:7999",
+        )
+        self.assertEqual(client.url_for("embed"), "http://embed-svc:7997")
+        self.assertEqual(client.url_for("rerank"), "http://rerank-svc:7998")
+        # relevance defaults to rerank_url if relevance_url is unset
+        self.assertEqual(client.url_for("relevance"), "http://rerank-svc:7998")
+        self.assertEqual(client.url_for("nli"), "http://classify-svc:7999")
+        self.assertEqual(client.url_for("classify"), "http://classify-svc:7999")
+
+    async def test_requests_dispatch_to_distinct_endpoints(self):
+        calls: dict[str, list[str]] = {"embed": [], "rerank": [], "classify": []}
+
+        def embed_handler(request: httpx.Request) -> httpx.Response:
+            calls["embed"].append(str(request.url))
+            return httpx.Response(200, json=_embeddings_body([[0.1, 0.2]]))
+
+        def rerank_handler(request: httpx.Request) -> httpx.Response:
+            calls["rerank"].append(str(request.url))
+            return httpx.Response(
+                200, json={"results": [{"index": 0, "score_raw": 1.5, "score": 0.8}]}
+            )
+
+        def classify_handler(request: httpx.Request) -> httpx.Response:
+            calls["classify"].append(str(request.url))
+            return httpx.Response(
+                200,
+                json={
+                    "labels": ["contradiction", "entailment", "neutral"],
+                    "results": [{"index": 0, "logits": [0.1, 0.9, 0.0]}],
+                },
+            )
+
+        client = InferenceClient(
+            "http://base.test",
+            embed_url="http://embed-pool:7997",
+            rerank_url="http://rerank-pool:7998",
+            nli_url="http://classify-pool:7999",
+        )
+        client._async_clients["http://embed-pool:7997"] = httpx.AsyncClient(
+            transport=httpx.MockTransport(embed_handler),
+            base_url="http://embed-pool:7997",
+        )
+        client._async_clients["http://rerank-pool:7998"] = httpx.AsyncClient(
+            transport=httpx.MockTransport(rerank_handler),
+            base_url="http://rerank-pool:7998",
+        )
+        client._async_clients["http://classify-pool:7999"] = httpx.AsyncClient(
+            transport=httpx.MockTransport(classify_handler),
+            base_url="http://classify-pool:7999",
+        )
+
+        vectors = await client.embed(["test document"])
+        self.assertEqual(len(vectors), 1)
+        self.assertEqual(calls["embed"], ["http://embed-pool:7997/embeddings"])
+
+        scores = await client.rerank("query", ["doc"])
+        self.assertEqual(len(scores), 1)
+        self.assertEqual(calls["rerank"], ["http://rerank-pool:7998/rerank"])
+
+        logits = await client.classify([("premise", "hypothesis")])
+        self.assertEqual(len(logits), 1)
+        self.assertEqual(calls["classify"], ["http://classify-pool:7999/classify"])
+
+        await client.aclose()
+        self.assertEqual(len(client._async_clients), 0)
+
+    async def test_multi_endpoint_probing(self):
+        probed_urls: list[str] = []
+
+        def probe_handler(request: httpx.Request) -> httpx.Response:
+            probed_urls.append(str(request.url))
+            return httpx.Response(
+                200,
+                json={
+                    "device": "cpu",
+                    "loaded": {
+                        "embed": {
+                            "model": "all-MiniLM-L6-v2",
+                            "revision": "abc",
+                            "dim": 384,
+                        }
+                    },
+                },
+            )
+
+        client = InferenceClient(
+            "http://base-pool:7997",
+            embed_url="http://embed-pool:7997",
+            rerank_url="http://rerank-pool:7998",
+        )
+        client._async_clients["http://base-pool:7997"] = httpx.AsyncClient(
+            transport=httpx.MockTransport(probe_handler),
+            base_url="http://base-pool:7997",
+        )
+        client._async_clients["http://embed-pool:7997"] = httpx.AsyncClient(
+            transport=httpx.MockTransport(probe_handler),
+            base_url="http://embed-pool:7997",
+        )
+        client._async_clients["http://rerank-pool:7998"] = httpx.AsyncClient(
+            transport=httpx.MockTransport(probe_handler),
+            base_url="http://rerank-pool:7998",
+        )
+
+        await client.probe()
+        # All 3 distinct endpoints should be probed
+        self.assertIn("http://base-pool:7997/models", probed_urls)
+        self.assertIn("http://embed-pool:7997/models", probed_urls)
+        self.assertIn("http://rerank-pool:7998/models", probed_urls)
+
+        await client.aclose()
 
 
 if __name__ == "__main__":

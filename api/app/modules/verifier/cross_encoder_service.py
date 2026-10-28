@@ -47,10 +47,16 @@ class CrossEncoderService:
             self.inference = InferenceClient()
 
         if self.inference is not None:
+            url_func = getattr(
+                self.inference,
+                "url_for",
+                lambda role: getattr(self.inference, "base_url", ""),
+            )
             logger.info(
-                "Cross-encoder roles delegated to the inference platform at %s; "
+                "Cross-encoder roles delegated to the inference platform (rerank=%s, classify=%s); "
                 "no local transformer is loaded",
-                self.inference.base_url,
+                url_func("rerank"),
+                url_func("nli"),
             )
             return
 

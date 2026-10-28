@@ -77,51 +77,159 @@ class InferenceClient:
     loop (the reranker pipeline, which is dispatched with `asyncio.to_thread`,
     and CLI scripts). Mixing them is fine; calling a sync variant from a
     coroutine is not, because it blocks the loop for the full round trip.
+
+    Supports per-role endpoint URLs (`embed_url`, `rerank_url`, `relevance_url`,
+    `nli_url`) for production deployments where models are split across distinct
+    microservices or containers. Each role URL falls back to `base_url` when unset,
+    preserving single-container / local development with zero overhead.
     """
 
-    def __init__(self, base_url: str | None = None) -> None:
+    def __init__(
+        self,
+        base_url: str | None = None,
+        *,
+        embed_url: str | None = None,
+        rerank_url: str | None = None,
+        relevance_url: str | None = None,
+        nli_url: str | None = None,
+    ) -> None:
         self.base_url = (base_url or config.INFERENCE_BASE_URL).rstrip("/")
-        self.enabled = bool(self.base_url)
+        self.embed_url = (embed_url or config.INFERENCE_EMBED_URL).rstrip("/")
+        self.rerank_url = (rerank_url or config.INFERENCE_RERANK_URL).rstrip("/")
+        self.relevance_url = (relevance_url or config.INFERENCE_RELEVANCE_URL).rstrip(
+            "/"
+        )
+        self.nli_url = (nli_url or config.INFERENCE_NLI_URL).rstrip("/")
+
+        self.enabled = bool(
+            self.base_url
+            or self.embed_url
+            or self.rerank_url
+            or self.relevance_url
+            or self.nli_url
+        )
         self.timeout = config.INFERENCE_TIMEOUT_SECONDS
         self.max_retries = config.INFERENCE_MAX_RETRIES
-        self._async_client: httpx.AsyncClient | None = None
-        self._sync_client: httpx.Client | None = None
+
+        self._async_clients: dict[str, httpx.AsyncClient] = {}
+        self._sync_clients: dict[str, httpx.Client] = {}
+
+    def url_for(self, role: str) -> str:
+        """Resolve the effective base URL for a given role.
+
+        Per-role URL overrides take precedence; if unset, fall back to self.base_url.
+        """
+        if role == "embed":
+            return self.embed_url or self.base_url
+        if role == "rerank":
+            return self.rerank_url or self.base_url
+        if role == "relevance":
+            return self.relevance_url or self.rerank_url or self.base_url
+        if role in ("nli", "classify"):
+            return self.nli_url or self.base_url
+        return self.base_url
+
+    def timeout_for(self, role: str) -> float:
+        """Resolve the configured timeout for a given role."""
+        if role == "embed":
+            return config.INFERENCE_EMBED_TIMEOUT_SECONDS
+        if role == "rerank":
+            return config.INFERENCE_RERANK_TIMEOUT_SECONDS
+        if role == "relevance":
+            return config.INFERENCE_RELEVANCE_TIMEOUT_SECONDS
+        if role in ("nli", "classify"):
+            return config.INFERENCE_NLI_TIMEOUT_SECONDS
+        return self.timeout
+
+    # -- backward-compatible client accessors -------------------------------
+
+    @property
+    def _async_client(self) -> httpx.AsyncClient | None:
+        target_url = self.base_url or (
+            next(iter(self._async_clients)) if self._async_clients else ""
+        )
+        return self._async_clients.get(target_url)
+
+    @_async_client.setter
+    def _async_client(self, client: httpx.AsyncClient | None) -> None:
+        if client is None:
+            self._async_clients.clear()
+        else:
+            target_url = self.base_url or ""
+            self._async_clients[target_url] = client
+
+    @property
+    def _sync_client(self) -> httpx.Client | None:
+        target_url = self.base_url or (
+            next(iter(self._sync_clients)) if self._sync_clients else ""
+        )
+        return self._sync_clients.get(target_url)
+
+    @_sync_client.setter
+    def _sync_client(self, client: httpx.Client | None) -> None:
+        if client is None:
+            self._sync_clients.clear()
+        else:
+            target_url = self.base_url or ""
+            self._sync_clients[target_url] = client
 
     # -- lifecycle ---------------------------------------------------------
 
     def _limits(self) -> httpx.Limits:
         return httpx.Limits(max_keepalive_connections=20, max_connections=100)
 
-    def _timeout(self) -> httpx.Timeout:
-        return httpx.Timeout(self.timeout, connect=_CONNECT_TIMEOUT)
+    def _timeout_for_val(self, val: float) -> httpx.Timeout:
+        return httpx.Timeout(val, connect=_CONNECT_TIMEOUT)
+
+    def _async_for(
+        self, url: str | None = None, timeout: float | None = None
+    ) -> httpx.AsyncClient:
+        target_url = url or self.base_url
+        effective_timeout = timeout or self.timeout
+        client = self._async_clients.get(target_url)
+        if client is None and self.base_url in self._async_clients and not target_url:
+            client = self._async_clients.get(self.base_url)
+        if client is None or client.is_closed:
+            client = httpx.AsyncClient(
+                base_url=target_url,
+                timeout=self._timeout_for_val(effective_timeout),
+                limits=self._limits(),
+            )
+            self._async_clients[target_url] = client
+        return client
+
+    def _sync_for(
+        self, url: str | None = None, timeout: float | None = None
+    ) -> httpx.Client:
+        target_url = url or self.base_url
+        effective_timeout = timeout or self.timeout
+        client = self._sync_clients.get(target_url)
+        if client is None and self.base_url in self._sync_clients and not target_url:
+            client = self._sync_clients.get(self.base_url)
+        if client is None or client.is_closed:
+            client = httpx.Client(
+                base_url=target_url,
+                timeout=self._timeout_for_val(effective_timeout),
+                limits=self._limits(),
+            )
+            self._sync_clients[target_url] = client
+        return client
 
     def _async(self) -> httpx.AsyncClient:
-        # Created lazily so the client binds to the loop that actually uses it.
-        # The API process and each Celery prefork child own separate loops.
-        if self._async_client is None or self._async_client.is_closed:
-            self._async_client = httpx.AsyncClient(
-                base_url=self.base_url,
-                timeout=self._timeout(),
-                limits=self._limits(),
-            )
-        return self._async_client
+        return self._async_for(self.base_url)
 
     def _sync(self) -> httpx.Client:
-        if self._sync_client is None or self._sync_client.is_closed:
-            self._sync_client = httpx.Client(
-                base_url=self.base_url,
-                timeout=self._timeout(),
-                limits=self._limits(),
-            )
-        return self._sync_client
+        return self._sync_for(self.base_url)
 
     async def aclose(self) -> None:
-        if self._async_client is not None and not self._async_client.is_closed:
-            await self._async_client.aclose()
-        self._async_client = None
-        if self._sync_client is not None and not self._sync_client.is_closed:
-            self._sync_client.close()
-        self._sync_client = None
+        for client in list(self._async_clients.values()):
+            if not client.is_closed:
+                await client.aclose()
+        self._async_clients.clear()
+        for sync_client in list(self._sync_clients.values()):
+            if not sync_client.is_closed:
+                sync_client.close()
+        self._sync_clients.clear()
 
     # -- error mapping -----------------------------------------------------
 
@@ -144,10 +252,13 @@ class InferenceClient:
             f"{operation} -> HTTP {response.status_code}: {detail}"
         )
 
-    def _transport_error(self, exc: Exception, operation: str) -> InferenceUnavailable:
+    def _transport_error(
+        self, exc: Exception, operation: str, target_url: str = ""
+    ) -> InferenceUnavailable:
+        url = target_url or self.base_url
         if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout)):
             return InferenceUnreachable(
-                f"{operation} failed: cannot connect to {self.base_url} ({exc!r})"
+                f"{operation} failed: cannot connect to {url} ({exc!r})"
             )
         return InferenceUnavailable(f"{operation} failed: {exc!r}")
 
@@ -205,19 +316,23 @@ class InferenceClient:
     ) -> list[list[float]]:
         if not texts:
             return []
+        url = self.url_for("embed")
+        timeout = self.timeout_for("embed")
         payload = self._embed_payload(texts, model)
 
         async def _call() -> list[list[float]]:
             try:
-                response = await self._async().post("/embeddings", json=payload)
+                response = await self._async_for(url, timeout).post(
+                    "/embeddings", json=payload
+                )
             except (httpx.HTTPError, OSError) as exc:
-                raise self._transport_error(exc, "embeddings") from exc
+                raise self._transport_error(exc, "embeddings", url) from exc
             self._raise_for(response, "embeddings")
             return self._extract_vectors(response.json(), len(texts))
 
         return await execute_with_retry(
             _call,
-            timeout_seconds=self.timeout,
+            timeout_seconds=timeout,
             max_retries=self.max_retries,
             retry_predicate=_is_retryable,
         )
@@ -231,11 +346,13 @@ class InferenceClient:
     ) -> list[list[float]]:
         if not texts:
             return []
+        url = self.url_for("embed")
+        timeout = self.timeout_for("embed")
         payload = self._embed_payload(texts, model)
         try:
-            response = self._sync().post("/embeddings", json=payload)
+            response = self._sync_for(url, timeout).post("/embeddings", json=payload)
         except (httpx.HTTPError, OSError) as exc:
-            raise self._transport_error(exc, "embeddings") from exc
+            raise self._transport_error(exc, "embeddings", url) from exc
         self._raise_for(response, "embeddings")
         return self._extract_vectors(response.json(), len(texts))
 
@@ -282,19 +399,23 @@ class InferenceClient:
     ) -> list[float]:
         if not documents:
             return []
+        url = self.url_for(role)
+        timeout = self.timeout_for(role)
         payload = self._rerank_payload(query, documents, role, model)
 
         async def _call() -> list[float]:
             try:
-                response = await self._async().post("/rerank", json=payload)
+                response = await self._async_for(url, timeout).post(
+                    "/rerank", json=payload
+                )
             except (httpx.HTTPError, OSError) as exc:
-                raise self._transport_error(exc, "rerank") from exc
+                raise self._transport_error(exc, "rerank", url) from exc
             self._raise_for(response, "rerank")
             return self._extract_scores(response.json(), len(documents))
 
         return await execute_with_retry(
             _call,
-            timeout_seconds=self.timeout,
+            timeout_seconds=timeout,
             max_retries=self.max_retries,
             retry_predicate=_is_retryable,
         )
@@ -309,11 +430,13 @@ class InferenceClient:
     ) -> list[float]:
         if not documents:
             return []
+        url = self.url_for(role)
+        timeout = self.timeout_for(role)
         payload = self._rerank_payload(query, documents, role, model)
         try:
-            response = self._sync().post("/rerank", json=payload)
+            response = self._sync_for(url, timeout).post("/rerank", json=payload)
         except (httpx.HTTPError, OSError) as exc:
-            raise self._transport_error(exc, "rerank") from exc
+            raise self._transport_error(exc, "rerank", url) from exc
         self._raise_for(response, "rerank")
         return self._extract_scores(response.json(), len(documents))
 
@@ -356,19 +479,23 @@ class InferenceClient:
     ) -> list[list[float]]:
         if not pairs:
             return []
+        url = self.url_for("nli")
+        timeout = self.timeout_for("nli")
         payload = self._classify_payload(pairs, model)
 
         async def _call() -> list[list[float]]:
             try:
-                response = await self._async().post("/classify", json=payload)
+                response = await self._async_for(url, timeout).post(
+                    "/classify", json=payload
+                )
             except (httpx.HTTPError, OSError) as exc:
-                raise self._transport_error(exc, "classify") from exc
+                raise self._transport_error(exc, "classify", url) from exc
             self._raise_for(response, "classify")
             return self._extract_logits(response.json(), len(pairs))
 
         return await execute_with_retry(
             _call,
-            timeout_seconds=self.timeout,
+            timeout_seconds=timeout,
             max_retries=self.max_retries,
             retry_predicate=_is_retryable,
         )
@@ -378,69 +505,98 @@ class InferenceClient:
     ) -> list[list[float]]:
         if not pairs:
             return []
+        url = self.url_for("nli")
+        timeout = self.timeout_for("nli")
         payload = self._classify_payload(pairs, model)
         try:
-            response = self._sync().post("/classify", json=payload)
+            response = self._sync_for(url, timeout).post("/classify", json=payload)
         except (httpx.HTTPError, OSError) as exc:
-            raise self._transport_error(exc, "classify") from exc
+            raise self._transport_error(exc, "classify", url) from exc
         self._raise_for(response, "classify")
         return self._extract_logits(response.json(), len(pairs))
 
     # -- startup probe -----------------------------------------------------
 
     async def probe(self) -> dict[str, Any] | None:
-        """Log the engine's effective models so version skew is visible.
+        """Log the engine's effective models across all endpoints so version skew is visible.
 
         A dimension mismatch against the running Qdrant collection is a silent
         cache corruption, so it is worth one WARNING at startup.
+        Probes each unique configured endpoint (single host in dev, multiple in split prod).
         """
         if not self.enabled:
             return None
-        try:
-            response = await self._async().get("/models")
-        except (httpx.HTTPError, OSError) as exc:
-            logger.warning(
-                "inference: cannot reach %s (%r); semantic caching will degrade "
-                "to the provider path until it is available",
-                self.base_url,
-                exc,
-            )
-            return None
 
-        if response.status_code >= 400:
-            logger.warning("inference: /models returned HTTP %s", response.status_code)
-            return None
-
-        body = response.json()
-        loaded = body.get("loaded") or {}
-        embed = loaded.get("embed") or {}
-        if embed:
-            logger.info(
-                "inference: serving %d role(s) from %s (device=%s, embed=%s rev=%s dim=%s)",
-                len(loaded),
-                self.base_url,
-                body.get("device"),
-                embed.get("model"),
-                embed.get("revision"),
-                embed.get("dim"),
-            )
-            remote_dim = embed.get("dim")
-            expected_dim = config.INFERENCE_EMBEDDING_DIM
-            if remote_dim and expected_dim and int(remote_dim) != int(expected_dim):
-                logger.warning(
-                    "inference: embedding dim mismatch -- engine serves %s but the "
-                    "gateway expects %s (INFERENCE_EMBEDDING_DIM). Qdrant vectors "
-                    "will not match; fix before trusting cache hits.",
-                    remote_dim,
-                    expected_dim,
+        distinct_urls = sorted(
+            set(
+                filter(
+                    None,
+                    [
+                        self.base_url,
+                        self.embed_url,
+                        self.rerank_url,
+                        self.relevance_url,
+                        self.nli_url,
+                    ],
                 )
-            remote_model = str(embed.get("model") or "")
-            if remote_model and config.EMBEDDING_MODEL_NAME:
-                if config.EMBEDDING_MODEL_NAME not in remote_model:
+            )
+        )
+        if not distinct_urls:
+            return None
+
+        last_body = None
+        for url in distinct_urls:
+            try:
+                response = await self._async_for(url).get("/models")
+            except (httpx.HTTPError, OSError) as exc:
+                logger.warning(
+                    "inference: cannot reach %s (%r); semantic caching will degrade "
+                    "to the provider path until it is available",
+                    url,
+                    exc,
+                )
+                continue
+
+            if response.status_code >= 400:
+                logger.warning(
+                    "inference: %s/models returned HTTP %s", url, response.status_code
+                )
+                continue
+
+            body = response.json()
+            last_body = body
+            loaded = body.get("loaded") or {}
+            embed = loaded.get("embed") or {}
+            if embed or loaded:
+                logger.info(
+                    "inference: serving %d role(s) from %s (device=%s, embed=%s rev=%s dim=%s)",
+                    len(loaded),
+                    url,
+                    body.get("device"),
+                    embed.get("model"),
+                    embed.get("revision"),
+                    embed.get("dim"),
+                )
+            if embed:
+                remote_dim = embed.get("dim")
+                expected_dim = config.INFERENCE_EMBEDDING_DIM
+                if remote_dim and expected_dim and int(remote_dim) != int(expected_dim):
                     logger.warning(
-                        "inference: engine serves %s but EMBEDDING_MODEL_NAME=%s; "
-                        "existing vectors were written under a different model",
-                        remote_model,
-                        config.EMBEDDING_MODEL_NAME,
+                        "inference: embedding dim mismatch at %s -- engine serves %s but the "
+                        "gateway expects %s (INFERENCE_EMBEDDING_DIM). Qdrant vectors "
+                        "will not match; fix before trusting cache hits.",
+                        url,
+                        remote_dim,
+                        expected_dim,
                     )
-        return body
+                remote_model = str(embed.get("model") or "")
+                if remote_model and config.EMBEDDING_MODEL_NAME:
+                    if config.EMBEDDING_MODEL_NAME not in remote_model:
+                        logger.warning(
+                            "inference: engine at %s serves %s but EMBEDDING_MODEL_NAME=%s; "
+                            "existing vectors were written under a different model",
+                            url,
+                            remote_model,
+                            config.EMBEDDING_MODEL_NAME,
+                        )
+        return last_body

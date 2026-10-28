@@ -1,0 +1,131 @@
+# Production split vector-worker pool: separate containers for embeddings,
+# reranking, and NLI/classification.
+#
+# Use this when high-concurrency throughput or fault isolation is required:
+#   1. Zero head-of-line blocking: slow cross-encoder batches never starve fast
+#      cache-embedding lookups.
+#   2. Fault isolation: an OOM in email classification or reranking cannot crash
+#      the embedding container.
+#   3. Independent scaling: scale embedders on cheap CPU/small GPU replicas while
+#      reserving heavy GPU nodes for rerankers.
+#
+# Usage:
+#   docker compose -f inference-split.yml --env-file ../.env up -d
+#
+# Wire the gateway to the split services via environment variables:
+#   INFERENCE_EMBED_URL=http://<host>:7997
+#   INFERENCE_RERANK_URL=http://<host>:7998
+#   INFERENCE_NLI_URL=http://<host>:7999
+
+services:
+  # ---------------------------------------------------------------------------
+  # 1. Embeddings Pool (/embeddings)
+  # ---------------------------------------------------------------------------
+  inference-embed:
+    image: michaelfeil/infinity:0.0.76
+    restart: unless-stopped
+    ports:
+      - "${INFERENCE_BIND:-127.0.0.1}:${INFERENCE_EMBED_PORT:-7997}:7997"
+    command:
+      - infinity_emb
+      - --port
+      - "7997"
+      - --host
+      - "0.0.0.0"
+      - --model-id
+      - "${EMBED_MODEL:-sentence-transformers/all-MiniLM-L6-v2}"
+      - --batch-size
+      - "${INFERENCE_EMBED_BATCH_SIZE:-64}"
+      - --device
+      - "${INFERENCE_EMBED_DEVICE:-cpu}"
+      - --no-model-warmup
+    environment:
+      HF_HOME: /data/hf
+      HF_HUB_ENABLE_HF_TRANSFER: "1"
+    volumes:
+      - inference_hf_cache:/data/hf
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:7997/health', timeout=2).status == 200 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
+
+  # ---------------------------------------------------------------------------
+  # 2. Cross-Encoder Reranking Pool (/rerank)
+  # ---------------------------------------------------------------------------
+  inference-rerank:
+    image: michaelfeil/infinity:0.0.76
+    restart: unless-stopped
+    ports:
+      - "${INFERENCE_BIND:-127.0.0.1}:${INFERENCE_RERANK_PORT:-7998}:7998"
+    command:
+      - infinity_emb
+      - --port
+      - "7998"
+      - --host
+      - "0.0.0.0"
+      - --model-id
+      - "${RERANK_MODEL:-BAAI/bge-reranker-base}"
+      - --model-id
+      - "${RELEVANCE_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}"
+      - --batch-size
+      - "${INFERENCE_RERANK_BATCH_SIZE:-32}"
+      - --device
+      - "${INFERENCE_RERANK_DEVICE:-cpu}"
+      - --no-model-warmup
+    environment:
+      HF_HOME: /data/hf
+      HF_HUB_ENABLE_HF_TRANSFER: "1"
+    volumes:
+      - inference_hf_cache:/data/hf
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:7998/health', timeout=2).status == 200 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
+    # Uncomment on a GPU host for fast cross-attention:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # ---------------------------------------------------------------------------
+  # 3. NLI & Intent Classification Pool (/classify)
+  # ---------------------------------------------------------------------------
+  inference-classify:
+    image: michaelfeil/infinity:0.0.76
+    restart: unless-stopped
+    ports:
+      - "${INFERENCE_BIND:-127.0.0.1}:${INFERENCE_CLASSIFY_PORT:-7999}:7999"
+    command:
+      - infinity_emb
+      - --port
+      - "7999"
+      - --host
+      - "0.0.0.0"
+      - --model-id
+      - "${NLI_MODEL:-cross-encoder/nli-deberta-v3-small}"
+      - --batch-size
+      - "${INFERENCE_CLASSIFY_BATCH_SIZE:-32}"
+      - --device
+      - "${INFERENCE_CLASSIFY_DEVICE:-cpu}"
+      - --no-model-warmup
+    environment:
+      HF_HOME: /data/hf
+      HF_HUB_ENABLE_HF_TRANSFER: "1"
+    volumes:
+      - inference_hf_cache:/data/hf
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:7999/health', timeout=2).status == 200 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
+
+volumes:
+  inference_hf_cache:

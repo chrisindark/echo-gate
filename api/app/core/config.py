@@ -363,17 +363,59 @@ class Config:
 
         # Shared Inference Platform
         #
-        # When INFERENCE_BASE_URL is set, dense embeddings, reranking and NLI are
-        # served over HTTP by `inference-platform/` instead of being loaded into
-        # this process. Empty (the default) keeps the in-process models, so an
-        # existing deployment is unchanged until it opts in.
+        # When INFERENCE_BASE_URL (or any per-role URL override) is set, dense
+        # embeddings, reranking and NLI are served over HTTP by `inference-platform/`
+        # instead of being loaded into this process. Empty (the default) keeps the
+        # in-process models, so an existing deployment is unchanged until it opts in.
+        #
+        # In production, services can be split across independent containers or hosts:
+        #   INFERENCE_EMBED_URL -> /embeddings (e.g. http://inference-embed:7997)
+        #   INFERENCE_RERANK_URL -> /rerank (e.g. http://inference-rerank:7998)
+        #   INFERENCE_RELEVANCE_URL -> /rerank (defaults to INFERENCE_RERANK_URL)
+        #   INFERENCE_NLI_URL / INFERENCE_CLASSIFY_URL -> /classify (e.g. http://inference-classify:7999)
+        # Each per-role URL falls back to INFERENCE_BASE_URL when unset.
         #
         # Sparse BM25 is never remote: fastembed's vectors are tokenizer-coupled
         # to what is already in Qdrant, and it costs ~1ms locally.
         self.INFERENCE_BASE_URL = os.getenv("INFERENCE_BASE_URL", "").rstrip("/")
-        self.INFERENCE_ENABLED = bool(self.INFERENCE_BASE_URL)
+        self.INFERENCE_EMBED_URL = os.getenv("INFERENCE_EMBED_URL", "").rstrip("/")
+        self.INFERENCE_RERANK_URL = os.getenv("INFERENCE_RERANK_URL", "").rstrip("/")
+        self.INFERENCE_RELEVANCE_URL = os.getenv("INFERENCE_RELEVANCE_URL", "").rstrip(
+            "/"
+        )
+        self.INFERENCE_NLI_URL = (
+            os.getenv("INFERENCE_NLI_URL") or os.getenv("INFERENCE_CLASSIFY_URL") or ""
+        ).rstrip("/")
+        self.INFERENCE_ENABLED = bool(
+            self.INFERENCE_BASE_URL
+            or self.INFERENCE_EMBED_URL
+            or self.INFERENCE_RERANK_URL
+            or self.INFERENCE_RELEVANCE_URL
+            or self.INFERENCE_NLI_URL
+        )
         self.INFERENCE_TIMEOUT_SECONDS = _bounded_float_env(
             "INFERENCE_TIMEOUT_SECONDS", 5.0, 0.1, 120.0
+        )
+        self.INFERENCE_EMBED_TIMEOUT_SECONDS = _bounded_float_env(
+            "INFERENCE_EMBED_TIMEOUT_SECONDS",
+            self.INFERENCE_TIMEOUT_SECONDS,
+            0.1,
+            120.0,
+        )
+        self.INFERENCE_RERANK_TIMEOUT_SECONDS = _bounded_float_env(
+            "INFERENCE_RERANK_TIMEOUT_SECONDS",
+            self.INFERENCE_TIMEOUT_SECONDS,
+            0.1,
+            120.0,
+        )
+        self.INFERENCE_RELEVANCE_TIMEOUT_SECONDS = _bounded_float_env(
+            "INFERENCE_RELEVANCE_TIMEOUT_SECONDS",
+            self.INFERENCE_RERANK_TIMEOUT_SECONDS,
+            0.1,
+            120.0,
+        )
+        self.INFERENCE_NLI_TIMEOUT_SECONDS = _bounded_float_env(
+            "INFERENCE_NLI_TIMEOUT_SECONDS", self.INFERENCE_TIMEOUT_SECONDS, 0.1, 120.0
         )
         self.INFERENCE_MAX_RETRIES = int(
             _bounded_float_env("INFERENCE_MAX_RETRIES", 1, 0, 5)

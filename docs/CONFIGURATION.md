@@ -164,7 +164,15 @@ in-process, so existing deployments are unchanged until they opt in.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `INFERENCE_BASE_URL` | *(empty = disabled)* | Base URL of the inference engine, e.g. `http://localhost:7997`. Setting it enables remote mode. |
-| `INFERENCE_TIMEOUT_SECONDS` | `5.0` | Per-attempt request budget. Clamped to `0.1`-`120`. |
+| `INFERENCE_EMBED_URL` | *(empty = fallback)* | Optional override for dense embeddings route (`/embeddings`). |
+| `INFERENCE_RERANK_URL` | *(empty = fallback)* | Optional override for primary reranking route (`/rerank`). |
+| `INFERENCE_RELEVANCE_URL` | *(empty = fallback)* | Optional override for relevance scoring (defaults to `INFERENCE_RERANK_URL`). |
+| `INFERENCE_NLI_URL` | *(empty = fallback)* | Optional override for NLI / classification (`/classify`). `INFERENCE_CLASSIFY_URL` accepted as alias. |
+| `INFERENCE_TIMEOUT_SECONDS` | `5.0` | Default per-attempt request budget. Clamped to `0.1`-`120`. |
+| `INFERENCE_EMBED_TIMEOUT_SECONDS` | `5.0` | Optional timeout specifically for `/embeddings`. |
+| `INFERENCE_RERANK_TIMEOUT_SECONDS` | `5.0` | Optional timeout specifically for `/rerank`. |
+| `INFERENCE_RELEVANCE_TIMEOUT_SECONDS` | `5.0` | Optional timeout specifically for relevance `/rerank`. |
+| `INFERENCE_NLI_TIMEOUT_SECONDS` | `5.0` | Optional timeout specifically for `/classify`. |
 | `INFERENCE_MAX_RETRIES` | `1` | Retries for transient faults (5xx, throttling, timeouts). A refused connection is never retried. Clamped to `0`-`5`. |
 | `INFERENCE_EMBEDDING_DIM` | `384` | Dense dimension the engine serves. Locked into the Qdrant collection; a mismatch is silent cache corruption, so startup logs a warning when `/models` disagrees. |
 | `INFERENCE_EMBED_MODEL` | *(empty)* | Optional explicit model id for the `embed` role. |

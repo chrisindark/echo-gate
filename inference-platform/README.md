@@ -22,7 +22,7 @@ pass costing ~1 ms and a few MB. Serving it remotely would add a hop and, worse,
 risk tokenizer skew: if the server's BM25 differs at all, previously written
 Qdrant sparse vectors stop matching. Each app keeps its own copy.
 
-## Two interchangeable implementations, one contract
+## Implementations and deployments, one contract
 
 ```
                         http://<host>:7997
@@ -30,13 +30,18 @@ Qdrant sparse vectors stop matching. Each app keeps its own copy.
                                     |
         +---------------------------+---------------------------+
         |                                                       |
-  dev/native_server.py                                 deploy/compose/inference.yml
-  sentence-transformers + CrossEncoder                  michaelfeil/infinity
-  runs on the Mac host, one model copy                  Linux, batching, GPU
+  dev/native_server.py                                 deploy/compose/
+  sentence-transformers + CrossEncoder                 - inference.yml (single container)
+  runs on the Mac host, one model copy                 - inference-split.yml (split pools)
 ```
 
-Exactly one listens on the port at a time. Consumers set `INFERENCE_BASE_URL` and
-never learn which one is behind it.
+In single-service setups, exactly one listens on the port at a time. Consumers set
+`INFERENCE_BASE_URL` and never learn which one is behind it.
+
+In high-throughput production setups (`inference-split.yml`), the roles run in
+isolated pools (`inference-embed:7997`, `inference-rerank:7998`, `inference-classify:7999`),
+preventing cross-encoder head-of-line blocking on cache embeddings. Consumers wire to
+them via `INFERENCE_EMBED_URL`, `INFERENCE_RERANK_URL`, and `INFERENCE_NLI_URL`.
 
 Requests are routed by **role** (`embed`, `rerank`, `relevance`, `nli`) so that
 two roles sharing a route cannot be confused for one another. An explicit

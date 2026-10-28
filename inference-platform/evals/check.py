@@ -47,7 +47,7 @@ def post(path: str, payload: dict) -> dict:
 
 
 def cosine(a: list[float], b: list[float]) -> float:
-    dot = sum(x * y for x, y in zip(a, b))
+    dot = sum(x * y for x, y in zip(a, b, strict=False))
     na = sum(x * x for x in a) ** 0.5
     nb = sum(y * y for y in b) ** 0.5
     return dot / (na * nb) if na and nb else 0.0
@@ -59,7 +59,9 @@ def check_rerank(case: dict) -> list[str]:
     failures: list[str] = []
 
     if len(results) != len(case["documents"]):
-        failures.append(f"expected {len(case['documents'])} results, got {len(results)}")
+        failures.append(
+            f"expected {len(case['documents'])} results, got {len(results)}"
+        )
 
     scores = [r["score"] for r in results]
     if any(not 0.0 <= s <= 1.0 for s in scores):
@@ -131,7 +133,9 @@ def main() -> int:
     if health.status != 200:
         raise SystemExit(f"health returned {health.status}")
 
-    cases = [json.loads(line) for line in CASES.read_text().splitlines() if line.strip()]
+    cases = [
+        json.loads(line) for line in CASES.read_text().splitlines() if line.strip()
+    ]
     failed = 0
     for case in cases:
         handler = HANDLERS[case["endpoint"]]
