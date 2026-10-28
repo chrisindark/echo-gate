@@ -57,7 +57,14 @@ Returns `503` with `status: "degraded"` otherwise, listing `unloaded` roles.
 ### `GET /models`
 
 Returns the effective `models.lock.yaml` contents plus the resolved revision for
-each role. Consumers log this on startup so a version skew is visible in logs.
+each role. Consumers verify this on startup so a version skew is visible, and so a
+required role that failed to load stops the process instead of degrading silently.
+
+This endpoint is optional for third-party engines. A `404`/`405` means "reachable
+but capability unknown": the consumer logs a warning, skips role/dimension
+verification for that endpoint, and relies on request-time degradation instead.
+Infinity is such an engine — it serves `/embeddings`, `/rerank` and `/classify`
+but has no introspection route, so pinning models is the only skew guard there.
 
 ## `POST /embeddings`
 

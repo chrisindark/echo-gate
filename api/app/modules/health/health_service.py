@@ -32,9 +32,14 @@ PROBE_TIMEOUT_SECONDS = 1.0
 #   provider call.
 # * Qdrant -> degradable. Same: a failed lookup is logged and treated as a cache
 #   miss, which the router answers from the provider.
+# * Inference engine -> degradable at runtime. Every role it serves degrades the
+#   same way (no candidates -> provider answer), so it must not evict replicas
+#   either. It is *not* degradable at boot: `InferenceClient.verify()` refuses to
+#   start the process, because otherwise every request would bypass the cache
+#   while this probe reported healthy.
 #
-# So Redis and Qdrant stay on `/deps` for alerting, where a failure is worth
-# paging on but must not pull a replica out of rotation.
+# So Redis, Qdrant and the engine stay on `/deps` for alerting, where a failure is
+# worth paging on but must not pull a replica out of rotation.
 GATING_DEPENDENCIES = frozenset({"database"})
 
 # Maps the dependency kwargs `fastapi_health` passes to the handlers (keyed by
@@ -45,6 +50,7 @@ _CHECK_LABELS = {
     "check_vector_db": "vector_db",
     "check_celery_broker": "celery_broker",
     "check_celery_workers": "celery_workers",
+    "check_inference": "inference",
 }
 
 
@@ -119,6 +125,18 @@ async def check_celery_broker() -> bool:
         return True
     except Exception as e:
         logger.error("Health check failed for Celery Broker: %s", e)
+        return False
+
+
+async def check_inference() -> bool:
+    """Inference engine probe: reachable and serving every required role."""
+    try:
+        inference = DependencyContainer.get_inference_client()
+        return await asyncio.wait_for(
+            inference.healthy(), timeout=PROBE_TIMEOUT_SECONDS
+        )
+    except Exception as e:
+        logger.error("Health check failed for Inference Engine: %s", e)
         return False
 
 
@@ -216,4 +234,5 @@ DEPENDENCY_CHECKS = (
     check_redis,
     check_vector_db,
     check_celery_broker,
+    check_inference,
 )

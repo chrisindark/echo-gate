@@ -3,10 +3,11 @@
 Three layers are covered:
 
 * `InferenceClient` against a mocked HTTP transport: wire shapes, ordering,
-  error classification, retry, and the fail-open contract.
-* The services that now delegate to it (`CrossEncoderService`,
-  `EmbeddingService`): remote paths, request chunking, and that no torch model
-  is loaded when the engine is in use.
+  error classification, retry, the fail-open request contract, and the strict
+  startup verification.
+* The services that delegate to it (`CrossEncoderService`, `EmbeddingService`):
+  request chunking, role routing, the `USE_*` role toggles, and that nothing is
+  loaded in-process.
 * The fail-open chain: an unreachable engine must degrade the cache path, never
   fail the request.
 """
@@ -21,6 +22,7 @@ import httpx
 from app.core.config import config
 from app.modules.inference.inference_client import (
     InferenceClient,
+    InferenceConfigError,
     InferenceRequestError,
     InferenceUnavailable,
     InferenceUnreachable,
@@ -226,10 +228,22 @@ class _ClientTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await client.rerank("q", []), [])
         self.assertEqual(await client.classify([]), [])
 
-    async def test_probe_is_a_noop_when_disabled(self):
-        client = InferenceClient("")
-        self.assertFalse(client.enabled)
-        self.assertIsNone(await client.probe())
+    async def test_verify_refuses_to_start_without_an_engine_url(self):
+        # Every constructor default falls back to config, so clear them all rather
+        # than relying on the ambient .env of whoever runs the suite.
+        with patch.multiple(
+            config,
+            INFERENCE_BASE_URL="",
+            INFERENCE_EMBED_URL="",
+            INFERENCE_RERANK_URL="",
+            INFERENCE_RELEVANCE_URL="",
+            INFERENCE_NLI_URL="",
+        ):
+            client = InferenceClient()
+            self.assertFalse(client.enabled)
+            with self.assertRaises(InferenceConfigError):
+                await client.verify()
+            self.assertFalse(await client.healthy())
 
     async def test_sync_variants_share_the_wire_contract(self):
         def handler(request):
@@ -246,6 +260,7 @@ class _FakeInferenceClient:
     """Records calls so service-level delegation can be asserted."""
 
     base_url = BASE
+    enabled = True
 
     def url_for(self, role="embed"):
         return self.base_url
@@ -291,12 +306,15 @@ class _CrossEncoderServiceTest(unittest.IsolatedAsyncioTestCase):
 
         return CrossEncoderService(inference_client=client)
 
-    def test_remote_mode_loads_no_local_models(self):
-        service = self._service(_FakeInferenceClient())
-        self.assertIsNone(service.reranker_model)
-        self.assertIsNone(service.relevance_model)
-        self.assertIsNone(service.nli_model)
-        self.assertTrue(service.is_remote)
+    def test_roles_hold_only_the_engine_client(self):
+        client = _FakeInferenceClient()
+        service = self._service(client)
+        self.assertIs(service.inference, client)
+        for attribute in ("reranker_model", "relevance_model", "nli_model"):
+            self.assertFalse(
+                hasattr(service, attribute),
+                f"nothing is loaded in-process, so {attribute} must not exist",
+            )
 
     def test_rerank_preserves_pair_positions(self):
         client = _FakeInferenceClient()
@@ -343,6 +361,18 @@ class _CrossEncoderServiceTest(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(InferenceUnavailable):
             service.nli_predict("q", ["a"])
 
+    def test_disabling_a_role_raises_instead_of_calling_the_engine(self):
+        client = _FakeInferenceClient()
+        service = self._service(client)
+        saved = config.USE_NLI_MODEL
+        config.USE_NLI_MODEL = False
+        try:
+            with self.assertRaises(InferenceUnavailable):
+                service.nli_predict("q", ["a"])
+        finally:
+            config.USE_NLI_MODEL = saved
+        self.assertEqual(client.classify_calls, [])
+
 
 class _RoleRoutingTest(unittest.TestCase):
     """Distinct roles must never be served by one another's model."""
@@ -379,13 +409,12 @@ class _EmbeddingServiceTest(unittest.TestCase):
         with patch("fastembed.SparseTextEmbedding", MagicMock()):
             from app.modules.embedding.embedding_service import EmbeddingService
 
-            return EmbeddingService(use_ollama=False, inference_client=client)
+            return EmbeddingService(inference_client=client)
 
-    def test_remote_mode_uses_configured_dimension_and_loads_no_model(self):
+    def test_dense_comes_from_the_engine_and_imports_no_torch(self):
         service = self._service(_FakeInferenceClient())
-        self.assertIsNone(service.model)
+        self.assertFalse(hasattr(service, "model"))
         self.assertEqual(service.embedding_dimension, config.INFERENCE_EMBEDDING_DIM)
-        self.assertTrue(service.is_remote)
 
     def test_dense_goes_over_http(self):
         client = _FakeInferenceClient()
@@ -409,7 +438,7 @@ class _EmbeddingServiceTest(unittest.TestCase):
         with patch("fastembed.SparseTextEmbedding", builder):
             from app.modules.embedding.embedding_service import EmbeddingService
 
-            EmbeddingService(use_ollama=False, inference_client=_FakeInferenceClient())
+            EmbeddingService(inference_client=_FakeInferenceClient())
         kwargs = builder.call_args.kwargs
         self.assertTrue(
             kwargs["cache_dir"].endswith("/fastembed"),
@@ -418,16 +447,12 @@ class _EmbeddingServiceTest(unittest.TestCase):
 
         with patch.dict("os.environ", {"FASTEMBED_CACHE_PATH": "/somewhere/bm25"}):
             with patch("fastembed.SparseTextEmbedding", builder):
-                EmbeddingService(
-                    use_ollama=False, inference_client=_FakeInferenceClient()
-                )
+                EmbeddingService(inference_client=_FakeInferenceClient())
         self.assertEqual(builder.call_args.kwargs["cache_dir"], "/somewhere/bm25")
 
         with patch.dict("os.environ", {"BM25_LOCAL_FILES_ONLY": "true"}):
             with patch("fastembed.SparseTextEmbedding", builder):
-                EmbeddingService(
-                    use_ollama=False, inference_client=_FakeInferenceClient()
-                )
+                EmbeddingService(inference_client=_FakeInferenceClient())
         self.assertTrue(builder.call_args.kwargs["local_files_only"])
         self.assertTrue(config is not None)
 
@@ -592,7 +617,7 @@ class _SplitRoutingTest(unittest.IsolatedAsyncioTestCase):
         await client.aclose()
         self.assertEqual(len(client._async_clients), 0)
 
-    async def test_multi_endpoint_probing(self):
+    async def test_verify_walks_every_configured_endpoint(self):
         probed_urls: list[str] = []
 
         def probe_handler(request: httpx.Request) -> httpx.Response:
@@ -602,11 +627,14 @@ class _SplitRoutingTest(unittest.IsolatedAsyncioTestCase):
                 json={
                     "device": "cpu",
                     "loaded": {
-                        "embed": {
-                            "model": "all-MiniLM-L6-v2",
+                        role: {
+                            "model": "sentence-transformers/all-MiniLM-L6-v2"
+                            if role == "embed"
+                            else f"model-{role}",
                             "revision": "abc",
-                            "dim": 384,
+                            "dim": 384 if role == "embed" else None,
                         }
+                        for role in ("embed", "rerank", "relevance", "nli")
                     },
                 },
             )
@@ -629,12 +657,140 @@ class _SplitRoutingTest(unittest.IsolatedAsyncioTestCase):
             base_url="http://rerank-pool:7998",
         )
 
-        await client.probe()
+        await client.verify()
         # All 3 distinct endpoints should be probed
         self.assertIn("http://base-pool:7997/models", probed_urls)
         self.assertIn("http://embed-pool:7997/models", probed_urls)
         self.assertIn("http://rerank-pool:7998/models", probed_urls)
 
+        await client.aclose()
+
+
+class _StartupVerificationTest(unittest.IsolatedAsyncioTestCase):
+    """Boot is strict: a gateway that cannot cache must not come up at all."""
+
+    @staticmethod
+    def _loaded(**overrides):
+        loaded = {
+            "embed": {
+                "model": "sentence-transformers/all-MiniLM-L6-v2",
+                "revision": "abc",
+                "dim": config.INFERENCE_EMBEDDING_DIM,
+            },
+            "rerank": {"model": "BAAI/bge-reranker-base", "revision": "a", "dim": None},
+            "relevance": {"model": "ms-marco", "revision": "b", "dim": None},
+            "nli": {"model": "nli-deberta", "revision": "c", "dim": None},
+        }
+        for role, patch_ in overrides.items():
+            if patch_ is None:
+                loaded.pop(role, None)
+            else:
+                loaded[role] = patch_
+        return loaded
+
+    def _transport(self, loaded, *, device="cpu"):
+        def handler(request):
+            return httpx.Response(200, json={"device": device, "loaded": loaded})
+
+        return httpx.MockTransport(handler)
+
+    async def _verify(self, loaded, **kwargs):
+        client = InferenceClient(BASE)
+        client._async_clients[BASE] = httpx.AsyncClient(
+            transport=self._transport(loaded), base_url=BASE
+        )
+        try:
+            return await client.verify()
+        finally:
+            await client.aclose()
+
+    async def test_happy_path_reports_the_engine(self):
+        body = await self._verify(self._loaded())
+        self.assertEqual(body["device"], "cpu")
+
+    async def test_unreachable_engine_fails_startup(self):
+        client = InferenceClient(BASE)
+
+        def refused(request):
+            raise httpx.ConnectError("refused")
+
+        client._async_clients[BASE] = httpx.AsyncClient(
+            transport=httpx.MockTransport(refused), base_url=BASE
+        )
+        with self.assertRaises(InferenceConfigError):
+            await client.verify()
+        await client.aclose()
+
+    async def test_missing_role_fails_startup(self):
+        # An engine that came up without its reranker would answer 503 to every
+        # rerank call, which looks exactly like "no candidates" to the router.
+        with self.assertRaises(InferenceConfigError) as caught:
+            await self._verify(self._loaded(rerank=None))
+        self.assertIn("rerank", str(caught.exception))
+
+    async def test_embedding_dim_mismatch_fails_startup(self):
+        with self.assertRaises(InferenceConfigError) as caught:
+            await self._verify(
+                self._loaded(
+                    embed={
+                        "model": "sentence-transformers/all-MiniLM-L6-v2",
+                        "revision": "abc",
+                        "dim": config.INFERENCE_EMBEDDING_DIM + 384,
+                    }
+                )
+            )
+        self.assertIn("INFERENCE_EMBEDDING_DIM", str(caught.exception))
+
+    async def test_embedding_model_mismatch_fails_startup(self):
+        with self.assertRaises(InferenceConfigError):
+            await self._verify(
+                self._loaded(
+                    embed={
+                        "model": "some/other-embedder",
+                        "revision": "abc",
+                        "dim": config.INFERENCE_EMBEDDING_DIM,
+                    }
+                )
+            )
+
+    async def test_disabling_a_role_drops_it_from_the_check(self):
+        saved = config.USE_NLI_MODEL
+        config.USE_NLI_MODEL = False
+        try:
+            await self._verify(self._loaded(nli=None))
+        finally:
+            config.USE_NLI_MODEL = saved
+
+    async def test_engine_without_models_endpoint_is_reachable_but_unverified(self):
+        """Infinity implements /embeddings, /rerank and /classify, not /models.
+
+        Refusing to boot against it would make the production engine unusable, so
+        the endpoint is treated as "reachable, capability unknown" instead.
+        """
+
+        def handler(request):
+            return httpx.Response(404, json={"detail": "not found"})
+
+        client = InferenceClient(BASE)
+        client._async_clients[BASE] = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler), base_url=BASE
+        )
+        try:
+            self.assertEqual(await client.verify(), {})
+            self.assertTrue(await client.healthy())
+        finally:
+            await client.aclose()
+
+    async def test_engine_that_errors_on_models_fails_startup(self):
+        def handler(request):
+            return httpx.Response(500, text="boom")
+
+        client = InferenceClient(BASE)
+        client._async_clients[BASE] = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler), base_url=BASE
+        )
+        with self.assertRaises(InferenceConfigError):
+            await client.verify()
         await client.aclose()
 
 

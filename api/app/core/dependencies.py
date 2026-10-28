@@ -1,3 +1,5 @@
+import logging
+
 from app.core.config import config
 from app.core.database import SessionLocal, SessionLocalRead
 from app.modules.api_keys.api_keys_service import get_api_key_service
@@ -25,6 +27,8 @@ from app.modules.shadow_cache.shadow_cache_service import ShadowCacheService
 from app.modules.verifier.cross_encoder_service import CrossEncoderService
 from app.modules.verifier.instruction_service import InstructionVerifier
 from app.modules.verifier.judge_service import JudgeService
+
+logger = logging.getLogger(__name__)
 
 
 class DependencyContainer:
@@ -68,7 +72,15 @@ class DependencyContainer:
         cls.get_judge_service()
         cls.get_gateway_requests_service()
         cls.get_shadow_cache_service()
-        await cls.get_inference_client().probe()
+        # Last, because it is the only check that can refuse to start: every role
+        # is served over HTTP now, so an unreachable or skewed engine means a
+        # process that answers every request with no cache.
+        engine = await cls.get_inference_client().verify()
+        logger.info(
+            "inference engine verified (roles=%s, device=%s)",
+            sorted(engine.get("loaded") or {}),
+            engine.get("device"),
+        )
 
     @classmethod
     async def shutdown(cls) -> None:
@@ -121,11 +133,8 @@ class DependencyContainer:
     @classmethod
     def get_embedding_service(cls) -> EmbeddingService:
         if cls._embedding_service is None:
-            # use_ollama=False frees up the Ollama slot and uses local CPU/GPU via Python
             cls._embedding_service = EmbeddingService(
-                use_ollama=False,
-                model_name=config.EMBEDDING_MODEL_NAME,
-                inference_client=cls.get_inference_client(),
+                inference_client=cls.get_inference_client()
             )
         return cls._embedding_service
 

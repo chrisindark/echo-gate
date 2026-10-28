@@ -13,44 +13,58 @@ changes' entry with a `[BREAKING]` marker.
 ### Added
 
 - **Shared inference platform (`INFERENCE_BASE_URL`)**: dense embeddings,
-  reranking, relevance, and NLI can be served over HTTP by `inference-platform/`
+  reranking, relevance, and NLI are served over HTTP by `inference-platform/`
   instead of being loaded into every gateway process. One contract
   (`inference-platform/contract/INFERENCE_CONTRACT.md`) with two
   implementations: a native FastAPI server for laptops, and Infinity for GPU
   hosts. Requests route by **role** (`embed` / `rerank` / `relevance` / `nli`)
   so the two distinct cross-encoders cannot be confused for one another.
-  Leaving `INFERENCE_BASE_URL` empty preserves the previous in-process
-  behaviour exactly.
+- **Strict startup verification**: `InferenceClient.verify()` runs at the end of
+  startup and refuses to boot when no engine URL is set, an endpoint is
+  unreachable, a required role is not loaded, or the engine's embedding
+  dimension / model id disagrees with `INFERENCE_EMBEDDING_DIM` /
+  `EMBEDDING_MODEL_NAME`. Previously a missing engine left the gateway serving
+  every request with no cache while `/ready` stayed green.
 - **`api/app/modules/inference/`**: `InferenceClient` — connection-pooled
   `httpx` client with role routing, retries for transient faults, and error
   classification (`InferenceUnavailable` vs `InferenceUnreachable` vs
-  `InferenceRequestError`).
+  `InferenceRequestError` vs `InferenceConfigError`).
 - **`inference-platform/`**: models lockfile with Hugging Face revisions,
   a drift-guard eval set, a latency bench, and a compose file for the Infinity
   deployment.
 
 ### Changed
 
-- **Model calls across the HTTP boundary are fail-open**: an unreachable
-  inference engine now degrades the request to the provider and reports
+- **The in-process model path is gone, not just optional.** `EmbeddingService`
+  and `CrossEncoderService` hold only an `InferenceClient`; the Ollama embedding
+  mode, the lazy `sentence-transformers` imports, and the `local-models` extra
+  were deleted along with `--build-arg INSTALL_LOCAL_MODELS`. `poetry.lock` loses
+  ~1,270 lines. `USE_RERANKER_MODEL` / `USE_RELEVANCE_MODEL` / `USE_NLI_MODEL`
+  survive as per-role toggles (a disabled role raises instead of calling the
+  engine).
+- **A dead engine now pages instead of hiding**: `check_inference` is part of
+  `GET /api/v1/health/deps` (`"inference": "failed"`, overall `degraded`) while
+  `/ready` still gates on Postgres alone, since the gateway can still answer
+  from the provider.
+- **Model calls across the HTTP boundary are fail-open at runtime**: an
+  unreachable inference engine degrades the request to the provider and reports
   `cache_bypassed` (log reason `inference_unavailable`) instead of raising. A
   refused connection fails fast in ~1-3ms rather than spending the latency
   budget on retry backoff.
-- **`CrossEncoderService` and `EmbeddingService` import torch lazily**, so a
-  deployment running against the inference platform never loads it
-  (verified: `torch`, `transformers`, and `sentence_transformers` are absent
-  from `sys.modules`). `JudgeService` now awaits the cross-encoder async
-  variants instead of blocking the event loop.
-- Measured parity with the in-process models is float-exact (max abs diff
-  ~5e-7 for rerank, relevance, and NLI logits; cosine 1.0 for embeddings).
+- **`JudgeService` awaits the cross-encoder async variants** instead of blocking
+  the event loop.
+- Measured parity with the previous in-process models is float-exact (max abs
+  diff ~5e-7 for rerank, relevance, and NLI logits; cosine 1.0 for embeddings).
+- `scripts/calibrate_reranker.py` scores through `CrossEncoderService` against
+  the engine, so calibration and production use the same model and request path.
 
 - **Gateway image diet**: `sentence-transformers`, `transformers`, and `torch`
-  are now the optional `local-models` extra rather than main dependencies, and
-  the Dockerfile is multi-stage, so poetry and its wheel cache stay out of the
-  runtime image. Measured: **0.71GB** engine-backed vs **9.4GB** with the extra
-  (CUDA libraries alone are 3.3GB of the ~5.2GB it adds) vs 1.04GB for the
-  single-stage predecessor. Bytecode is precompiled, which costs ~0.1GB and
-  halves cold import (2.4s → 1.17s).
+  are no longer dependencies, and the Dockerfile is multi-stage, so poetry and
+  its wheel cache stay out of the runtime image. Measured: **0.71GB** vs
+  **9.4GB** for the pre-removal build with in-process models (CUDA libraries
+  alone were 3.3GB of the ~5.2GB it added) vs 1.04GB for the single-stage
+  predecessor. Bytecode is precompiled, which costs ~0.1GB and halves cold import
+  (2.4s → 1.17s).
   The image now also sets `PROJECT_NAME`, which `FastAPI` requires at import
   time, and pins `BM25_MODEL_PATH` so sparse BM25 resolves deterministically
   offline.

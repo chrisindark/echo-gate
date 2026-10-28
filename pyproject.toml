@@ -28,16 +28,9 @@ fastapi-health = "^0.4.0"
 psycopg = {version = ">=3.1", extras = ["binary"]}
 opentelemetry-api = "^1.45.1"
 
-# Optional: only for the in-process fallback. See [tool.poetry.extras] below.
-sentence-transformers = {version = ">=3.0.1", optional = true}
-
-# In-process model inference is optional: dense embeddings, reranking, and NLI
-# are normally served by `inference-platform/` over HTTP (see INFERENCE_BASE_URL).
-# This extra pulls torch + transformers for the legacy in-process path; it is not
-# installed by default so the gateway image stays small.
-#   poetry install --extras local-models
-[tool.poetry.extras]
-local-models = ["sentence-transformers"]
+# No torch here on purpose: dense embeddings, reranking, relevance and NLI are
+# served by `inference-platform/` over HTTP (INFERENCE_BASE_URL). There is no
+# in-process fallback, so sentence-transformers is not a dependency at all.
 
 [build-system]
 requires = ["poetry-core"]

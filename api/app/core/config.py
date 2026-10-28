@@ -393,9 +393,10 @@ class Config:
         # Shared Inference Platform
         #
         # When INFERENCE_BASE_URL (or any per-role URL override) is set, dense
-        # embeddings, reranking and NLI are served over HTTP by `inference-platform/`
-        # instead of being loaded into this process. Empty (the default) keeps the
-        # in-process models, so an existing deployment is unchanged until it opts in.
+        # embeddings, reranking and NLI are served over HTTP by `inference-platform/`.
+        # There is no in-process fallback: an unset URL makes `verify()` refuse to
+        # start, because a gateway with no engine serves every request from the
+        # provider while still reporting itself healthy.
         #
         # In production, services can be split across independent containers or hosts:
         #   INFERENCE_EMBED_URL -> /embeddings (e.g. http://inference-embed:7997)
@@ -463,7 +464,10 @@ class Config:
         self.INFERENCE_RELEVANCE_MODEL = os.getenv("INFERENCE_RELEVANCE_MODEL", "")
         self.INFERENCE_NLI_MODEL = os.getenv("INFERENCE_NLI_MODEL", "")
 
-        # Conditional Model Loading for Deployment Separation
+        # Per-role switches for the inference engine. They do not select a local
+        # model any more; turning a role off makes its calls raise
+        # `InferenceUnavailable` so callers take their explicit fallback, and
+        # `InferenceClient.verify()` stops requiring that role at startup.
         self.USE_RERANKER_MODEL = (
             os.getenv("USE_RERANKER_MODEL", "true").lower() == "true"
         )
