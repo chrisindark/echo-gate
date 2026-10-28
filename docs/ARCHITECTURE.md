@@ -12,7 +12,7 @@ the chat playground, trace explorer, and analytics dashboards.
 | HTTP API | `api/app/main.py`, `api/app/modules/*/*_controller.py` | FastAPI app, middleware, routers. |
 | Routing/cache core | `api/app/modules/llm/llm_router_service.py` | Owns the request lifecycle: exact cache, semantic cache, verification, provider call, cache write, logging. |
 | Provider adapters | `api/app/modules/llm/llm_provider_service.py` | One method per provider: `google-genai`/`gemini`, `openai`, `groq`, `openrouter`, `ollama`. |
-| Embeddings | `api/app/modules/embedding/embedding_service.py` | Dense embeddings (via `inference-platform/` over HTTP) and sparse lexical embeddings (BM25, always local). |
+| Embeddings | `api/app/modules/embedding/embedding_service.py` | Dense embeddings (via `inference-platform/` over HTTP) and sparse lexical embeddings (BM25, still local — see the inference platform section for why). |
 | Inference platform | `api/app/modules/inference/inference_client.py` | HTTP client for the shared model server: embeddings, reranking, relevance, NLI. Fail-open; owns role routing and error classification. |
 | Redis cache | `api/app/modules/redis/redis_service.py` | Exact-match cache and quota counters. |
 | Qdrant cache | `api/app/modules/qdrant/llm_cache_collection_service.py` | Vector cache collection `embeddings_multivector`: upsert, exact search, dense search, hybrid RRF search, expiry deletion. |
@@ -234,10 +234,14 @@ When the indicator reports `READY`, set `CACHE_MODE=active` (and enable the
 
 ## Shared inference platform
 
-Dense embeddings, reranking, relevance, and NLI can be served by a separate
-deployable (`inference-platform/`, a sibling dependency root inside this repo)
-instead of being loaded into the gateway process. One contract, two
-implementations: a native FastAPI server for laptops and Infinity for GPU hosts.
+Dense embeddings, reranking, relevance, and NLI are served by a separate
+deployable (`inference-platform/`, a sibling dependency root inside this repo,
+packaged with uv and intended to move to its own repository) instead of being
+loaded into the gateway process. One contract, two implementations: a native
+FastAPI server for laptops and Infinity for GPU hosts. The same contract also
+serves a `sparse` (BM25) role, which the gateway does not use yet — its existing
+Qdrant collection holds vectors from the gateway's own tokenizer, so sparse stays
+local here until that collection is rebuilt.
 
 ```
 Local / Single-node:

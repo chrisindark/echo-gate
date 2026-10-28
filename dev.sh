@@ -16,8 +16,7 @@ if [[ -x inference-platform/.venv/bin/python ]]; then
   (cd inference-platform && ./dev/serve.sh) &
 else
   echo "WARNING: inference-platform/.venv is missing; the API will refuse to boot."
-  echo "         cd inference-platform && python3.11 -m venv .venv \\"
-  echo "           && .venv/bin/pip install -r dev/requirements.txt"
+  echo "         cd inference-platform && uv sync && uv run inference-platform"
 fi
 
 echo "Starting EchoGate Backend..."

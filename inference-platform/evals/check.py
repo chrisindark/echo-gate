@@ -8,7 +8,11 @@ boundary makes invisible: a swapped model, an inverted label order, or a changed
 score scale, all of which look like "the cache hit rate dropped" downstream.
 
     python evals/check.py
-    INFERENCE_BASE_URL=http://localhost:7997 python evals/check.py
+    uv run python evals/check.py
+    INFERENCE_BASE_URL=http://localhost:7997 uv run python evals/check.py
+
+The sparse check runs only when `/health` reports a loaded `sparse` role, so the
+same script is valid against engines that do not serve one (Infinity).
 
 Exits non-zero on the first failing case group.
 """
@@ -121,6 +125,65 @@ def check_embeddings(case: dict) -> list[str]:
     return failures
 
 
+def _sparse_terms(entries: list[dict], index: int) -> set[int]:
+    rows = [e for e in entries if e.get("index") == index]
+    return set(rows[0].get("indices") or []) if rows else set()
+
+
+def check_sparse() -> list[str]:
+    """Sparse shape + determinism, only run when the sparse role is loaded.
+
+    Infinity does not serve a sparse role, so this is skipped rather than failed
+    against a third-party engine.
+    """
+    failures: list[str] = []
+    probe = ["how do i rotate an api key", "rotating api keys for a service"]
+    cold = post("/embeddings", {"input": probe, "dense": False, "sparse": True})
+    again = post("/embeddings", {"input": probe, "dense": False, "sparse": True})
+
+    entries = cold.get("sparse") or []
+    if len(entries) != len(probe):
+        return [f"expected {len(probe)} sparse rows, got {len(entries)}"]
+    if "data" in cold:
+        failures.append("dense=false still returned `data`")
+    if not cold.get("sparse_model"):
+        failures.append("response is missing `sparse_model`")
+
+    for entry in entries:
+        indices = entry.get("indices") or []
+        values = entry.get("values") or []
+        if not indices or not values:
+            failures.append(f"row {entry.get('index')} is empty: {entry}")
+        elif len(indices) != len(values):
+            failures.append(
+                f"row {entry.get('index')}: {len(indices)} indices vs "
+                f"{len(values)} values"
+            )
+        elif any(v <= 0 for v in values):
+            failures.append(f"row {entry.get('index')}: non-positive BM25 weight")
+
+    if [(e.get("indices"), e.get("values")) for e in entries] != [
+        (e.get("indices"), e.get("values")) for e in again.get("sparse") or []
+    ]:
+        failures.append("sparse output is not deterministic across identical calls")
+
+    unrelated = post(
+        "/embeddings",
+        {"input": ["the cafeteria closes at five"], "dense": False, "sparse": True},
+    )
+    related_overlap = _sparse_terms(entries, 0) & _sparse_terms(entries, 1)
+    unrelated_overlap = _sparse_terms(entries, 0) & _sparse_terms(
+        unrelated.get("sparse") or [], 0
+    )
+    if len(related_overlap) <= len(unrelated_overlap):
+        failures.append(
+            "related texts share no more terms than unrelated ones "
+            f"({len(related_overlap)} vs {len(unrelated_overlap)}) — tokenizer "
+            "or weighting changed"
+        )
+    return failures
+
+
 HANDLERS = {
     "rerank": check_rerank,
     "classify": check_classify,
@@ -132,6 +195,7 @@ def main() -> int:
     health = urllib.request.urlopen(f"{BASE_URL}/health", timeout=10)
     if health.status != 200:
         raise SystemExit(f"health returned {health.status}")
+    loaded = set((json.loads(health.read()).get("roles") or {}).keys())
 
     cases = [
         json.loads(line) for line in CASES.read_text().splitlines() if line.strip()
@@ -148,7 +212,20 @@ def main() -> int:
         else:
             print(f"ok    {case['id']}")
 
-    print(f"\n{len(cases) - failed}/{len(cases)} passed against {BASE_URL}")
+    if "sparse" in loaded:
+        sparse_failures = check_sparse()
+        if sparse_failures:
+            failed += 1
+            print("FAIL  sparse")
+            for failure in sparse_failures:
+                print(f"        {failure}")
+        else:
+            print("ok    sparse")
+    else:
+        print("skip  sparse (role not loaded on this engine)")
+
+    total = len(cases) + (1 if "sparse" in loaded else 0)
+    print(f"\n{total - failed}/{total} passed against {BASE_URL}")
     return 1 if failed else 0
 
 

@@ -424,6 +424,14 @@ comparison and no data-driven threshold calibration. Remaining work:
 > and the image is **0.71GB** (measured; the pre-removal build with in-process
 > models was 9.4GB). The original `<300MB` estimate was wrong: `onnxruntime` +
 > BM25 put the floor near 0.7GB.
+>
+> **Status (2026-10-29):** the platform is packaged as a standalone service —
+> `pyproject.toml` + `uv.lock` + `src/inference_platform/` with a console entry
+> point, no shared environment with the gateway — and its contract gained a
+> `sparse` (BM25) role answered by the same `/embeddings` call as the dense
+> vectors. Echo Gate itself still computes BM25 locally (its Qdrant collection
+> holds vectors from the gateway's own tokenizer, so moving the tokenizer means
+> re-indexing); doc-nexus and agent-forge are the consumers for the served role.
 
 - [x] **High-performance model serving**: embeddings, reranking, relevance, and
   NLI are served by `inference-platform/` over HTTP; `CrossEncoderService` and
@@ -434,8 +442,8 @@ comparison and no data-driven threshold calibration. Remaining work:
   outages stay fail-open and report as `inference: failed` on
   `/api/v1/health/deps`. Image: 0.71GB (9.4GB before removal — CUDA libraries
   dominated). Multi-stage build keeps poetry and its wheel cache out of the
-  runtime image. Implementations: `dev/native_server.py` for laptops, Infinity
-  for GPU hosts.
+  runtime image. Implementations: the `inference_platform` service in this repo
+  (`uv run inference-platform`) for laptops, Infinity for GPU hosts.
 - [ ] **Cost-aware cache retention (vCache-style)**: record generation metrics
   (latency seconds, token usage, model tier) in cache-entry metadata; weight
   retention to protect expensive responses (slow reasoning models, complex

@@ -75,7 +75,7 @@ flowchart TD
 ### Step 1: External Inference Microservice & Gateway Decoupling
 
 - [x] **1.1 Compose Service Setup**:
-  - Native host server for Mac M4 development (`inference-platform/dev/native_server.py` on port 7997 via `./dev/serve.sh`).
+  - Native host server for Mac M4 development (`inference-platform/` package, `uv run inference-platform` on port 7997 via `./dev/serve.sh`).
   - Production single-container Compose (`inference-platform/deploy/compose/inference.yml`) running Infinity on port 7997.
   - Production split-pool Compose (`inference-platform/deploy/compose/inference-split.yml`) running independent containers for embeddings (7997), reranking (7998), and classification/NLI (7999).
   - Health probes (`/health`), models lock (`models.lock.yaml`), and optional GPU resource reservations.

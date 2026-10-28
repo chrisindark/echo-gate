@@ -587,8 +587,8 @@ class InferenceClient:
             except (httpx.HTTPError, OSError) as exc:
                 raise InferenceConfigError(
                     f"inference: cannot reach {url} ({exc!r}). Start the inference "
-                    "engine (inference-platform/dev/native_server.py) or fix "
-                    "INFERENCE_BASE_URL."
+                    "engine (cd inference-platform && uv run inference-platform) "
+                    "or fix INFERENCE_BASE_URL."
                 ) from exc
             if response.status_code in (404, 405):
                 # Third-party engines (Infinity) implement the three inference

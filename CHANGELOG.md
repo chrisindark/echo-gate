@@ -32,8 +32,29 @@ changes' entry with a `[BREAKING]` marker.
 - **`inference-platform/`**: models lockfile with Hugging Face revisions,
   a drift-guard eval set, a latency bench, and a compose file for the Infinity
   deployment.
+- **`sparse` role on the shared contract**: `POST /embeddings` accepts `sparse:
+  true` and returns BM25 `indices`/`values` for the same batch as the dense
+  `data`, in one round trip — a hybrid consumer pays one hop, not two. `/health`
+  reports every role's `kind` and, for sparse, the `fastembed` `backend` version,
+  because the tokenizer build is part of the sparse vector space. A sparse
+  failure returns the dense vectors plus `sparse_error` instead of failing the
+  request. Echo Gate keeps BM25 local until its Qdrant collection is rebuilt; the
+  role exists for doc-nexus and agent-forge.
+- **`inference-platform/` is its own dependency root**: `pyproject.toml` +
+  committed `uv.lock`, a `src/inference_platform/` package (`api`, `roles`,
+  `schemas`, `settings`, `errors`), a console entry point, and a wire-contract
+  test suite that runs without downloading weights. It replaces
+  `dev/requirements.txt` and the single-file `dev/native_server.py`, so the
+  directory can move to its own repository unchanged.
 
 ### Changed
+
+- **`inference-platform/` packaging**: `dev/requirements.txt` and
+  `dev/native_server.py` are gone; the server is the installed
+  `inference_platform` package and `dev/serve.sh` runs
+  `uv run --frozen inference-platform`. `dev.sh`, `docs/DEVELOPMENT.md`, and
+  `AGENTS.md` use `uv sync` / `uv run` instead of
+  `python3.11 -m venv` + `pip install -r`.
 
 - **The in-process model path is gone, not just optional.** `EmbeddingService`
   and `CrossEncoderService` hold only an `InferenceClient`; the Ollama embedding

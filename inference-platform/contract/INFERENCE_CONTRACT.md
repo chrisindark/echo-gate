@@ -1,8 +1,13 @@
 # Inference contract
 
 The wire surface shared by Echo Gate, doc-nexus, and agent-forge. A consumer that
-codes against this document works unchanged whether `dev/native_server.py` or
-Infinity is answering.
+codes against this document works unchanged whether the native
+`inference_platform` server or Infinity is answering.
+
+The version is `1`. Additive request/response fields (for example `sparse`) do not
+bump it: a consumer that predates the field keeps working, and a consumer that uses
+it can detect support by the field's presence in the response. Bump the version
+only for a breaking change, i.e. when an existing consumer must change code.
 
 Base URL: `$INFERENCE_BASE_URL` (default port `7997`). All routes are `POST` except
 the probes. No authentication: the service is expected on a private network only.
@@ -19,8 +24,8 @@ the probes. No authentication: the service is expected on a private network only
    position.
 4. **Requests are routed by role.** Every request carries exactly one of
    `role` or `model`. `role` selects one of the roles in `models.lock.yaml`
-   (`embed`, `rerank`, `relevance`, `nli`); `model` names a served model id
-   explicitly and wins over `role`. The server rejects an unknown role or model
+   (`embed`, `rerank`, `relevance`, `nli`, `sparse`); `model` names a served model
+   id explicitly and wins over `role`. The server rejects an unknown role or model
    rather than substituting one.
 
    This rule exists because two roles share the `/rerank` route: without it an
@@ -44,12 +49,19 @@ the probes. No authentication: the service is expected on a private network only
   "status": "ok",
   "version": "1",
   "roles": {
-    "embed":  {"model": "sentence-transformers/all-MiniLM-L6-v2", "loaded": true, "device": "mps"},
-    "rerank": {"model": "BAAI/bge-reranker-base",                "loaded": true, "device": "mps"},
-    "nli":    {"model": "cross-encoder/nli-deberta-v3-small",    "loaded": true, "device": "mps"}
+    "embed":  {"model": "sentence-transformers/all-MiniLM-L6-v2", "kind": "embedder",      "loaded": true, "device": "mps", "dim": 384},
+    "rerank": {"model": "BAAI/bge-reranker-base",                "kind": "cross-encoder", "loaded": true, "device": "mps", "dim": null},
+    "nli":    {"model": "cross-encoder/nli-deberta-v3-small",    "kind": "cross-encoder", "loaded": true, "device": "mps", "labels": ["contradiction", "entailment", "neutral"]},
+    "sparse": {"model": "Qdrant/bm25",                           "kind": "sparse",        "loaded": true, "backend": "fastembed 0.9.1"}
   }
 }
 ```
+
+`kind` is `embedder` (dense vectors), `cross-encoder` (pairwise scores), or
+`sparse` (lexical indices + weights), and tells a consumer what a role can answer
+before it sends traffic. `backend` appears on sparse roles only: the tokenizer
+build is part of the sparse vector space, so two services on different `fastembed`
+versions produce incomparable indices.
 
 `status` is `ok` only when every role the server was asked to load is ready.
 Returns `503` with `status: "degraded"` otherwise, listing `unloaded` roles.
@@ -68,18 +80,29 @@ but has no introspection route, so pinning models is the only skew guard there.
 
 ## `POST /embeddings`
 
-OpenAI-compatible request shape.
+OpenAI-compatible for dense, extended with an optional sparse branch in the same
+call.
 
 ```json
 {
   "role": "embed",
   "input": ["first text", "second text"],
-  "dimensions": null
+  "dimensions": null,
+  "dense": true,
+  "sparse": false
 }
 ```
 
-`model` may replace `role` to pin an explicit id (e.g.
-`sentence-transformers/all-MiniLM-L6-v2`).
+| field | default | meaning |
+| :--- | :--- | :--- |
+| `role` / `model` | — | which dense role/model answers the `dense` branch |
+| `input` | required | a string or an array of strings |
+| `dimensions` | `null` | asserted dense length; a mismatch is `400 dimension_mismatch` |
+| `dense` | `true` | compute dense vectors |
+| `sparse` | `false` | compute sparse BM25 vectors in the same response |
+| `sparse_model` | `null` | optional pin for the sparse branch (else the `sparse` role) |
+
+Dense only — the default, and what every pre-existing consumer sends:
 
 ```json
 {
@@ -93,16 +116,52 @@ OpenAI-compatible request shape.
 }
 ```
 
-- `input` accepts a string or an array of strings. Arrays are the fast path
-  (one batched forward pass); single strings are wrapped internally.
+Dense and sparse together (`"dense": true, "sparse": true`):
+
+```json
+{
+  "object": "list",
+  "model": "sentence-transformers/all-MiniLM-L6-v2",
+  "sparse_model": "Qdrant/bm25",
+  "data": [
+    {"object": "embedding", "index": 0, "embedding": [0.0123, -0.0456, "..."]}
+  ],
+  "sparse": [
+    {"index": 0, "indices": [195839524, 1188412670], "values": [1.6786, 0.2501]}
+  ],
+  "usage": {"prompt_tokens": 7, "total_tokens": 7}
+}
+```
+
+- **One hybrid request, not two.** Asking for both branches is a single round trip
+  and a single tokenizer pass on the server. Two calls cost a second hop for no
+  benefit.
+- `sparse` entries preserve input order via `index`, exactly like `data`. `indices`
+  are the tokenizer's vocabulary slots and `values` their BM25 weights;
+  `len(indices) == len(values)`. There is no dimension: sparse vectors are compared
+  by intersection, so the consumer stores them as Qdrant sparse vectors.
+- **Sparse indices are a vector space of their own.** They come from a hashed
+  tokenizer, so a collection must only ever hold vectors from one tokenizer build.
+  `/health` reports `backend` on the sparse role; record it next to the vectors.
+- `"dense": false` omits `model` and `data` entirely, so a sparse-only consumer
+  never loads a dense model. `"dense": false, "sparse": false` is `400
+  nothing_requested`.
+- **Partial failure is explicit.** If dense succeeds and sparse raises, the
+  response is `200` with `data` present, no `sparse` key, and `sparse_error`
+  describing the failure — a hybrid consumer degrades to dense. If sparse was the
+  only branch requested, the failure is `500 inference_failed` with
+  `branch: "sparse"`, because there is nothing to return.
+
+- `input` accepts a string or an array of strings. Arrays are the fast path (one
+  batched forward pass); single strings are wrapped internally.
 - Vector length equals the role's `dim` (384 for the default embed role) and is
-  fixed by the loaded model. A mismatch means the consumer is talking to the
-  wrong deployment.
-- Vectors are L2-normalized when the role sets `normalize: true`. Cosine
-  distance is scale-invariant, so this is safe either way, but consumers should
-  not assume unit length when storing.
-- Empty input array returns `{"object": "list", "data": [], ...}` with `200`,
-  not an error.
+  fixed by the loaded model. A mismatch means the consumer is talking to the wrong
+  deployment.
+- Vectors are L2-normalized when the role sets `normalize: true`. Cosine distance
+  is scale-invariant, so this is safe either way, but consumers should not assume
+  unit length when storing.
+- Empty input array returns `{"object": "list", "data": [], "sparse": [], ...}`
+  with `200`, not an error.
 
 ## `POST /rerank`
 
@@ -175,6 +234,9 @@ NLI over premise/hypothesis pairs. Echo Gate sends `[user_prompt, cached_answer]
 - Treat `503` (model not loaded) and connection failure identically: degrade to
   the LLM provider path. Semantic caching is never allowed to fail a request.
 - Persist the model id + revision used to produce a vector alongside that vector.
-  Echo Gate stores it as `embedding_version`; doc-nexus must do the same.
+  Echo Gate stores it as `embedding_version`; doc-nexus must do the same. For
+  sparse vectors, the *tokenizer build* is the version: store the sparse role's
+  `backend` string from `/health` and never write two different builds into one
+  collection.
 - Do not parse or depend on `score_raw` for production thresholds without
   recording the calibration in this repo.

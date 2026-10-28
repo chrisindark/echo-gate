@@ -69,8 +69,7 @@ short version:
 
 ```bash
 cd inference-platform
-python3.11 -m venv .venv && source .venv/bin/activate
-pip install -r dev/requirements.txt
+uv sync                             # own dependency root (uv, not the gateway's Poetry env)
 ./dev/serve.sh                      # http://localhost:7997, runs on the host
 ```
 
@@ -84,7 +83,8 @@ is the drift guard — it fails on a swapped model, an inverted NLI label order,
 a changed score scale:
 
 ```bash
-INFERENCE_BASE_URL=http://localhost:7997 python inference-platform/evals/check.py
+INFERENCE_BASE_URL=http://localhost:7997 uv run --project inference-platform \
+  python evals/check.py
 ```
 
 ### Container image

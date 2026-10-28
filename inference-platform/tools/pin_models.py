@@ -48,6 +48,12 @@ def main() -> int:
         model_id = spec.get("model")
         revision = spec.get("revision") or ""
 
+        # fastembed resolves and pins its own snapshot for sparse roles, so a
+        # Hugging Face SHA here would not describe what actually loads.
+        if (spec.get("kind") or "").strip().lower() == "sparse":
+            print(f"skip    {name:10s} {model_id} (kind=sparse, pinned by fastembed)")
+            continue
+
         if args.check and not revision:
             problems.append(f"{name}: unpinned ({model_id})")
             continue
