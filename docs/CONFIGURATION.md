@@ -154,6 +154,16 @@ In `shadow` mode every layer runs in the background regardless of the flags, so
 `SHADOW_*` settings are read even when the mode is not `shadow`; they only take
 effect while shadow evaluation runs.
 
+### Cache audit loop tuning (Phase 2)
+
+In `CACHE_MODE=active`, a low-frequency asynchronous audit captures unbiased ground-truth comparisons between approved semantic cache hits and fresh provider answers.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `CACHE_AUDIT_ENABLED` | `true` | Enable the out-of-band shadow audit loop on approved semantic cache hits. |
+| `CACHE_AUDIT_SAMPLE_RATE` | `0.02` | Fraction (0–1) of semantic cache hits sampled for fresh provider comparison. Default 2% (p ≈ 0.02) to keep LLM audit cost < 0.05% of serving spend. |
+| `CACHE_AUDIT_EVICT_ON_FAILURE` | `true` | Instant eviction kill switch: if the judge rates the cached response non-equivalent to the fresh completion, immediately delete the Qdrant point and Redis exact key. |
+
 ## Shared inference platform
 
 `INFERENCE_BASE_URL` moves dense embeddings, reranking, relevance and NLI out of

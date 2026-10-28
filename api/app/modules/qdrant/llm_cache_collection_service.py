@@ -506,6 +506,26 @@ class LlmCacheCollectionService:
             return None
 
     @log_latency()
+    def delete_point(self, point_id: str) -> bool:
+        """Deletes a single vector from Qdrant by point ID (instant eviction kill switch)."""
+        try:
+            logger.info(
+                "Evicting point %s from Qdrant collection %s",
+                point_id,
+                self.collection_name,
+            )
+            self.client_service.delete(
+                collection_name=self.collection_name,
+                points_selector=models.PointIdsList(points=[point_id]),
+                wait=True,
+            )
+            logger.info("Successfully evicted point %s from Qdrant", point_id)
+            return True
+        except Exception:
+            logger.exception("Failed to delete point %s from Qdrant", point_id)
+            return False
+
+    @log_latency()
     def delete_expired(self) -> None:
         """Deletes vectors where expires_at is less than the current time."""
         try:

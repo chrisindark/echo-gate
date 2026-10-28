@@ -239,6 +239,21 @@ class Config:
             "SHADOW_READINESS_MIN_EQUIVALENCE_RATE", 0.98, lower=0.0, upper=1.0
         )
 
+        # Cache Audit Loop (Phase 2)
+        #
+        # In CACHE_MODE=active, a small sample of semantic cache hits are audited
+        # out-of-band by fetching a fresh provider response and comparing it via
+        # the LLM judge. If judged non-equivalent, the entry is immediately evicted.
+        self.CACHE_AUDIT_ENABLED = (
+            os.getenv("CACHE_AUDIT_ENABLED", "true").lower() == "true"
+        )
+        self.CACHE_AUDIT_SAMPLE_RATE = _bounded_float_env(
+            "CACHE_AUDIT_SAMPLE_RATE", 0.02, lower=0.0, upper=1.0
+        )
+        self.CACHE_AUDIT_EVICT_ON_FAILURE = (
+            os.getenv("CACHE_AUDIT_EVICT_ON_FAILURE", "true").lower() == "true"
+        )
+
         # Cache Confidence Thresholds
         default_thresholds = {
             "code_generation": {"high": 0.95, "moderate": 0.88},

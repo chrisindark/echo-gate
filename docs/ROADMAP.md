@@ -362,24 +362,24 @@ the `PENDING → EVALUATED` trace pipeline (`gateway_requests`), and the periodi
 logged response of every non-error trace in isolation — there is no sampled *fresh-answer*
 comparison and no data-driven threshold calibration. Remaining work:
 
-- [ ] **Asynchronous shadow audit trigger** (`LlmRouterService`): on a semantic
+- [x] **Asynchronous shadow audit trigger** (`LlmRouterService`): on a semantic
   cache hit, roll a small sample probability (p ≈ 0.01–0.02); when selected,
   return the cached response immediately and enqueue a background task that
   (1) requests a fresh completion from the provider for the same prompt,
   (2) dispatches cached-vs-fresh to the judge, (3) persists the result to a
   dedicated audit table.
-- [ ] **Comparative lightweight judge**: extend the judge with the zero-shot
+- [x] **Comparative lightweight judge**: extend the judge with the zero-shot
   equivalence prompt (respond `YES`/`NO` for semantic equivalence, run on a
   fast low-cost model so audit overhead stays ~0.01–0.05% of total LLM
   spend), so the judge can catch silent false-positive hits, not just score
   cached answers in isolation.
-- [ ] **Audit ground-truth store**: a dedicated Postgres table
+- [x] **Audit ground-truth store**: a dedicated Postgres table
   (`cache_evaluations`): `request_id`, `tenant_id`, `model_name`,
   `query_text`, `cached_answer`, `fresh_answer`, `intent`,
   `vector_similarity`, `rerank_score`, `is_equivalent`, `cache_point_id`,
   `redis_cache_key`, `latency_saved_ms`, `created_at`. Alembic migration via
   the standard flow.
-- [ ] **Instant eviction (kill switch)**: when an audited hit is judged
+- [x] **Instant eviction (kill switch)**: when an audited hit is judged
   non-equivalent, immediately delete the Qdrant point
   (`llm_cache_service.delete_point`) and the Redis key so no subsequent
   request can hit the poisoned/stale entry.
