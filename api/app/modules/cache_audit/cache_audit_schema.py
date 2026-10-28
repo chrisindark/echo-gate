@@ -55,3 +55,32 @@ class CacheAuditSummary(BaseModel):
     uncompared_count: int = 0
     equivalence_rate: float = Field(default=0.0, ge=0.0, le=1.0)
     evicted_count: int = 0
+
+
+class IntentThresholdOverride(BaseModel):
+    """Calibrated threshold override stored in Redis at cache:thresholds:{intent}."""
+
+    intent: str
+    high: float = Field(..., ge=0.5, le=1.0)
+    moderate: float = Field(..., ge=0.5, le=1.0)
+    sample_count: int = Field(default=0, ge=0)
+    error_count: int = Field(default=0, ge=0)
+    error_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    alpha: float = Field(default=0.02, ge=0.0, le=1.0)
+    calibrated_at: datetime
+
+
+class IntentCalibrationResult(BaseModel):
+    """Result of conformal risk control calibration for an intent."""
+
+    intent: str
+    high: float
+    moderate: float
+    sample_count: int
+    error_count: int
+    empirical_error_rate: float
+    target_alpha: float
+    calibrated: bool
+    reason: str | None = None
+    calibrated_at: datetime
+    applied_to_redis: bool = False

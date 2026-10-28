@@ -93,6 +93,7 @@ celery_app = Celery(
         "app.modules.llm_usage.tasks",
         "app.modules.gateway_requests.tasks",
         "app.modules.qdrant.tasks",
+        "app.modules.cache_audit.tasks",
     ],
 )
 
@@ -108,6 +109,10 @@ beat_schedule = {
     "delete-expired-vectors-every-5-minutes": {
         "task": "delete_expired_vectors",
         "schedule": 300.0,  # Runs every 5 minutes
+    },
+    "calibrate-intent-thresholds-hourly": {
+        "task": "calibrate_intent_thresholds",
+        "schedule": 3600.0,  # Runs every 1 hour
     },
 }
 

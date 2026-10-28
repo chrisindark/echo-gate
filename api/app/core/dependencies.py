@@ -2,6 +2,7 @@ from app.core.config import config
 from app.core.database import SessionLocal, SessionLocalRead
 from app.modules.api_keys.api_keys_service import get_api_key_service
 from app.modules.cache_audit.cache_audit_service import CacheAuditService
+from app.modules.cache_audit.calibration_service import IntentCalibrationService
 from app.modules.embedding.embedding_service import EmbeddingService
 from app.modules.gateway_requests.gateway_requests_service import GatewayRequestsService
 from app.modules.inference.inference_client import InferenceClient
@@ -45,6 +46,7 @@ class DependencyContainer:
     _gateway_requests_service: GatewayRequestsService | None = None
     _shadow_cache_service: ShadowCacheService | None = None
     _cache_audit_service: CacheAuditService | None = None
+    _intent_calibration_service: IntentCalibrationService | None = None
     _inference_client: InferenceClient | None = None
 
     @classmethod
@@ -102,6 +104,7 @@ class DependencyContainer:
             cls._gateway_requests_service = None
             cls._shadow_cache_service = None
             cls._cache_audit_service = None
+            cls._intent_calibration_service = None
             cls._inference_client = None
 
     @classmethod
@@ -279,6 +282,15 @@ class DependencyContainer:
             )
         return cls._cache_audit_service
 
+    @classmethod
+    async def get_intent_calibration_service(cls) -> IntentCalibrationService:
+        if cls._intent_calibration_service is None:
+            cls._intent_calibration_service = IntentCalibrationService(
+                session_factory=SessionLocal,
+                redis_service=await cls.get_redis_service(),
+            )
+        return cls._intent_calibration_service
+
 
 # FastAPI Depends compatible functions
 def get_embedding_service() -> EmbeddingService:
@@ -347,6 +359,10 @@ def get_judge_service() -> JudgeService:
 
 def get_cache_audit_service() -> CacheAuditService:
     return DependencyContainer.get_cache_audit_service()
+
+
+async def get_intent_calibration_service() -> IntentCalibrationService:
+    return await DependencyContainer.get_intent_calibration_service()
 
 
 # Re-exported for FastAPI Depends wiring in controllers.

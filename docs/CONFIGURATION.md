@@ -163,6 +163,9 @@ In `CACHE_MODE=active`, a low-frequency asynchronous audit captures unbiased gro
 | `CACHE_AUDIT_ENABLED` | `true` | Enable the out-of-band shadow audit loop on approved semantic cache hits. |
 | `CACHE_AUDIT_SAMPLE_RATE` | `0.02` | Fraction (0–1) of semantic cache hits sampled for fresh provider comparison. Default 2% (p ≈ 0.02) to keep LLM audit cost < 0.05% of serving spend. |
 | `CACHE_AUDIT_EVICT_ON_FAILURE` | `true` | Instant eviction kill switch: if the judge rates the cached response non-equivalent to the fresh completion, immediately delete the Qdrant point and Redis exact key. |
+| `CACHE_CALIBRATION_ALPHA` | `0.02` | Target maximum error rate for high-confidence threshold calibration (e.g. 0.02 = 2% error rate / 98% precision guarantee). |
+| `CACHE_CALIBRATION_MODERATE_ALPHA` | `0.05` | Target maximum error rate for moderate-confidence threshold calibration (e.g. 0.05 = 5% error rate). |
+| `CACHE_CALIBRATION_MIN_SAMPLES` | `10` | Minimum ground-truth audit evaluations required before an intent's thresholds are overridden. |
 
 ## Shared inference platform
 

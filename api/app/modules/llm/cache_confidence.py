@@ -12,11 +12,37 @@ class CacheConfidenceEvaluator:
     based on a dynamic confidence threshold.
     """
 
-    @staticmethod
+    _in_memory_overrides: dict[str, dict[str, float]] = {}
+
+    @classmethod
+    def set_override(cls, intent: str, thresholds: dict[str, float]) -> None:
+        """Store an in-memory threshold override for an intent."""
+        cls._in_memory_overrides[intent] = thresholds
+
+    @classmethod
+    def clear_overrides(cls) -> None:
+        """Clear all in-memory threshold overrides."""
+        cls._in_memory_overrides.clear()
+
+    @classmethod
+    def get_thresholds(cls, intent_str: str) -> dict[str, float]:
+        """Resolve thresholds for an intent: in-memory override -> config -> general default."""
+        if intent_str in cls._in_memory_overrides:
+            return cls._in_memory_overrides[intent_str]
+
+        intent_thresholds = config.CACHE_CONFIDENCE_THRESHOLDS
+        return intent_thresholds.get(
+            intent_str,
+            intent_thresholds.get("general_query", {"high": 0.95, "moderate": 0.88}),
+        )
+
+    @classmethod
     def evaluate(
+        cls,
         rerank_score: float,
         request_temperature: float,
         request_intent: str | IntentEnum,
+        thresholds: dict[str, float] | None = None,
     ) -> bool:
         """
         Evaluate cache acceptance dynamically.
@@ -25,6 +51,8 @@ class CacheConfidenceEvaluator:
             rerank_score: The composite score emitted by the RerankerService.
             request_temperature: The temperature requested by the user.
             request_intent: The classified intent of the user.
+            thresholds: Optional explicit threshold dict with 'high' and 'moderate' keys.
+                When None, resolved via get_thresholds().
 
         Returns:
             True if the cache match is confident enough to be served.
@@ -35,19 +63,9 @@ class CacheConfidenceEvaluator:
             else str(request_intent)
         )
 
-        # Define confidence thresholds based on intent.
-        # Factual/deterministic intents require HIGH thresholds because small prompt
-        # changes (e.g., "before" vs "after") completely change the correct answer.
-        # Subjective/casual intents can accept slightly lower scores.
-        intent_thresholds = config.CACHE_CONFIDENCE_THRESHOLDS
-
-        # Get thresholds for this intent, default to general if not found
-        thresholds = intent_thresholds.get(
-            intent_str,
-            intent_thresholds.get("general_query", {"high": 0.95, "moderate": 0.88}),
-        )
-        high_threshold = thresholds["high"]
-        moderate_threshold = thresholds["moderate"]
+        resolved_thresholds = thresholds or cls.get_thresholds(intent_str)
+        high_threshold = resolved_thresholds["high"]
+        moderate_threshold = resolved_thresholds["moderate"]
 
         logger.debug(
             f"Intent: {intent_str}, High threshold: {high_threshold}, Moderate threshold: {moderate_threshold}, Request Temperature: {request_temperature}"

@@ -852,6 +852,38 @@ class LlmRouterService:
                 mark_cache_degraded("qdrant_exact_read_failed")
         return None, None
 
+    async def get_intent_thresholds(
+        self, intent: str | IntentEnum | None
+    ) -> dict[str, float]:
+        """Resolve active confidence thresholds for an intent: Redis override -> config -> fallback."""
+        if not intent:
+            intent_str = "general_query"
+        elif isinstance(intent, IntentEnum):
+            intent_str = intent.value
+        else:
+            intent_str = str(intent)
+
+        # 1. Try Redis calibrated override (cache:thresholds:{intent})
+        if self.redis_service:
+            try:
+                raw = await self.redis_service.get(f"cache:thresholds:{intent_str}")
+                if raw:
+                    data = json.loads(raw)
+                    if "high" in data and "moderate" in data:
+                        return {
+                            "high": float(data["high"]),
+                            "moderate": float(data["moderate"]),
+                        }
+            except Exception:
+                logger.debug(
+                    "Failed to read calibrated thresholds from Redis for %s; using config defaults",
+                    intent_str,
+                    exc_info=True,
+                )
+
+        # 2. Fallback to CacheConfidenceEvaluator defaults (in-memory override -> config)
+        return CacheConfidenceEvaluator.get_thresholds(intent_str)
+
     async def evaluate_semantic_cache(
         self, request: ChatCompletionRequest, force: bool = False
     ) -> dict:
@@ -1276,13 +1308,19 @@ class LlmRouterService:
                     # Semantic constraints
                     top_prompt = top_match["payload"].get("prompt", "")
 
+                    # Resolve active intent thresholds (with Redis override check)
+                    intent_thresholds = await self.get_intent_thresholds(intent)
+
                     # Evaluate if the cache should be accepted based on the dynamic confidence formula
                     is_accepted = CacheConfidenceEvaluator.evaluate(
                         rerank_score=rerank_score,
                         request_temperature=request.temperature,
                         request_intent=intent.value,
+                        thresholds=intent_thresholds,
                     )
-                    logger.info(f"Cache confidence evaluation: {is_accepted}")
+                    logger.info(
+                        f"Cache confidence evaluation: {is_accepted} (thresholds: {intent_thresholds})"
+                    )
 
                     base_cache_info = {
                         "query": prompt_text,
@@ -1290,6 +1328,7 @@ class LlmRouterService:
                         "top_1_rerank_score": rerank_score,
                         "top_1_prompt": top_prompt,
                         "accepted": is_accepted,
+                        "thresholds_used": intent_thresholds,
                         "score_breakdown": top_match.get("score_breakdown"),
                     }
                     if len(matches_reranked) > 1:

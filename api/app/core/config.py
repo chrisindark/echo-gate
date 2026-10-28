@@ -254,6 +254,20 @@ class Config:
             os.getenv("CACHE_AUDIT_EVICT_ON_FAILURE", "true").lower() == "true"
         )
 
+        # Conformal Threshold Calibration (Phase 2)
+        #
+        # Periodic batch job / admin CLI analyzes cache_evaluations to compute
+        # empirical threshold quantiles guaranteeing an error rate <= alpha per intent.
+        self.CACHE_CALIBRATION_ALPHA = _bounded_float_env(
+            "CACHE_CALIBRATION_ALPHA", 0.02, lower=0.001, upper=0.5
+        )
+        self.CACHE_CALIBRATION_MODERATE_ALPHA = _bounded_float_env(
+            "CACHE_CALIBRATION_MODERATE_ALPHA", 0.05, lower=0.001, upper=0.5
+        )
+        self.CACHE_CALIBRATION_MIN_SAMPLES = int(
+            os.getenv("CACHE_CALIBRATION_MIN_SAMPLES", "10")
+        )
+
         # Cache Confidence Thresholds
         default_thresholds = {
             "code_generation": {"high": 0.95, "moderate": 0.88},
