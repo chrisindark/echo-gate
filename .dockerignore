@@ -54,6 +54,10 @@ ui
 # Temporary until the planned external MCP server serves the agentic surface.
 mcp-bridge
 
+# Shared inference platform (own dependency root; serves the gateway over HTTP).
+# Excluded so torch/transformers never leak back into the gateway image.
+inference-platform
+
 # Docs, guides, and other non-runtime files
 docs
 *.md

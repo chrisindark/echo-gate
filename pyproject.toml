@@ -12,7 +12,6 @@ python = "^3.11"
 fastapi = ">=0.111.0"
 uvicorn = ">=0.30.1"
 qdrant-client = ">=1.9.1"
-sentence-transformers = ">=3.0.1"
 httpx = ">=0.27.0"
 pydantic = ">=2.7.4"
 python-dotenv = ">=1.0.1"
@@ -28,6 +27,17 @@ billiard = "<4.3"
 fastapi-health = "^0.4.0"
 psycopg = {version = ">=3.1", extras = ["binary"]}
 opentelemetry-api = "^1.45.1"
+
+# Optional: only for the in-process fallback. See [tool.poetry.extras] below.
+sentence-transformers = {version = ">=3.0.1", optional = true}
+
+# In-process model inference is optional: dense embeddings, reranking, and NLI
+# are normally served by `inference-platform/` over HTTP (see INFERENCE_BASE_URL).
+# This extra pulls torch + transformers for the legacy in-process path; it is not
+# installed by default so the gateway image stays small.
+#   poetry install --extras local-models
+[tool.poetry.extras]
+local-models = ["sentence-transformers"]
 
 [build-system]
 requires = ["poetry-core"]

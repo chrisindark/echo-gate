@@ -1,0 +1,15 @@
+# Native dev backend: the laptop implementation of contract/INFERENCE_CONTRACT.md.
+#
+# Deliberately minimal. It exists so the Mac M4 can serve the shared contract
+# without a Linux VM (which would lose Metal) and without Infinity's batching
+# machinery (which buys nothing at single-user request rates).
+#
+# It is NOT the production backend. Production runs deploy/compose/inference.yml.
+# Anything added here that only makes sense under concurrency belongs in the
+# contract first, or it does not belong here at all.
+
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30,<1.0
+pydantic>=2.7,<3.0
+sentence-transformers>=3.0,<6.0
+pyyaml>=6.0,<7.0

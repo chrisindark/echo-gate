@@ -362,24 +362,24 @@ the `PENDING → EVALUATED` trace pipeline (`gateway_requests`), and the periodi
 logged response of every non-error trace in isolation — there is no sampled *fresh-answer*
 comparison and no data-driven threshold calibration. Remaining work:
 
-- [ ] **Asynchronous shadow audit trigger** (`LlmRouterService`): on a semantic
+- [x] **Asynchronous shadow audit trigger** (`LlmRouterService`): on a semantic
   cache hit, roll a small sample probability (p ≈ 0.01–0.02); when selected,
   return the cached response immediately and enqueue a background task that
   (1) requests a fresh completion from the provider for the same prompt,
   (2) dispatches cached-vs-fresh to the judge, (3) persists the result to a
   dedicated audit table.
-- [ ] **Comparative lightweight judge**: extend the judge with the zero-shot
+- [x] **Comparative lightweight judge**: extend the judge with the zero-shot
   equivalence prompt (respond `YES`/`NO` for semantic equivalence, run on a
   fast low-cost model so audit overhead stays ~0.01–0.05% of total LLM
   spend), so the judge can catch silent false-positive hits, not just score
   cached answers in isolation.
-- [ ] **Audit ground-truth store**: a dedicated Postgres table
+- [x] **Audit ground-truth store**: a dedicated Postgres table
   (`cache_evaluations`): `request_id`, `tenant_id`, `model_name`,
   `query_text`, `cached_answer`, `fresh_answer`, `intent`,
   `vector_similarity`, `rerank_score`, `is_equivalent`, `cache_point_id`,
   `redis_cache_key`, `latency_saved_ms`, `created_at`. Alembic migration via
   the standard flow.
-- [ ] **Instant eviction (kill switch)**: when an audited hit is judged
+- [x] **Instant eviction (kill switch)**: when an audited hit is judged
   non-equivalent, immediately delete the Qdrant point
   (`llm_cache_service.delete_point`) and the Redis key so no subsequent
   request can hit the poisoned/stale entry.
@@ -413,14 +413,25 @@ comparison and no data-driven threshold calibration. Remaining work:
 
 ### Phase 3 — Performance and cost of serving
 
-- [ ] **High-performance model serving**: strip `sentence-transformers`,
-  `transformers`, and `torch` from the core gateway container (image from
-  ~5GB+ toward <300MB, faster startup, horizontal autoscaling); offload
-  embeddings and cross-encoder reranking to a dedicated inference server
-  (TEI or Infinity) with GPU/dynamic batching; refactor `CrossEncoderService`
-  into an async HTTP client (`httpx.AsyncClient`) calling the inference
-  server (note `RerankerService` imports it, so both consumers must move off
-  the in-process model).
+*Detailed execution tracker, architecture specs, and multi-project integration plans live in [`docs/PHASE_3_EXECUTION_PLAN.md`](./PHASE_3_EXECUTION_PLAN.md).*
+
+> **Status (2026-10-27):** model serving is split. A separate
+> `inference-platform/` dependency root serves dense embeddings, reranking,
+> relevance, and NLI over HTTP; the gateway consumes it via `INFERENCE_BASE_URL`
+> with role routing, fail-open semantics, and no torch import. `torch`,
+> `transformers`, and `sentence-transformers` are now an optional
+> `local-models` extra, and the gateway image is **0.71GB** (measured; the same
+> Dockerfile with the extra is 9.4GB). The original `<300MB` estimate was wrong:
+> `onnxruntime` + BM25 put the floor near 0.7GB.
+
+- [x] **High-performance model serving**: embeddings, reranking, relevance, and
+  NLI are served by `inference-platform/` over HTTP; `CrossEncoderService` and
+  `EmbeddingService` are HTTP clients with fail-open semantics, and
+  `sentence-transformers`/`transformers`/`torch` moved to an optional
+  `local-models` extra. Image: 0.71GB engine-backed (9.4GB with the extra baked
+  in — CUDA libraries dominate). Multi-stage build keeps poetry and its wheel
+  cache out of the runtime image. Implementations: `dev/native_server.py`
+  for laptops, Infinity for GPU hosts.
 - [ ] **Cost-aware cache retention (vCache-style)**: record generation metrics
   (latency seconds, token usage, model tier) in cache-entry metadata; weight
   retention to protect expensive responses (slow reasoning models, complex

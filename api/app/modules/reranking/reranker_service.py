@@ -4,7 +4,10 @@ from typing import Any
 
 from app.core.config import config
 from app.core.logger import log_latency
-from app.modules.verifier.cross_encoder_service import CrossEncoderService
+from app.modules.verifier.cross_encoder_service import (
+    CrossEncoderService,
+    InferenceUnavailable,
+)
 from app.modules.verifier.instruction_service import InstructionVerifier
 
 logger = logging.getLogger(__name__)
@@ -136,7 +139,16 @@ class RerankerService:
                     )
                 pairs.append((cleaned_query, fallback))
 
-        return self.cross_encoder_service.rerank_predict(pairs)
+        try:
+            return self.cross_encoder_service.rerank_predict(pairs)
+        except InferenceUnavailable as exc:
+            # Empty scores is the fail-open signal `rerank()` already handles:
+            # the semantic path yields no candidates and the request goes to the
+            # provider instead of failing.
+            logger.warning(
+                "reranker unavailable, skipping semantic candidates: %s", exc
+            )
+            return []
 
     def _metadata_similarity(
         self,

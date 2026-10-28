@@ -1,0 +1,61 @@
+# Single authority for "which model answers role X".
+#
+# `revision` is the Hugging Face commit SHA. Empty means "unpinned" — run
+# `python tools/pin_models.py --write` once to record the resolved SHA, then
+# commit the result. Consumers must persist the model id + revision they used
+# (Echo Gate stores it as `embedding_version` on every cached point) so a
+# swap is detectable rather than silent.
+#
+# Never change a role's `model` or `dim` in place. Add a new role, dual-write,
+# migrate, then retire the old one.
+
+version: 1
+
+roles:
+
+  # Dense embeddings used for semantic cache lookup / RAG chunk search.
+  # `dim` is locked into the Qdrant collection at creation time — changing it
+  # requires a new collection, not a migration.
+  embed:
+    model: sentence-transformers/all-MiniLM-L6-v2
+    revision: ""
+    dim: 384
+    distance: cosine
+    normalize: true
+    endpoint: /embeddings
+
+  # Primary cross-encoder used to rescore candidate cached prompts.
+  # Raw logits are unbounded, so the served `score` is sigmoid-normalized to
+  # [0, 1] to stay comparable across implementations.
+  rerank:
+    model: BAAI/bge-reranker-base
+    revision: ""
+    dim: null
+    normalize: false
+    endpoint: /rerank
+
+  # Second cross-encoder with different semantics: query -> answer relevance,
+  # consumed on a 1..5 scale. Kept as its own role because it is a different
+  # model with a different calibration, not a variant of `rerank`.
+  relevance:
+    model: cross-encoder/ms-marco-MiniLM-L-6-v2
+    revision: ""
+    dim: null
+    normalize: false
+    endpoint: /rerank
+
+  # NLI / contradiction detection used to gate cache hits.
+  # Label order is part of the contract: the gateway indexes these positions
+  # directly (contradiction flag uses index 0, entailment probability index 1).
+  nli:
+    model: cross-encoder/nli-deberta-v3-small
+    revision: ""
+    dim: null
+    labels:
+      - contradiction
+      - entailment
+      - neutral
+    endpoint: /classify
+
+# Deliberately absent: sparse/BM25. See README — tokenizer fidelity means it
+# must stay local to each consumer.

@@ -1,8 +1,10 @@
 from app.core.config import config
 from app.core.database import SessionLocal, SessionLocalRead
 from app.modules.api_keys.api_keys_service import get_api_key_service
+from app.modules.cache_audit.cache_audit_service import CacheAuditService
 from app.modules.embedding.embedding_service import EmbeddingService
 from app.modules.gateway_requests.gateway_requests_service import GatewayRequestsService
+from app.modules.inference.inference_client import InferenceClient
 from app.modules.intent_classifier.entity_extractor_service import (
     EntityExtractorService,
 )
@@ -42,6 +44,8 @@ class DependencyContainer:
     _instruction_service: InstructionVerifier | None = None
     _gateway_requests_service: GatewayRequestsService | None = None
     _shadow_cache_service: ShadowCacheService | None = None
+    _cache_audit_service: CacheAuditService | None = None
+    _inference_client: InferenceClient | None = None
 
     @classmethod
     async def initialize(cls) -> None:
@@ -62,6 +66,7 @@ class DependencyContainer:
         cls.get_judge_service()
         cls.get_gateway_requests_service()
         cls.get_shadow_cache_service()
+        await cls.get_inference_client().probe()
 
     @classmethod
     async def shutdown(cls) -> None:
@@ -71,6 +76,9 @@ class DependencyContainer:
         if cls._llm_router_service is not None:
             await cls._llm_router_service.shutdown()
         try:
+            if cls._inference_client is not None:
+                await cls._inference_client.aclose()
+                cls._inference_client = None
             if cls._redis_service is not None:
                 await cls._redis_service.close()
         finally:
@@ -93,13 +101,28 @@ class DependencyContainer:
             cls._instruction_service = None
             cls._gateway_requests_service = None
             cls._shadow_cache_service = None
+            cls._cache_audit_service = None
+            cls._inference_client = None
+
+    @classmethod
+    def get_inference_client(cls) -> InferenceClient:
+        """Shared HTTP client for the inference platform.
+
+        One client (and one connection pool) per process, regardless of how many
+        services use it; the async client binds lazily to the running loop.
+        """
+        if cls._inference_client is None:
+            cls._inference_client = InferenceClient()
+        return cls._inference_client
 
     @classmethod
     def get_embedding_service(cls) -> EmbeddingService:
         if cls._embedding_service is None:
             # use_ollama=False frees up the Ollama slot and uses local CPU/GPU via Python
             cls._embedding_service = EmbeddingService(
-                use_ollama=False, model_name=config.EMBEDDING_MODEL_NAME
+                use_ollama=False,
+                model_name=config.EMBEDDING_MODEL_NAME,
+                inference_client=cls.get_inference_client(),
             )
         return cls._embedding_service
 
@@ -174,6 +197,7 @@ class DependencyContainer:
                 gateway_requests_service=cls.get_gateway_requests_service(),
                 shadow_cache_service=cls.get_shadow_cache_service(),
                 judge_service=cls.get_judge_service(),
+                cache_audit_service=cls.get_cache_audit_service(),
             )
         return cls._llm_router_service
 
@@ -210,7 +234,9 @@ class DependencyContainer:
     @classmethod
     def get_cross_encoder_service(cls) -> CrossEncoderService:
         if cls._cross_encoder_service is None:
-            cls._cross_encoder_service = CrossEncoderService()
+            cls._cross_encoder_service = CrossEncoderService(
+                inference_client=cls.get_inference_client()
+            )
         return cls._cross_encoder_service
 
     @classmethod
@@ -244,6 +270,14 @@ class DependencyContainer:
                 session_factory=SessionLocal, session_factory_read=SessionLocalRead
             )
         return cls._shadow_cache_service
+
+    @classmethod
+    def get_cache_audit_service(cls) -> CacheAuditService:
+        if cls._cache_audit_service is None:
+            cls._cache_audit_service = CacheAuditService(
+                session_factory=SessionLocal, session_factory_read=SessionLocalRead
+            )
+        return cls._cache_audit_service
 
 
 # FastAPI Depends compatible functions
@@ -309,6 +343,10 @@ def get_shadow_cache_service() -> ShadowCacheService:
 
 def get_judge_service() -> JudgeService:
     return DependencyContainer.get_judge_service()
+
+
+def get_cache_audit_service() -> CacheAuditService:
+    return DependencyContainer.get_cache_audit_service()
 
 
 # Re-exported for FastAPI Depends wiring in controllers.

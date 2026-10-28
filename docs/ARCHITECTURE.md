@@ -12,7 +12,8 @@ the chat playground, trace explorer, and analytics dashboards.
 | HTTP API | `api/app/main.py`, `api/app/modules/*/*_controller.py` | FastAPI app, middleware, routers. |
 | Routing/cache core | `api/app/modules/llm/llm_router_service.py` | Owns the request lifecycle: exact cache, semantic cache, verification, provider call, cache write, logging. |
 | Provider adapters | `api/app/modules/llm/llm_provider_service.py` | One method per provider: `google-genai`/`gemini`, `openai`, `groq`, `openrouter`, `ollama`. |
-| Embeddings | `api/app/modules/embedding/embedding_service.py` | Dense embeddings (`sentence-transformers`) and sparse lexical embeddings (BM25). |
+| Embeddings | `api/app/modules/embedding/embedding_service.py` | Dense embeddings (remote via `inference-platform/`, or `sentence-transformers` in-process) and sparse lexical embeddings (BM25, always local). |
+| Inference platform | `api/app/modules/inference/inference_client.py` | HTTP client for the shared model server: embeddings, reranking, relevance, NLI. Fail-open; owns role routing and error classification. |
 | Redis cache | `api/app/modules/redis/redis_service.py` | Exact-match cache and quota counters. |
 | Qdrant cache | `api/app/modules/qdrant/llm_cache_collection_service.py` | Vector cache collection `embeddings_multivector`: upsert, exact search, dense search, hybrid RRF search, expiry deletion. |
 | Intent + entities | `api/app/modules/intent_classifier/` | LLM-based intent classification and regex-based entity extraction; scope/TTL decisions. |
@@ -46,6 +47,7 @@ api/app/
     chat/                     chat schema + controller (the public completions API)
     llm/                      provider adapters, router service, prompts, confidence
     embedding/                dense + sparse embedding service
+    inference/                HTTP client for the shared inference platform
     redis/                    Redis client wrapper
     qdrant/                   Qdrant client, cache collection service, controller, schema, tasks
     intent_classifier/        intent LLM service, regex entity extractor, intent schema
@@ -229,6 +231,105 @@ dashboard renders that as its "Cache Readiness — Shadow Pipeline" section;
 
 When the indicator reports `READY`, set `CACHE_MODE=active` (and enable the
 `USE_*` layers you want) and restart.
+
+## Shared inference platform
+
+Dense embeddings, reranking, relevance, and NLI can be served by a separate
+deployable (`inference-platform/`, a sibling dependency root inside this repo)
+instead of being loaded into the gateway process. One contract, two
+implementations: a native FastAPI server for laptops and Infinity for GPU hosts.
+
+```
+Local / Single-node:
+gateway / doc-nexus / agent-forge
+              │  INFERENCE_BASE_URL (http://localhost:7997)
+              ▼
+      inference-platform :7997     ollama :11434
+      /embeddings /rerank         (generative: intent, judge)
+      /classify /health
+
+Production Split (inference-split.yml):
+gateway / doc-nexus / agent-forge
+      ├── INFERENCE_EMBED_URL    ──► inference-embed:7997   (/embeddings)
+      ├── INFERENCE_RERANK_URL   ──► inference-rerank:7998  (/rerank)
+      └── INFERENCE_NLI_URL      ──► inference-classify:7999 (/classify)
+```
+
+`INFERENCE_BASE_URL` empty keeps everything in-process (the previous behaviour);
+setting it switches `EmbeddingService` and `CrossEncoderService` to HTTP and stops
+them importing torch at all. In production, setting `INFERENCE_EMBED_URL`,
+`INFERENCE_RERANK_URL`, and `INFERENCE_NLI_URL` splits the three roles into
+independent containers with separate connection pools and failure domains,
+eliminating cross-encoder head-of-line blocking on cache embeddings.
+
+### Roles
+
+Requests are routed by **role**, not just by model id:
+
+| Role | Endpoint | Consumer |
+| --- | --- | --- |
+| `embed` | `/embeddings` | `EmbeddingService` (prompt vectors for the Qdrant cache) |
+| `rerank` | `/rerank` | `RerankerService.verify` (candidate rescoring) |
+| `relevance` | `/rerank` | `JudgeService` (query-to-answer relevance) |
+| `nli` | `/classify` | `JudgeService` (contradiction/entailment) |
+
+Roles are not cosmetic. Two different cross-encoders back `rerank` and
+`relevance`; without a role, an unpinned `/rerank` call is served by the engine's
+*default* reranker, so relevance would be scored by the wrong model. That
+regression was caught end-to-end during the migration (relevance logits differed
+by 11.4 before role routing landed). An explicit `INFERENCE_*_MODEL` pin takes
+precedence and is required for the Infinity deployment, which routes by model id
+only.
+
+### Failure semantics
+
+- **Fail-open on the serving path.** An unreachable engine is a cache miss, not a
+  request failure: `evaluate_semantic_cache` catches `InferenceUnavailable`,
+  records `mark_cache_degraded("inference_unavailable")` (surfacing as
+  `X-Gateway-Degradation: cache_bypassed`), and the request proceeds to the
+  provider. `RerankerService.verify` returns no candidates; the judge falls back
+  to its defaults. The operator endpoint `POST /api/v1/verifier/predict/rerank`
+  returns `503` instead, because there an unavailable engine is a real error.
+- **Fail-fast on connection refusal.** `InferenceUnreachable` is not retried:
+  retrying a refused connection cannot succeed and would burn the latency budget
+  (measured: the whole fail path is ~1-3ms instead of ~1s). Timeouts, throttling,
+  and 5xx are retried `INFERENCE_MAX_RETRIES` times.
+- **Score scale preserved.** The contract exposes normalized `score` and
+  `probabilities`, but the gateway consumes `score_raw` and `logits`, because
+  every existing threshold (`reranker` cutoffs, the `(raw + 10) / 4` relevance
+  mapping, and the judge's own softmax) was calibrated on raw cross-encoder
+  logits. Measured parity with the in-process models is float-exact (max abs diff
+  ~5e-7); migrating thresholds onto the normalized scale is a separate change
+  that needs recalibration, not a rename.
+- **Version skew is loud.** `DependencyContainer.initialize()` probes `/models` and
+  warns on an embedding-dimension or model-id mismatch, since a silent model swap
+  corrupts the vector space rather than raising an error.
+
+### Image and process cost
+
+Measured on the same Dockerfile (arm64, `docker image inspect`):
+
+| Build | Image (docker-reported) |
+| --- | ---: |
+| Gateway, engine-backed (image default) | **0.71GB** |
+| Gateway with `--build-arg INSTALL_LOCAL_MODELS=true` | 9.4GB |
+| Single-stage predecessor (poetry + wheel cache in the image) | 1.04GB |
+
+The `local-models` extra adds ~5.2GB of installed content, dominated by `nvidia`
+CUDA libraries (3.3GB), `torch` (0.9GB) and `triton` (0.8GB) — GPU support these
+CPU-sized models never use on the request path.
+
+Of the 0.71GB floor, `onnxruntime` (59MB, for BM25) and numpy (70MB) are the
+largest single items; the rest is grpcio, psycopg, cryptography, SQLAlchemy, and the
+Celery/OpenTelemetry clients. Bytecode is deliberately kept (0.61GB without it):
+pip compiles it at install time, `PYTHONDONTWRITEBYTECODE=1` stops the
+interpreter writing more, and it halves cold import (2.4s → 1.17s). Going below
+~0.7GB means moving BM25 off `onnxruntime`, which is a separate trade (tokenizer
+fidelity against existing Qdrant vectors).
+
+Sparse BM25 is deliberately excluded from the shared contract: `fastembed`'s
+sparse vectors are tokenizer-coupled to the points already in Qdrant, so serving
+them remotely would risk breaking hybrid search to save ~1ms.
 
 ## Degradation contract & resilience architecture
 

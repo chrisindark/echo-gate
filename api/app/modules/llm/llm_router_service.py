@@ -65,6 +65,8 @@ from app.core.telemetry import (
     SPAN_PROVIDER_CALL,
     trace_span,
 )
+from app.modules.cache_audit.cache_audit_schema import CacheAuditCreate
+from app.modules.cache_audit.cache_audit_service import CacheAuditService
 from app.modules.chat.chat_schema import (
     ChatCompletionChunk,
     ChatCompletionRequest,
@@ -79,6 +81,7 @@ from app.modules.gateway_requests.gateway_requests_schema import (
     RoutingDecision,
 )
 from app.modules.gateway_requests.gateway_requests_service import GatewayRequestsService
+from app.modules.inference.inference_client import InferenceUnavailable
 from app.modules.intent_classifier.entity_extractor_service import (
     EntityExtractorService,
 )
@@ -152,6 +155,7 @@ class LlmRouterService:
         gateway_requests_service: GatewayRequestsService | None = None,
         shadow_cache_service: ShadowCacheService | None = None,
         judge_service: JudgeService | None = None,
+        cache_audit_service: CacheAuditService | None = None,
     ) -> None:
         self.llm_provider_service = llm_provider_service
         self.embedding_service = embedding_service
@@ -165,6 +169,7 @@ class LlmRouterService:
         self.gateway_requests_service = gateway_requests_service
         self.shadow_cache_service = shadow_cache_service
         self.judge_service = judge_service
+        self.cache_audit_service = cache_audit_service
         self._background_tasks: set[asyncio.Task[Any]] = set()
         self._embedding_cache: OrderedDict[
             str, tuple[list[float] | None, dict[str, list] | None]
@@ -1353,6 +1358,16 @@ class LlmRouterService:
 
                 return result
             return result
+        except InferenceUnavailable as exc:
+            # The embedding/model engine is down. That is a cache-layer failure,
+            # not a request failure: fall through to the provider exactly as a
+            # cache miss would, and record a precise degradation reason instead
+            # of reporting it as a Qdrant error.
+            logger.warning(
+                "inference platform unavailable; skipping semantic cache: %s", exc
+            )
+            mark_cache_degraded("inference_unavailable")
+            return result
         except Exception:
             logger.exception("Qdrant Database read error")
             mark_cache_degraded("qdrant_semantic_read_failed")
@@ -2001,6 +2016,190 @@ class LlmRouterService:
         except Exception:
             logger.exception("Shadow cache evaluation failed for %s", exact_hash)
 
+    def _should_run_cache_audit(self, response: ChatCompletionResponse | None) -> bool:
+        """Whether a served semantic-cache hit should be asynchronously audited.
+
+        Applies only in CACHE_MODE=active when a response was served as a cache hit
+        from either qdrant_semantic_path or qdrant_fast_path. A low sample rate
+        (p ≈ 0.02) provides an unbiased ground truth comparison out of band.
+        """
+        if not config.CACHE_AUDIT_ENABLED or config.CACHE_MODE != "active":
+            return False
+        if not self.cache_audit_service:
+            return False
+        if response is None or not response.choices or is_mock_response(response):
+            return False
+        cache_info = response.cache_info or {}
+        if not cache_info.get("cache_hit"):
+            return False
+        source = cache_info.get("source")
+        if source not in ("qdrant_semantic_path", "qdrant_fast_path"):
+            return False
+        sample_rate = config.CACHE_AUDIT_SAMPLE_RATE
+        return sample_rate >= 1.0 or random.random() < sample_rate
+
+    async def _background_cache_audit(
+        self,
+        request: ChatCompletionRequest,
+        cached_response: ChatCompletionResponse,
+        exact_hash: str,
+        service_name: str,
+        model: str,
+        gateway_log_task: asyncio.Task[int | None] | None = None,
+        api_key: str | None = None,
+    ) -> None:
+        """Asynchronously audit a served semantic cache hit against a fresh provider completion.
+
+        Runs completely out-of-band so client serving latency is untouched.
+        (1) Requests a fresh completion from the provider for the same prompt.
+        (2) Dispatches cached-vs-fresh to the judge to determine semantic equivalence.
+        (3) If judged non-equivalent (kill switch), immediately evicts the Qdrant point
+            and Redis key to purge the stale or false-positive entry.
+        (4) Persists the audit comparison to the cache_evaluations table.
+        """
+        if not self.cache_audit_service:
+            return
+
+        try:
+            request_id = await self._await_gateway_log_id(gateway_log_task)
+            prompt_text, _, _ = self._prepare_prompts(request)
+            cached_text = self._response_text(cached_response)
+            if not cached_text:
+                return
+
+            cache_info = dict(cached_response.cache_info or {})
+            point_id = cache_info.get("point_id")
+            match_type = cache_info.get("source") or "qdrant_semantic_path"
+            intent_val = cache_info.get("intent")
+            vector_similarity = cache_info.get("score")
+            rerank_score = cache_info.get("rerank_score")
+            if rerank_score is None:
+                rerank_score = cache_info.get("top_1_rerank_score")
+
+            cached_latency_ms = None
+            if "latency_breakdown" in cache_info:
+                cached_latency_ms = cache_info["latency_breakdown"].get(
+                    "cache_lookup_total_ms"
+                )
+
+            # 1. Fresh completion from provider (ensure non-streaming completion)
+            t_provider_start = time.perf_counter()
+            audit_request = request.model_copy(deep=True)
+            audit_request.stream = False
+
+            try:
+                (
+                    fresh_response,
+                    fresh_service,
+                    fresh_model,
+                ) = await self._call_provider_with_retry(
+                    request=audit_request,
+                    service_name=service_name,
+                    max_retries=config.LLM_MAX_RETRIES,
+                    timeout_seconds=config.LLM_PROVIDER_TIMEOUT_SECONDS,
+                    fallback_service=config.FALLBACK_LLM_SERVICE,
+                    fallback_model=config.FALLBACK_LLM_MODEL,
+                    api_key=api_key,
+                    exact_hash=exact_hash,
+                )
+            except Exception:
+                logger.warning(
+                    "Cache audit failed to obtain fresh provider completion for exact_hash=%s",
+                    exact_hash,
+                    exc_info=True,
+                )
+                return
+
+            fresh_provider_ms = round(
+                (time.perf_counter() - t_provider_start) * 1000, 2
+            )
+            fresh_text = self._response_text(fresh_response)
+            if not fresh_text:
+                logger.warning(
+                    "Cache audit: fresh response content was empty for exact_hash=%s",
+                    exact_hash,
+                )
+                return
+
+            # 2. Comparative equivalence check
+            is_equivalent: bool | None = None
+            if cached_text.strip() == fresh_text.strip():
+                is_equivalent = True
+            elif self.judge_service:
+                is_equivalent = await self.judge_service.evaluate_equivalence(
+                    query_text=prompt_text,
+                    cached_response=cached_text,
+                    actual_response=fresh_text,
+                )
+
+            # 3. Instant eviction (kill switch)
+            evicted = False
+            if is_equivalent is False and config.CACHE_AUDIT_EVICT_ON_FAILURE:
+                logger.warning(
+                    "Cache audit detected non-equivalent cache hit (is_equivalent=False) "
+                    "for exact_hash=%s point_id=%s. Triggering instant eviction.",
+                    exact_hash,
+                    point_id,
+                )
+                if point_id:
+                    try:
+                        await asyncio.to_thread(
+                            self.llm_cache_service.delete_point, str(point_id)
+                        )
+                    except Exception:
+                        logger.exception(
+                            "Cache audit failed to evict point %s from Qdrant",
+                            point_id,
+                        )
+                if exact_hash:
+                    try:
+                        await self.redis_service.delete(exact_hash)
+                    except Exception:
+                        logger.exception(
+                            "Cache audit failed to evict key %s from Redis",
+                            exact_hash,
+                        )
+                evicted = True
+
+            latency_saved_ms = None
+            if fresh_provider_ms is not None:
+                lookup_cost = (
+                    cached_latency_ms if cached_latency_ms is not None else 0.0
+                )
+                latency_saved_ms = max(0, int(round(fresh_provider_ms - lookup_cost)))
+
+            audit = CacheAuditCreate(
+                request_id=request_id,
+                exact_hash=exact_hash,
+                tenant_id=request.tenant_id,
+                user_id=request.user_id,
+                model=fresh_model or model,
+                provider=fresh_service or service_name,
+                match_type=match_type,
+                query_text=prompt_text,
+                cached_answer=cached_text,
+                fresh_answer=fresh_text,
+                intent=str(intent_val) if intent_val else None,
+                vector_similarity=vector_similarity,
+                rerank_score=rerank_score,
+                is_equivalent=is_equivalent,
+                point_id=str(point_id) if point_id else None,
+                latency_saved_ms=latency_saved_ms,
+                evicted=evicted,
+            )
+
+            await asyncio.to_thread(self.cache_audit_service.log_audit, audit)
+            logger.info(
+                "Cache audit logged for %s: is_equivalent=%s evicted=%s match_type=%s point_id=%s",
+                exact_hash,
+                is_equivalent,
+                evicted,
+                match_type,
+                point_id,
+            )
+        except Exception:
+            logger.exception("Cache audit evaluation failed for %s", exact_hash)
+
     async def _log_usage(
         self,
         request: ChatCompletionRequest,
@@ -2562,6 +2761,18 @@ class LlmRouterService:
                             gateway_log_task=gateway_log_task,
                         )
                     )
+                elif not shadow_mode and self._should_run_cache_audit(response):
+                    self._create_background_task(
+                        self._background_cache_audit(
+                            request=request,
+                            cached_response=response.model_copy(deep=True),
+                            exact_hash=exact_hash,
+                            service_name=actual_service,
+                            model=actual_model,
+                            gateway_log_task=gateway_log_task,
+                            api_key=api_key,
+                        )
+                    )
             elif provider_exception is not None:
                 status_code = (
                     provider_exception.status_code
@@ -2915,6 +3126,18 @@ class LlmRouterService:
                             service_name=actual_service,
                             model=actual_model,
                             gateway_log_task=gateway_log_task,
+                        )
+                    )
+                elif not shadow_mode and self._should_run_cache_audit(response):
+                    self._create_background_task(
+                        self._background_cache_audit(
+                            request=request,
+                            cached_response=response.model_copy(deep=True),
+                            exact_hash=exact_hash,
+                            service_name=actual_service,
+                            model=actual_model,
+                            gateway_log_task=gateway_log_task,
+                            api_key=api_key,
                         )
                     )
             elif provider_exception is not None:

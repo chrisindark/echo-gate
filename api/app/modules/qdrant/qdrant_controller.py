@@ -8,6 +8,7 @@ from app.core.dependencies import (
 )
 from app.core.responses import BaseAPIResponse
 from app.modules.embedding.embedding_service import EmbeddingService
+from app.modules.inference.inference_client import InferenceUnavailable
 from app.modules.qdrant.llm_cache_collection_service import LlmCacheCollectionService
 from app.modules.qdrant.qdrant_schema import QdrantSearchRequest, QdrantSearchResponse
 
@@ -72,6 +73,13 @@ async def search_qdrant(
         else:
             return BaseAPIResponse.success_response(QdrantSearchResponse(found=False))
 
+    except InferenceUnavailable as e:
+        # An operator endpoint, unlike the serving path: report the engine being
+        # down accurately instead of dressing it up as a Qdrant failure.
+        logger.warning(f"Inference engine unavailable during Qdrant search: {e}")
+        raise HTTPException(
+            status_code=503, detail=f"Inference engine unavailable: {e}"
+        )
     except Exception as e:
         logger.error(f"Error during Qdrant search: {e}")
         raise HTTPException(status_code=500, detail="Error searching Qdrant")
@@ -130,6 +138,11 @@ async def search_qdrant_rrf(
         else:
             return BaseAPIResponse.success_response(QdrantSearchResponse(found=False))
 
+    except InferenceUnavailable as e:
+        logger.warning(f"Inference engine unavailable during Qdrant RRF search: {e}")
+        raise HTTPException(
+            status_code=503, detail=f"Inference engine unavailable: {e}"
+        )
     except Exception as e:
         logger.error(f"Error during Qdrant search RRF: {e}")
         raise HTTPException(status_code=500, detail="Error searching Qdrant with RRF")

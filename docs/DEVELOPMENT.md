@@ -59,6 +59,62 @@ cd ui && npm install && npm run dev   # http://localhost:3000
 
 Interactive API docs: `http://localhost:8000/docs`.
 
+### In-process models (optional extra)
+
+Dense embeddings, reranking, relevance, and NLI are an optional install. The
+default `poetry install` deliberately leaves torch out:
+
+```bash
+poetry install --extras local-models   # torch, transformers, sentence-transformers
+```
+
+Install it when you want to run without the inference platform, or when running
+`scripts/calibrate_reranker.py` / `scripts/migrate_embeddings.py`. Without it, the
+gateway raises an explicit error naming this extra if `INFERENCE_BASE_URL` is
+unset.
+
+Container image:
+
+```bash
+docker build -t echo-gate-api .                                             # 0.71GB
+docker build --build-arg INSTALL_LOCAL_MODELS=true -t echo-gate-api:local .  # 9.4GB
+```
+
+The extra adds ~5.2GB of installed content, dominated by CUDA libraries (`nvidia`
+3.3GB, `torch` 0.9GB, `triton` 0.8GB). Sparse BM25 is still baked in (it stays
+local in every mode), staged into a fixed directory and pinned with
+`BM25_MODEL_PATH`.
+
+The build exports `poetry.lock` into a fresh venv rather than copying poetry's own
+venv: the console scripts in a poetry-created venv carry absolute shebangs
+pointing at poetry's cache path, which does not exist in the runtime image.
+
+### Shared inference platform (optional)
+
+Dense embeddings, reranking, and NLI can be served by `inference-platform/`
+instead of being loaded in-process. See its
+[README](../inference-platform/README.md); the short version:
+
+```bash
+cd inference-platform
+python3.11 -m venv .venv && source .venv/bin/activate
+pip install -r dev/requirements.txt
+./dev/serve.sh                      # http://localhost:7997, runs on the host
+```
+
+Then set `INFERENCE_BASE_URL=http://localhost:7997` in `api/app/.env.local`
+(`http://host.docker.internal:7997` if the API runs in a container and the engine
+on the host). Leaving it empty keeps the in-process models.
+
+Run it natively rather than in a container on macOS: a Linux container has no
+Metal, so containerizing forfeits the GPU for the small models. `evals/check.py`
+is the drift guard — it fails on a swapped model, an inverted NLI label order, or
+a changed score scale:
+
+```bash
+INFERENCE_BASE_URL=http://localhost:7997 python inference-platform/evals/check.py
+```
+
 ## Tests
 
 ```bash

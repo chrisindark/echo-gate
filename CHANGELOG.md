@@ -12,6 +12,67 @@ changes' entry with a `[BREAKING]` marker.
 
 ### Added
 
+- **Shared inference platform (`INFERENCE_BASE_URL`)**: dense embeddings,
+  reranking, relevance, and NLI can be served over HTTP by `inference-platform/`
+  instead of being loaded into every gateway process. One contract
+  (`inference-platform/contract/INFERENCE_CONTRACT.md`) with two
+  implementations: a native FastAPI server for laptops, and Infinity for GPU
+  hosts. Requests route by **role** (`embed` / `rerank` / `relevance` / `nli`)
+  so the two distinct cross-encoders cannot be confused for one another.
+  Leaving `INFERENCE_BASE_URL` empty preserves the previous in-process
+  behaviour exactly.
+- **`api/app/modules/inference/`**: `InferenceClient` — connection-pooled
+  `httpx` client with role routing, retries for transient faults, and error
+  classification (`InferenceUnavailable` vs `InferenceUnreachable` vs
+  `InferenceRequestError`).
+- **`inference-platform/`**: models lockfile with Hugging Face revisions,
+  a drift-guard eval set, a latency bench, and a compose file for the Infinity
+  deployment.
+
+### Changed
+
+- **Model calls across the HTTP boundary are fail-open**: an unreachable
+  inference engine now degrades the request to the provider and reports
+  `cache_bypassed` (log reason `inference_unavailable`) instead of raising. A
+  refused connection fails fast in ~1-3ms rather than spending the latency
+  budget on retry backoff.
+- **`CrossEncoderService` and `EmbeddingService` import torch lazily**, so a
+  deployment running against the inference platform never loads it
+  (verified: `torch`, `transformers`, and `sentence_transformers` are absent
+  from `sys.modules`). `JudgeService` now awaits the cross-encoder async
+  variants instead of blocking the event loop.
+- Measured parity with the in-process models is float-exact (max abs diff
+  ~5e-7 for rerank, relevance, and NLI logits; cosine 1.0 for embeddings).
+
+- **Gateway image diet**: `sentence-transformers`, `transformers`, and `torch`
+  are now the optional `local-models` extra rather than main dependencies, and
+  the Dockerfile is multi-stage, so poetry and its wheel cache stay out of the
+  runtime image. Measured: **0.71GB** engine-backed vs **9.4GB** with the extra
+  (CUDA libraries alone are 3.3GB of the ~5.2GB it adds) vs 1.04GB for the
+  single-stage predecessor. Bytecode is precompiled, which costs ~0.1GB and
+  halves cold import (2.4s → 1.17s).
+  The image now also sets `PROJECT_NAME`, which `FastAPI` requires at import
+  time, and pins `BM25_MODEL_PATH` so sparse BM25 resolves deterministically
+  offline.
+- `FASTEMBED_CACHE_PATH` and `BM25_LOCAL_FILES_ONLY` for controlling where the
+  BM25 ONNX artifact lives and whether runtime may download it.
+
+### Fixed
+
+- **BM25 could not be pre-baked into a container.** `fastembed` keeps two caches:
+  `cache_folder` (Hugging Face) and `cache_dir` (the extracted model the library
+  actually reads). `EmbeddingService` passed only the former, so the artifact
+  landed in a temp directory that is empty on every container start — the first
+  image built this way failed offline. `cache_dir` is now explicit
+  (`FASTEMBED_CACHE_PATH`, defaulting to `<HF_HOME>/fastembed`), the image stages
+  the model and pins `BM25_MODEL_PATH`, and a test covers the regression.
+- The pre-existing `Dockerfile` could never build: it pinned `poetry==1.8.3`
+  while `poetry.lock` is `lock-version = "2.1"`, which Poetry 1.x cannot read.
+- **Relevance scoring could silently use the reranker model** when the
+  inference request named no model: both roles share `/rerank`, so the engine
+  fell back to its default. Role routing fixes this and a regression test
+  covers it.
+
 - **Shadow cache pipeline (`CACHE_MODE`)**: new `disabled | shadow | active`
   mode. `shadow` answers every request from the provider and replays the full
   cache pipeline out of band — Redis exact → Qdrant exact → dense fast path →

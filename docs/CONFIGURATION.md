@@ -154,6 +154,64 @@ In `shadow` mode every layer runs in the background regardless of the flags, so
 `SHADOW_*` settings are read even when the mode is not `shadow`; they only take
 effect while shadow evaluation runs.
 
+### Cache audit loop tuning (Phase 2)
+
+In `CACHE_MODE=active`, a low-frequency asynchronous audit captures unbiased ground-truth comparisons between approved semantic cache hits and fresh provider answers.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `CACHE_AUDIT_ENABLED` | `true` | Enable the out-of-band shadow audit loop on approved semantic cache hits. |
+| `CACHE_AUDIT_SAMPLE_RATE` | `0.02` | Fraction (0–1) of semantic cache hits sampled for fresh provider comparison. Default 2% (p ≈ 0.02) to keep LLM audit cost < 0.05% of serving spend. |
+| `CACHE_AUDIT_EVICT_ON_FAILURE` | `true` | Instant eviction kill switch: if the judge rates the cached response non-equivalent to the fresh completion, immediately delete the Qdrant point and Redis exact key. |
+
+## Shared inference platform
+
+`INFERENCE_BASE_URL` moves dense embeddings, reranking, relevance and NLI out of
+this process and into `inference-platform/`, which serves them over HTTP to the
+gateway, doc-nexus, and agent-forge alike. Empty (the default) keeps every model
+in-process, so existing deployments are unchanged until they opt in.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `INFERENCE_BASE_URL` | *(empty = disabled)* | Base URL of the inference engine, e.g. `http://localhost:7997`. Setting it enables remote mode. |
+| `INFERENCE_EMBED_URL` | *(empty = fallback)* | Optional override for dense embeddings route (`/embeddings`). |
+| `INFERENCE_RERANK_URL` | *(empty = fallback)* | Optional override for primary reranking route (`/rerank`). |
+| `INFERENCE_RELEVANCE_URL` | *(empty = fallback)* | Optional override for relevance scoring (defaults to `INFERENCE_RERANK_URL`). |
+| `INFERENCE_NLI_URL` | *(empty = fallback)* | Optional override for NLI / classification (`/classify`). `INFERENCE_CLASSIFY_URL` accepted as alias. |
+| `INFERENCE_TIMEOUT_SECONDS` | `5.0` | Default per-attempt request budget. Clamped to `0.1`-`120`. |
+| `INFERENCE_EMBED_TIMEOUT_SECONDS` | `5.0` | Optional timeout specifically for `/embeddings`. |
+| `INFERENCE_RERANK_TIMEOUT_SECONDS` | `5.0` | Optional timeout specifically for `/rerank`. |
+| `INFERENCE_RELEVANCE_TIMEOUT_SECONDS` | `5.0` | Optional timeout specifically for relevance `/rerank`. |
+| `INFERENCE_NLI_TIMEOUT_SECONDS` | `5.0` | Optional timeout specifically for `/classify`. |
+| `INFERENCE_MAX_RETRIES` | `1` | Retries for transient faults (5xx, throttling, timeouts). A refused connection is never retried. Clamped to `0`-`5`. |
+| `INFERENCE_EMBEDDING_DIM` | `384` | Dense dimension the engine serves. Locked into the Qdrant collection; a mismatch is silent cache corruption, so startup logs a warning when `/models` disagrees. |
+| `INFERENCE_EMBED_MODEL` | *(empty)* | Optional explicit model id for the `embed` role. |
+| `INFERENCE_RERANK_MODEL` | *(empty)* | Optional explicit model id for the `rerank` role. |
+| `INFERENCE_RELEVANCE_MODEL` | *(empty)* | Optional explicit model id for the `relevance` role. |
+| `INFERENCE_NLI_MODEL` | *(empty)* | Optional explicit model id for the `nli` role. |
+
+Behaviour:
+
+- **Roles, not just models.** Requests are routed by role (`embed`, `rerank`,
+  `relevance`, `nli`). This matters because two different cross-encoders back
+  `rerank` and `relevance`; an unpinned request would otherwise be served by the
+  engine's default reranker and quietly score relevance against the wrong model.
+  An explicit `INFERENCE_*_MODEL` pin takes precedence and is what the Infinity
+  deployment requires, since it routes by model id only.
+- **Fail-open.** An unreachable engine is treated as a cache miss: the request is
+  served by the provider and reported as `cache_bypassed`. The degradation log
+  reason is `inference_unavailable`. Semantic caching is never allowed to fail a
+  request.
+- **Fail-fast.** A refused connection fails immediately (sub-millisecond to a few
+  ms) instead of spending the latency budget on retry backoff; only timeouts,
+  throttling, and 5xx are retried.
+- **Sparse BM25 stays local.** `fastembed`'s sparse vectors are tokenizer-coupled
+  to what is already stored in Qdrant, and the computation costs ~1ms.
+- **Score scale is preserved.** The contract returns normalized scores, but the
+  gateway consumes `score_raw` / `logits` because existing thresholds were
+  calibrated against raw cross-encoder logits. Measured parity against the
+  in-process models is at float precision (max abs diff ~5e-7).
+
 ## Semantic search tuning
 
 | Variable | Default | Purpose |
@@ -205,7 +263,21 @@ Default `INTENT_TTL_SECONDS`: `weather` 300 · `product_info` 3600 ·
 | `USE_RELEVANCE_MODEL` | `true` | Load the relevance model. |
 | `USE_NLI_MODEL` | `true` | Load the NLI model. |
 | `HF_HOME` | `./.model_cache` | Hugging Face cache dir (read directly in services). |
-| `BM25_MODEL_PATH` | `""` | Optional local BM25 model path (read directly). |
+| `BM25_MODEL_PATH` | `""` | Pins the extracted BM25 model directory. When set, fastembed loads from it and skips its cache logic entirely — this is how the container makes the model deterministic. |
+| `FASTEMBED_CACHE_PATH` | `<HF_HOME>/fastembed` | fastembed's own cache dir for the BM25 artifact (read directly in services). Distinct from `HF_HOME`: fastembed downloads two things into two caches, and only `cache_dir` holds the model it actually reads. |
+| `BM25_LOCAL_FILES_ONLY` | `false` | When `true`, never download BM25 at runtime (read directly in services; the container sets this, since the model is baked in). |
+
+In-process dense/cross-encoder models are an optional install:
+
+```bash
+poetry install --extras local-models   # torch, transformers, sentence-transformers
+```
+
+Without it, the gateway serves those roles from the inference platform
+(`INFERENCE_BASE_URL`) and raises an explicit error if it is asked to do
+otherwise. The published image does not include the extra: it takes the image
+from 0.71GB to 9.4GB, and ~5.2GB of that is CUDA libraries (`nvidia` 3.3GB,
+`torch` 0.9GB, `triton` 0.8GB) that these CPU-sized models never use.
 
 ### Intent classifier
 
