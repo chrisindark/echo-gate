@@ -383,7 +383,7 @@ comparison and no data-driven threshold calibration. Remaining work:
   non-equivalent, immediately delete the Qdrant point
   (`llm_cache_service.delete_point`) and the Redis key so no subsequent
   request can hit the poisoned/stale entry.
-- [ ] **Periodic intent threshold calibration (conformal risk control)**: a
+- [x] **Periodic intent threshold calibration (conformal risk control)**: a
   scheduled batch job (or admin CLI) analyzes the audit table grouped by
   intent and computes an empirical threshold quantile guaranteeing an error
   rate ≤ α (e.g. ≤ 2%) per intent, applying it as a Redis override
