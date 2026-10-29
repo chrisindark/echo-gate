@@ -11,7 +11,7 @@ Covers:
 import json
 import unittest
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -44,8 +44,8 @@ class TestConformalThresholdMath(unittest.TestCase):
         self.assertEqual(err_rate, 0.0)
         self.assertEqual(err_count, 0)
 
-    def test_pristine_scores_zero_errors(self):
-        """When all audited samples are equivalent (0 errors), threshold adapts down to min score (bounded)."""
+    def test_pristine_scores_keep_default_threshold(self):
+        """Zero observed errors do not justify lowering the configured gate."""
         scores = [0.91, 0.92, 0.93, 0.95, 0.97, 0.98]
         is_eq = [True, True, True, True, True, True]
 
@@ -56,8 +56,7 @@ class TestConformalThresholdMath(unittest.TestCase):
             default_threshold=0.95,
             min_bound=0.85,
         )
-        # min score is 0.91; since 0.91 >= min_bound, adapts to 0.91
-        self.assertEqual(th, 0.91)
+        self.assertEqual(th, 0.95)
         self.assertEqual(err_rate, 0.0)
         self.assertEqual(err_count, 0)
 
@@ -322,6 +321,7 @@ class TestCeleryCalibrationTask(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(res["intents_evaluated"], 1)
             self.assertEqual(res["overrides_applied"], 1)
             self.assertTrue(res["results"]["code_generation"]["calibrated"])
+            mock_service_cls.assert_called_once_with(redis_service=ANY)
 
 
 if __name__ == "__main__":

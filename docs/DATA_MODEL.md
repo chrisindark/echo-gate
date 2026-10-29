@@ -194,6 +194,36 @@ Surfaced read-only through `/api/v1/shadow-cache` (see
 [API_REFERENCE.md](API_REFERENCE.md#shadow-cache--apiv1shadow-cache)), which the
 analytics dashboard uses for its cache-readiness indicator.
 
+#### `cache_evaluations`
+
+Ground-truth audit rows for a sampled subset of approved semantic cache hits in
+`CACHE_MODE=active`. A background task fetches a fresh provider answer, compares
+it with the cached answer, and records the judge result. A non-equivalent result
+can trigger immediate cache eviction. The hourly intent calibration job reads
+these rows across tenants and writes threshold overrides to Redis; the request
+serving path reads those overrides without mutating configuration.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | int PK | |
+| `created_at` | timestamptz | Indexed. |
+| `request_id` | int NULL FK → `gateway_requests.id` | `ON DELETE SET NULL`. |
+| `exact_hash` | varchar(64) NULL | Exact cache key, when available. |
+| `tenant_id` / `user_id` | varchar(100) NULL | Identity at audit time; `tenant_id` drives RLS. |
+| `model` / `provider` | varchar(100) NULL | Routed target. |
+| `match_type` | varchar(50) NULL | Cache layer that supplied the response. |
+| `query_text` / `cached_answer` / `fresh_answer` | text NULL | Compared prompt and answers. |
+| `intent` | varchar(100) NULL | Calibration grouping. |
+| `vector_similarity` / `rerank_score` | numeric(6,5) NULL | Similarity and confidence-gate inputs. |
+| `is_equivalent` | bool NULL | Judge result; `false` is an audited false positive. |
+| `point_id` | varchar(36) NULL | Qdrant point eligible for eviction. |
+| `latency_saved_ms` | int NULL | Provider latency minus cache lookup latency. |
+| `evicted` | bool | Whether all attempted cache deletions succeeded. |
+
+Rows are tenant-scoped like `gateway_requests`; trusted calibration jobs use
+`system_rls_context` to read all tenants. The table is not exposed through a
+public read API.
+
 ### Indexes
 
 Each table indexes its scope and filter columns (`tenant_id`, `user_id`,
@@ -213,6 +243,7 @@ RLS is then enabled per table. Every policy begins with
 | --- | --- |
 | `gateway_requests`, `llm_usage_logs` | **Tenant:** visible when `tenant_id = current_setting('app.current_tenant')`. |
 | `shadow_cache_evaluations` | **Tenant:** same shape as `gateway_requests`; shadow rows inherit the request's tenant context from the background task. |
+| `cache_evaluations` | **Tenant:** same shape as `gateway_requests`; trusted calibration jobs use the system RLS context to read across tenants. |
 | `llm_quota_rules` | **Quota:** visible when `tenant_id IS NULL` **or** matches the current tenant. |
 | `conversations`, `messages` | **User:** visible when tenant matches and `app.current_user = ''` **or** `user_id` matches. |
 | `api_keys`, `admin_api_keys` | **No RLS** by design; key resolution happens before a tenant context exists. |

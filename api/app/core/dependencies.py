@@ -294,8 +294,9 @@ class DependencyContainer:
     @classmethod
     async def get_intent_calibration_service(cls) -> IntentCalibrationService:
         if cls._intent_calibration_service is None:
+            # No session_factory: calibration reads every tenant through
+            # task_db_session. SessionLocal would be limited to the caller tenant.
             cls._intent_calibration_service = IntentCalibrationService(
-                session_factory=SessionLocal,
                 redis_service=await cls.get_redis_service(),
             )
         return cls._intent_calibration_service

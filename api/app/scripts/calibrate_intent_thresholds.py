@@ -26,7 +26,6 @@ import asyncio
 import sys
 
 from app.core.config import config
-from app.core.database import SessionLocal
 from app.modules.cache_audit.calibration_service import (
     IntentCalibrationResult,
     IntentCalibrationService,
@@ -69,10 +68,9 @@ def _format_table(results: dict[str, IntentCalibrationResult], applied: bool) ->
 async def _async_main(args: argparse.Namespace) -> int:
     redis_service = RedisService()
     try:
-        calibrator = IntentCalibrationService(
-            session_factory=SessionLocal,
-            redis_service=redis_service,
-        )
+        # No session_factory: task_db_session applies system RLS. SessionLocal
+        # here would only see the anonymous tenant.
+        calibrator = IntentCalibrationService(redis_service=redis_service)
 
         if args.clear_intent:
             success = await calibrator.delete_redis_override(args.clear_intent)

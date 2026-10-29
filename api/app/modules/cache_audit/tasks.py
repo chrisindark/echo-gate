@@ -6,7 +6,6 @@ Includes periodic intent threshold calibration (Conformal Risk Control).
 import logging
 from typing import Any
 
-from app.core.database import SessionLocal
 from app.modules.cache_audit.calibration_service import IntentCalibrationService
 from app.modules.redis.redis_service import RedisService
 from app.worker.celery_app import celery_app, run_async
@@ -17,10 +16,9 @@ logger = logging.getLogger(__name__)
 async def _calibrate_intent_thresholds_async() -> dict[str, Any]:
     redis_service = RedisService()
     try:
-        calibrator = IntentCalibrationService(
-            session_factory=SessionLocal,
-            redis_service=redis_service,
-        )
+        # No session_factory: the service uses task_db_session (system RLS).
+        # SessionLocal in a worker only matches tenant_id = 'anonymous'.
+        calibrator = IntentCalibrationService(redis_service=redis_service)
         results = calibrator.calibrate_all_intents()
         applied = await calibrator.apply_overrides_to_redis(results)
         logger.info(
