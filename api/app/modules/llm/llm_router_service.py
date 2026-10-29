@@ -2229,7 +2229,10 @@ class LlmRouterService:
                     actual_response=fresh_text,
                 )
 
-            # 3. Instant eviction (kill switch)
+            # 3. Instant eviction (kill switch). Stamp evicted only when every
+            # attempted delete succeeds. delete_point returns False on error
+            # (it does not raise). RedisService.delete returns None on error;
+            # 0 means the key was already absent.
             evicted = False
             if is_equivalent is False and config.CACHE_AUDIT_EVICT_ON_FAILURE:
                 logger.warning(
@@ -2238,25 +2241,35 @@ class LlmRouterService:
                     exact_hash,
                     point_id,
                 )
+                qdrant_ok = True
+                redis_ok = True
+                attempted = False
                 if point_id:
+                    attempted = True
                     try:
-                        await asyncio.to_thread(
-                            self.llm_cache_service.delete_point, str(point_id)
+                        qdrant_ok = bool(
+                            await asyncio.to_thread(
+                                self.llm_cache_service.delete_point, str(point_id)
+                            )
                         )
                     except Exception:
+                        qdrant_ok = False
                         logger.exception(
                             "Cache audit failed to evict point %s from Qdrant",
                             point_id,
                         )
                 if exact_hash:
+                    attempted = True
                     try:
-                        await self.redis_service.delete(exact_hash)
+                        deleted = await self.redis_service.delete(exact_hash)
+                        redis_ok = deleted is not None
                     except Exception:
+                        redis_ok = False
                         logger.exception(
                             "Cache audit failed to evict key %s from Redis",
                             exact_hash,
                         )
-                evicted = True
+                evicted = attempted and qdrant_ok and redis_ok
 
             latency_saved_ms = None
             if fresh_provider_ms is not None:

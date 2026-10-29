@@ -69,6 +69,8 @@ provider behavior, or persistence decision is genuinely unspecified.
 - `gateway_requests/`, `llm_usage/`, `analytics/` — trace log, usage log, aggregation.
 - `shadow_cache/` — shadow-mode evaluation rows, readiness summary, and the
   `/api/v1/shadow-cache` read API.
+- `cache_audit/` — sampled active-mode semantic-hit audits, false-positive
+  eviction, and intent threshold calibration from `cache_evaluations`.
 - `llm_quota/`, `api_keys/` — Redis-backed quotas and tenant identity. Admin CRUD
   for quota rules is `llm_quota_controller.py` + `llm_quota_rule_service.py`.
 - `admin/` — scoped operator credentials (`admin_api_keys`), created only by

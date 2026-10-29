@@ -62,12 +62,11 @@ def compute_conformal_threshold(
     n = len(scores)
     false_positives = [scores[i] for i in range(n) if not is_equivalent[i]]
 
-    # Case 1: If there are zero errors in the audited samples, cache is pristine.
-    # Set threshold to min score observed (not below min_bound or default_threshold).
+    # Case 1: Zero false positives. A clean sample is not evidence the gate can
+    # move down; lowering it to the minimum observed score would admit weaker
+    # hits than the configured default. Keep the default.
     if not false_positives:
-        min_observed = min(scores)
-        chosen = max(min_bound, min(default_threshold, min_observed))
-        return round(chosen, 4), 0.0, 0
+        return round(default_threshold, 4), 0.0, 0
 
     # Case 2: Sweep candidate thresholds from min_bound to max_bound in 0.005 steps,
     # augmented with the exact observed score values.

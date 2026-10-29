@@ -232,6 +232,28 @@ dashboard renders that as its "Cache Readiness — Shadow Pipeline" section;
 When the indicator reports `READY`, set `CACHE_MODE=active` (and enable the
 `USE_*` layers you want) and restart.
 
+## Active-mode cache audit and calibration
+
+In `CACHE_MODE=active`, `CACHE_AUDIT_ENABLED` and
+`CACHE_AUDIT_SAMPLE_RATE` select a small share of approved semantic cache hits
+for an out-of-band fresh-answer audit. The router returns the cached answer
+immediately, then a background task asks the provider for a fresh completion,
+compares both answers with the lightweight equivalence judge, and persists the
+result in `cache_evaluations`. If the judge finds a mismatch and eviction is
+enabled, the task attempts to remove the corresponding Qdrant point and Redis
+entry; `evicted` is true only when every attempted deletion succeeds.
+
+The hourly `calibrate_intent_thresholds` Celery task groups evaluated rows by
+intent and applies eligible confidence thresholds as Redis overrides. The CLI
+(`python -m app.scripts.calibrate_intent_thresholds`) supports a dry run and an
+explicit `--apply`. Both use `task_db_session`, which establishes the trusted
+system RLS context required to read audit rows across tenants. The serving path
+reads overrides dynamically and otherwise falls back to configured thresholds.
+
+Calibration is an empirical threshold sweep over observed audit samples, not a
+formal conformal-prediction guarantee. In particular, the minimum sample floor
+does not provide statistical evidence for very low target error rates.
+
 ## Shared inference platform
 
 Dense embeddings, reranking, relevance, and NLI are served by a separate
