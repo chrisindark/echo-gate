@@ -148,25 +148,37 @@ the eviction filters).
 
 ### Step 3: Response Cost Estimation Endpoint (`POST /api/v1/chat/estimate`)
 
-- [ ] **3.1 Lightweight Tokenizer Integration**:
+- [x] **3.1 Lightweight Tokenizer Integration**:
   - Add `tiktoken` to `pyproject.toml` (Rust-based BPE tokenizer, fast, no PyTorch).
   - Create helper `count_tokens(text: str, model: str) -> int` in `api/app/core/helpers.py`.
 
-- [ ] **3.2 Cost Estimation Service**:
+- [x] **3.2 Cost Estimation Service**:
   - File: `api/app/modules/chat/chat_estimate_service.py`
   - Compute prompt tokens across message array and tool declarations.
   - Estimate completion tokens based on `max_tokens` or intent history.
   - Look up provider rates from `api/app/core/pricing.py`.
   - Return comparison matrix across enabled models (`cost_prompt`, `cost_completion`, `cost_total`).
 
-- [ ] **3.3 Controller & Route Registration**:
+- [x] **3.3 Controller & Route Registration**:
   - File: `api/app/modules/chat/chat_controller.py`
   - Expose `POST /api/v1/chat/estimate`.
   - Mount under `api_v1_router`.
 
-- [ ] **3.4 OpenAPI Snapshot Update**:
+- [x] **3.4 OpenAPI Snapshot Update**:
   - Regenerate snapshot in `tests/snapshots/openapi.json`.
   - Verify via `tests/test_openapi_snapshot.py`.
+
+Implementation notes: `count_tokens(text, model)` / `get_tokenizer` live in
+`api/app/core/helpers.py`, with `o200k_base` for the GPT-4o/4.1/5/o-series
+families and `cl100k_base` otherwise (the closest published approximation for
+Claude/Gemini, whose tokenizers are not public). tiktoken downloads its
+encoding file on first use, so an offline engine falls back to a
+`4 chars/token` estimate and says so in the response's `tokenizer` field rather
+than failing the request. `ChatEstimateService` adds the +4/message and +3
+reply-priming framing, counts serialized `tools`, prices every enabled
+`(service, model)` from `app/core/pricing.py`, and sorts cheapest first.
+`ESTIMATE_DEFAULT_COMPLETION_TOKENS` (256) supplies the completion length when
+`max_tokens` is absent. Tests: `tests/test_chat_estimate.py`.
 
 ---
 

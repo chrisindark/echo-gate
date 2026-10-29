@@ -12,6 +12,14 @@ changes' entry with a `[BREAKING]` marker.
 
 ### Added
 
+- **Pre-flight cost estimate endpoint**: `POST /api/v1/chat/estimate` counts
+  prompt tokens with `tiktoken` (+4 per message, +3 reply priming, tool
+  declarations included) and returns a cheapest-first cost matrix across every
+  enabled model without calling a provider. A missing BPE encoding (offline
+  engine) degrades to a 4-chars/token estimate that the response labels as
+  `heuristic` instead of failing. `ESTIMATE_DEFAULT_COMPLETION_TOKENS` (256)
+  supplies the completion length when `max_tokens` is omitted. Additive: new
+  route and schemas only, OpenAPI snapshot regenerated.
 - **Value-aware cache retention (vCache-style)**: cache entries now record
   `provider_cost`, `latency_ms`, `token_count`, `hit_count`, and a
   `retention_value` score, so intent TTLs stretch for slow, expensive answers

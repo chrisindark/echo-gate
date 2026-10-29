@@ -31,6 +31,7 @@ opentelemetry-api = "^1.45.1"
 # No torch here on purpose: dense embeddings, reranking, relevance and NLI are
 # served by `inference-platform/` over HTTP (INFERENCE_BASE_URL). There is no
 # in-process fallback, so sentence-transformers is not a dependency at all.
+tiktoken = "^0.14.0"
 
 [build-system]
 requires = ["poetry-core"]
