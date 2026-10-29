@@ -38,7 +38,7 @@ Echo Gate accepts OpenAI-compatible `chat/completions` requests and routes them 
 - **Layer 2: Qdrant Exact Hash Match**:
   - Serves as a persistent secondary exact cache if Redis keys expire or are evicted.
 - **Layer 3: Qdrant Hybrid Semantic Search**:
-  - **Dual-Vector Architecture**: Indexes both dense vectors (`prompt_embedding` via `sentence-transformers`, default `all-MiniLM-L6-v2`) and sparse lexical tokens (BM25) for robust semantic and keyword matching.
+  - **Dual-Vector Architecture**: Indexes both dense vectors (`prompt_embedding` from the shared inference engine, default `BAAI/bge-small-en-v1.5`) and sparse lexical tokens (BM25) for robust semantic and keyword matching.
   - **Reciprocal Rank Fusion (RRF)**: Merges dense and sparse vector queries over system and user prompt segments.
   - **Fast-Path Dense Bypass**: Bypasses expensive reranking and intent pipelines when dense cosine similarity exceeds the high-confidence threshold (`QDRANT_DENSE_SEARCH_HIGH_THRESHOLD`, default `0.98`).
   - **Asynchronous Background Persistence**: Responses are returned to the client immediately on cache misses; cache vectorization and database insertion run out-of-band via background tasks.
@@ -55,7 +55,7 @@ Echo Gate accepts OpenAI-compatible `chat/completions` requests and routes them 
   - Named entity and keyword extraction determine privacy boundaries.
   - Enforces strict cache isolation levels: `GLOBAL` $\rightarrow$ `TENANT` $\rightarrow$ `USER` $\rightarrow$ `SESSION` $\rightarrow$ `CONVERSATION`.
 - **Cross-Encoder Reranking (`RerankerService`)**:
-  - Scores candidate semantic matches with a `BAAI/bge-reranker-base` cross-encoder (`RERANKER_MODEL_NAME`), comparing request and candidate user segments.
+  - Scores candidate semantic matches with an `Alibaba-NLP/gte-reranker-modernbert-base` cross-encoder (`RERANKER_MODEL_NAME`), comparing request and candidate user segments.
   - Combines the base score with bounded signal factors (model, service, intent, extracted metadata, entities, system prompt, temperature, instruction constraints) via `RERANKER_SCORING_MODE` (`multiplicative` by default, or `additive`).
   - Persists the top candidate's `score_breakdown` (scoring mode, base/final scores, per-signal factors, details) on the `gateway_requests` trace for calibration.
 - **Multi-Dimensional Judge Evaluation (`JudgeService`)**:
@@ -199,8 +199,9 @@ ollama pull qwen2.5-coder:7b
 ollama pull qwen2.5-coder:14b
 ```
 
-Embeddings are computed locally with `sentence-transformers`
-(`EMBEDDING_MODEL_NAME`, default `all-MiniLM-L6-v2`), not via Ollama.
+Embeddings are served by the shared inference engine
+(`inference-platform/`, model pinned by `EMBEDDING_MODEL_NAME`, default
+`BAAI/bge-small-en-v1.5`) — never by the gateway process and never via Ollama.
 
 ### 3. Environment Configuration
 

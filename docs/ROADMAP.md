@@ -117,11 +117,15 @@ Feature-by-feature record of what exists in the codebase today.
 
 ### ML components
 
-- [x] **Dense embeddings & BM25 sparse**: Dense embeddings `all-MiniLM-L6-v2`
-  (sentence-transformers), BM25 sparse embeddings with a persisted model path,
-  cross-encoder relevance (`ms-marco-MiniLM-L-6-v2`) and NLI
-  (`nli-deberta-v3-small`) models, LLM judge (`llm_usage`-fed evaluation),
-  intent classifier, core-query entity extractor.
+- [x] **Dense embeddings & BM25 sparse**: dense embeddings
+  (`BAAI/bge-small-en-v1.5`, 384-dim, served by `inference-platform/`), BM25
+  sparse embeddings with a persisted model path, cross-encoder relevance
+  (`ms-marco-MiniLM-L-6-v2`), rerank (`gte-reranker-modernbert-base`), NLI
+  (`nli-MiniLM2-L6-H768`) and zero-shot classification
+  (`ModernBERT-base-zeroshot-v2.0`), LLM judge (`llm_usage`-fed evaluation),
+  intent classifier, core-query entity extractor. Every default is the
+  small-but-capable pick for a 16 GB laptop; the production swap for each role is
+  recorded in `inference-platform/models.lock.yaml` and in the model table below.
 - [x] **Reranker threshold calibration script** (`app/scripts/calibrate_reranker.py`)
   with precision/recall/F1 sweep.
 
@@ -415,23 +419,40 @@ comparison and no data-driven threshold calibration. Remaining work:
 
 *Detailed execution tracker, architecture specs, and multi-project integration plans live in [`docs/PHASE_3_EXECUTION_PLAN.md`](./PHASE_3_EXECUTION_PLAN.md).*
 
-> **Status (2026-10-27):** model serving is split. A separate
+> **Status (2026-10-28):** model serving is fully split. A separate
 > `inference-platform/` dependency root serves dense embeddings, reranking,
 > relevance, and NLI over HTTP; the gateway consumes it via `INFERENCE_BASE_URL`
-> with role routing, fail-open semantics, and no torch import. `torch`,
-> `transformers`, and `sentence-transformers` are now an optional
-> `local-models` extra, and the gateway image is **0.71GB** (measured; the same
-> Dockerfile with the extra is 9.4GB). The original `<300MB` estimate was wrong:
-> `onnxruntime` + BM25 put the floor near 0.7GB.
+> with role routing and starts only against a verified engine. The in-process
+> model path was then deleted rather than kept as a fallback, so `torch`,
+> `transformers`, and `sentence-transformers` are no longer dependencies at all
+> and the image is **0.71GB** (measured; the pre-removal build with in-process
+> models was 9.4GB). The original `<300MB` estimate was wrong: `onnxruntime` +
+> BM25 put the floor near 0.7GB.
+>
+> **Status (2026-10-29):** the platform is packaged as a standalone service —
+> `pyproject.toml` + `uv.lock` + `src/inference_platform/` with a console entry
+> point, no shared environment with the gateway — and its contract gained a
+> `sparse` (BM25) role answered by the same `/embeddings` call as the dense
+> vectors. Echo Gate itself still computes BM25 locally (its Qdrant collection
+> holds vectors from the gateway's own tokenizer, so moving the tokenizer means
+> re-indexing); doc-nexus and agent-forge are the consumers for the served role.
+> It also gained zero-shot classification (`/classify` with `mode: "zero-shot"`,
+> labels as NLI hypotheses) and a real deployment path: CPU-only image, compose
+> file, and a Helm chart. Measured limitation: the shipped NLI checkpoint ranks
+> topics well and intents poorly, so zero-shot is a calibrated ranking, not a
+> drop-in intent classifier.
 
 - [x] **High-performance model serving**: embeddings, reranking, relevance, and
   NLI are served by `inference-platform/` over HTTP; `CrossEncoderService` and
-  `EmbeddingService` are HTTP clients with fail-open semantics, and
-  `sentence-transformers`/`transformers`/`torch` moved to an optional
-  `local-models` extra. Image: 0.71GB engine-backed (9.4GB with the extra baked
-  in — CUDA libraries dominate). Multi-stage build keeps poetry and its wheel
-  cache out of the runtime image. Implementations: `dev/native_server.py`
-  for laptops, Infinity for GPU hosts.
+  `EmbeddingService` are pure HTTP clients, and `sentence-transformers` /
+  `transformers` / `torch` were removed from the dependency set entirely (the
+  `local-models` extra is gone). `InferenceClient.verify()` makes a missing,
+  unreachable, skewed, or partially-loaded engine a startup failure; runtime
+  outages stay fail-open and report as `inference: failed` on
+  `/api/v1/health/deps`. Image: 0.71GB (9.4GB before removal — CUDA libraries
+  dominated). Multi-stage build keeps poetry and its wheel cache out of the
+  runtime image. Implementations: the `inference_platform` service in this repo
+  (`uv run inference-platform`) for laptops, Infinity for GPU hosts.
 - [ ] **Cost-aware cache retention (vCache-style)**: record generation metrics
   (latency seconds, token usage, model tier) in cache-entry metadata; weight
   retention to protect expensive responses (slow reasoning models, complex
@@ -584,3 +605,52 @@ Work that benefits every phase and can be tackled alongside any milestone.
   - Concurrent quota enforcement (near-limit simultaneous requests).
   - Analytics aggregation correctness.
   All unit-testable with mocks — no infra needed. ~6 new test files.
+
+## Model selection: laptop defaults vs cloud release
+
+The defaults in `inference-platform/models.lock.yaml` are chosen for a 16 GB
+laptop: each is the smallest checkpoint that is genuinely good at its job. The
+measured cost of the five dense/cross-encoder roles is **1419 MB (was 1809 MB)**,
+plus ~5 MB for BM25, with better quality in every role, and latency on an
+M4/MPS stays at 10-30 ms per request.
+
+| role | local default (dim/disk) | why it stays | production option |
+| :--- | :--- | :--- | :--- |
+| `embed` | `BAAI/bge-small-en-v1.5` (384, 128 MB) | biggest quality step that keeps `dim=384`, so the Qdrant schema does not change: paraphrase 0.85 vs 0.62 for MiniLM | `Alibaba-NLP/gte-modernbert-base` (768) for long context, `Qwen/Qwen3-Embedding-0.6B` (1024) for multilingual / best quality |
+| `rerank` | `Alibaba-NLP/gte-reranker-modernbert-base` (598 MB) | half the size of `bge-reranker-base` (1.08 GB) and the only candidate that separates short query↔prompt pairs on the *raw-logit* scale the confidence gate uses (0.80 relevant / 0.17 unrelated, vs 0.24 / 0.00) | `Qwen/Qwen3-Reranker-0.6B` (best multilingual, causal-LM head) or drop-in `jinaai/jina-reranker-v2-base-multilingual`, `BAAI/bge-reranker-v2-m3` |
+| `relevance` | `cross-encoder/ms-marco-MiniLM-L-6-v2` (91 MB) | already at the small-but-capable point for the 1..5 relevance scale | `gte-reranker-modernbert-base`, or `ms-marco-MiniLM-L12-v2` for a cheap step up |
+| `nli` | `cross-encoder/nli-MiniLM2-L6-H768` (316 MB) | same verdicts as `nli-deberta-v3-small` at 552 MB, 2x faster | `tasksource/ModernBERT-base-nli` — its label order differs, so the gateway's positional `[contradiction, entailment, neutral]` indexing must become label-keyed first |
+| `zero-shot` | `MoritzLaurer/ModernBERT-base-zeroshot-v2.0` (289 MB) | binary entailment: 0.974 invoice→billing, 0.998 password reset (the 3-way `nli` model scored 0.956 / 0.079) | `MoritzLaurer/ModernBERT-large-zeroshot-v2.0` (792 MB) |
+| `sparse` | `Qdrant/bm25` (~5 MB) | tokenizer identity is the contract; no reason to move | same |
+
+### Before a cloud release
+
+1. **Pick the upgrades you actually need.** Dense and rerank are the two that buy
+   measurable quality; a single English deployment rarely needs the multilingual
+   variants.
+2. **`embed` first, because it changes storage.** A `dim` change needs a new Qdrant
+   collection (`dim` is fixed at creation), then re-embed:
+   `QDRANT_COLLECTION... : poetry run python -m app.scripts.migrate_embeddings --target embeddings_multivector_v2 --write`.
+   Without the re-embed, old points are not *corrupted*, they are quarantined: the
+   semantic search filters on `payload.embedding_model`, so a warm cache simply
+   goes cold.
+3. **Bump the version tags that make a swap visible**: `EMBEDDING_VERSION`,
+   `RERANKER_VERSION`, and `PROMPT_VERSION` if prompts changed. Cached points are
+   filtered on all of them.
+4. **Recalibrate the scores the swap moves — this is not optional for `rerank`.**
+   `InferenceClient.rerank` returns `score_raw`, and `CACHE_CONFIDENCE_THRESHOLDS`
+   (0.85–0.98) are compared against that raw logit scale. A model with the same
+   ranking but a different scale silently turns the semantic cache off: the
+   146 MB mxbai reranker scored 0.06 raw for a paraphrase where this one scores
+   0.80, so nothing ever cleared the gate. Run
+   `python -m app.scripts.calibrate_reranker` against shadow data, then check the
+   eval goldens (`inference-platform/evals/check.py`) — several of them pin a
+   specific model's spread on purpose. Verify with a live shadow request that a
+   known paraphrase lands in the band you expect, not merely that the ranking is
+   right.
+5. **Pin revisions.** `uv run python tools/pin_models.py --write` in
+   `inference-platform/` records the Hugging Face SHAs so a cloud rollout cannot
+   silently pull a different checkpoint than staging.
+6. **Warm the weights.** Bake them into the image (`--build-arg PREFETCH=1`) or
+   give the chart a model PVC with `modelCache.prefetch.enabled=true`; a cold
+   engine pays a 2.5 GB download before it can serve.

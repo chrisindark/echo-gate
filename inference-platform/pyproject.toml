@@ -1,0 +1,68 @@
+[project]
+name = "inference-platform"
+version = "0.1.0"
+description = "Shared encoder-serving layer: dense embeddings, sparse BM25, rerank, and NLI over HTTP."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+# This is a separate dependency root on purpose: it shares no environment with the
+# consumers, so a torch bump here cannot disturb a gateway lockfile and vice versa.
+# Consumers talk to it over HTTP only.
+dependencies = [
+  "fastapi>=0.115,<1.0",
+  "uvicorn[standard]>=0.30,<1.0",
+  "pydantic>=2.7,<3.0",
+  "pyyaml>=6.0,<7.0",
+  "numpy>=1.26,<3.0",
+  "sentence-transformers>=3.0,<6.0",
+  # Declared directly (not just via sentence-transformers) so the CPU-index source
+  # below applies: uv only honours `tool.uv.sources` for direct dependencies.
+  "torch>=2.0,<3.0",
+  "fastembed>=0.4,<1.0",
+  "huggingface-hub>=0.24,<2.0",
+]
+
+[project.scripts]
+inference-platform = "inference_platform.__main__:main"
+inference-platform-prefetch = "inference_platform.prefetch:main"
+
+[dependency-groups]
+dev = [
+  "pytest>=8.0,<9.0",
+  "httpx>=0.27,<1.0",
+  "ruff>=0.6,<1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/inference_platform"]
+
+# CPU-only torch, on every platform.
+#
+# The PyPI torch wheel drags in the nvidia-* CUDA runtime as hard dependencies on
+# Linux, which turns this image from ~1 GB into ~7 GB without ever using a GPU: the
+# native server is the CPU/laptop implementation, and GPU deployments run Infinity.
+# Pulling torch from the CPU index is what keeps the container honest.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+src = ["src", "tools", "evals"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["B008"]

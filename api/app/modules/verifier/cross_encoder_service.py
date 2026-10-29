@@ -1,10 +1,9 @@
-import asyncio
 import logging
-import os
 
 from app.core.config import config
 from app.modules.inference.inference_client import (
     InferenceClient,
+    InferenceConfigError,
     InferenceUnavailable,
 )
 
@@ -16,89 +15,32 @@ _MAX_BATCH = 256
 
 
 class CrossEncoderService:
-    """Reranking, relevance and NLI scoring.
+    """Reranking, relevance and NLI scoring, all served by the inference engine.
 
-    Served either by the shared inference platform (`INFERENCE_BASE_URL`) or, when
-    that is unset, by cross-encoders loaded into this process (legacy behaviour).
     Three separate models back the three roles, which is why sharing them across
-    processes matters: each prefork child otherwise pays ~1.7GB.
+    processes matters: each prefork child otherwise pays ~1.7GB. The `USE_*` flags
+    survive as per-role toggles -- they do not switch to a local model, they make
+    the role raise `InferenceUnavailable` so callers take their explicit fallback.
 
     Failure policy: `InferenceUnavailable` is raised, never swallowed, so every
     caller makes an explicit choice. The cache path treats it as "no candidates"
     and falls through to the provider; the operator endpoint returns 503.
     """
 
-    def __init__(
-        self,
-        reranker_model_name: str = config.RERANKER_MODEL_NAME,
-        relevance_model_name: str = config.CROSS_ENCODER_RELEVANCE_MODEL,
-        nli_model_name: str = config.CROSS_ENCODER_NLI_MODEL,
-        inference_client: InferenceClient | None = None,
-    ):
-        self.hf_home = os.getenv("HF_HOME", "./.model_cache")
-        self.reranker_model = None
-        self.relevance_model = None
-        self.nli_model = None
-
-        self.inference: InferenceClient | None = None
-        if inference_client is not None:
-            self.inference = inference_client
-        elif config.INFERENCE_ENABLED:
-            self.inference = InferenceClient()
-
-        if self.inference is not None:
-            url_func = getattr(
-                self.inference,
-                "url_for",
-                lambda role: getattr(self.inference, "base_url", ""),
+    def __init__(self, inference_client: InferenceClient | None = None):
+        self.inference = inference_client or InferenceClient()
+        if not self.inference.enabled:
+            raise InferenceConfigError(
+                "Cross-encoder roles need the inference engine: INFERENCE_BASE_URL is "
+                "unset and there is no in-process fallback any more (see "
+                "docs/DEVELOPMENT.md)."
             )
-            logger.info(
-                "Cross-encoder roles delegated to the inference platform (rerank=%s, classify=%s); "
-                "no local transformer is loaded",
-                url_func("rerank"),
-                url_func("nli"),
-            )
-            return
-
-        # torch is imported only on the in-process path so that a deployment
-        # running against the inference platform never pays its import cost.
-        try:
-            from sentence_transformers import CrossEncoder
-        except ImportError as exc:  # pragma: no cover - deployment shape
-            raise RuntimeError(
-                "Cross-encoder roles are configured in-process but "
-                "sentence-transformers is not installed. Set INFERENCE_BASE_URL to "
-                "serve them from the inference platform, or install the local-models "
-                "extra: poetry install --extras local-models"
-            ) from exc
-
-        # Initialize the reranker model for semantic cache matching
-        if config.USE_RERANKER_MODEL:
-            self.reranker_model = CrossEncoder(
-                reranker_model_name,
-                local_files_only=True,
-                cache_folder=self.hf_home,
-            )
-
-        # Initialize the cross-encoder model for query-to-answer relevance
-        if config.USE_RELEVANCE_MODEL:
-            self.relevance_model = CrossEncoder(
-                relevance_model_name,
-                local_files_only=True,
-                cache_folder=self.hf_home,
-            )
-
-        # Initialize the NLI model for contradiction detection
-        if config.USE_NLI_MODEL:
-            self.nli_model = CrossEncoder(
-                nli_model_name,
-                local_files_only=True,
-                cache_folder=self.hf_home,
-            )
-
-    @property
-    def is_remote(self) -> bool:
-        return self.inference is not None
+        logger.info(
+            "Cross-encoder roles delegated to the inference platform "
+            "(rerank=%s, nli=%s)",
+            self.inference.url_for("rerank"),
+            self.inference.url_for("nli"),
+        )
 
     # -- plumbing ----------------------------------------------------------
 
@@ -166,95 +108,70 @@ class CrossEncoderService:
         """Blocking variant. Safe only off the event loop (`asyncio.to_thread`)."""
         if not pairs:
             return []
-        if self.inference is not None:
-            return self._rerank_pairs_remote(pairs)
-        if self.reranker_model is None:
-            raise InferenceUnavailable("reranker role is disabled")
-        scores = self.reranker_model.predict(pairs)
-        if isinstance(scores, float) or scores.ndim == 0:
-            return [float(scores)]
-        return [float(score) for score in scores]
+        if not config.USE_RERANKER_MODEL:
+            raise InferenceUnavailable("reranker role is disabled (USE_RERANKER_MODEL)")
+        return self._rerank_pairs_remote(pairs)
 
     async def rerank_predict_async(self, pairs: list[tuple[str, str]]) -> list[float]:
         if not pairs:
             return []
-        if self.inference is not None:
-            return await self._rerank_pairs_remote_async(pairs)
-        return await asyncio.to_thread(self.rerank_predict, pairs)
+        if not config.USE_RERANKER_MODEL:
+            raise InferenceUnavailable("reranker role is disabled (USE_RERANKER_MODEL)")
+        return await self._rerank_pairs_remote_async(pairs)
 
     # -- relevance ---------------------------------------------------------
 
     def relevance_predict(self, query: str, candidates: list[str]) -> list[float]:
         if not candidates:
             return []
-        if self.inference is not None:
-            scores: list[float] = []
-            for chunk in self._chunks(candidates):
-                scores.extend(
-                    self.inference.rerank_sync(query, chunk, role="relevance")
-                )
-            return scores
-        if self.relevance_model is None:
-            raise InferenceUnavailable("relevance role is disabled")
-
-        pairs = [(query, candidate) for candidate in candidates]
-        scores = self.relevance_model.predict(pairs)
-
-        if isinstance(scores, float) or scores.ndim == 0:
-            return [float(scores)]
-
-        return [float(score) for score in scores]
+        if not config.USE_RELEVANCE_MODEL:
+            raise InferenceUnavailable(
+                "relevance role is disabled (USE_RELEVANCE_MODEL)"
+            )
+        scores: list[float] = []
+        for chunk in self._chunks(candidates):
+            scores.extend(self.inference.rerank_sync(query, chunk, role="relevance"))
+        return scores
 
     async def relevance_predict_async(
         self, query: str, candidates: list[str]
     ) -> list[float]:
         if not candidates:
             return []
-        if self.inference is not None:
-            scores: list[float] = []
-            for chunk in self._chunks(candidates):
-                scores.extend(
-                    await self.inference.rerank(query, chunk, role="relevance")
-                )
-            return scores
-        return await asyncio.to_thread(self.relevance_predict, query, candidates)
+        if not config.USE_RELEVANCE_MODEL:
+            raise InferenceUnavailable(
+                "relevance role is disabled (USE_RELEVANCE_MODEL)"
+            )
+        scores: list[float] = []
+        for chunk in self._chunks(candidates):
+            scores.extend(await self.inference.rerank(query, chunk, role="relevance"))
+        return scores
 
     # -- NLI ---------------------------------------------------------------
 
     def nli_predict(self, query: str, candidates: list[str]) -> list[list[float]]:
         if not candidates:
             return []
-        if self.inference is not None:
-            results: list[list[float]] = []
-            for chunk in self._chunks(candidates):
-                pairs = [(query, candidate) for candidate in chunk]
-                results.extend(self.inference.classify_sync(pairs))
-            return results
-        if self.nli_model is None:
-            raise InferenceUnavailable("NLI role is disabled")
-
-        pairs = [(query, candidate) for candidate in candidates]
-        scores = self.nli_model.predict(pairs)
-
-        if scores.ndim == 1:
-            return [
-                float(score) for score in scores
-            ]  # 1D array of single scores if model outputs 1 value
-
-        return scores.tolist()
+        if not config.USE_NLI_MODEL:
+            raise InferenceUnavailable("NLI role is disabled (USE_NLI_MODEL)")
+        results: list[list[float]] = []
+        for chunk in self._chunks(candidates):
+            pairs = [(query, candidate) for candidate in chunk]
+            results.extend(self.inference.classify_sync(pairs))
+        return results
 
     async def nli_predict_async(
         self, query: str, candidates: list[str]
     ) -> list[list[float]]:
         if not candidates:
             return []
-        if self.inference is not None:
-            results: list[list[float]] = []
-            for chunk in self._chunks(candidates):
-                pairs = [(query, candidate) for candidate in chunk]
-                results.extend(await self.inference.classify(pairs))
-            return results
-        return await asyncio.to_thread(self.nli_predict, query, candidates)
+        if not config.USE_NLI_MODEL:
+            raise InferenceUnavailable("NLI role is disabled (USE_NLI_MODEL)")
+        results: list[list[float]] = []
+        for chunk in self._chunks(candidates):
+            pairs = [(query, candidate) for candidate in chunk]
+            results.extend(await self.inference.classify(pairs))
+        return results
 
 
 __all__ = ["CrossEncoderService", "InferenceUnavailable"]

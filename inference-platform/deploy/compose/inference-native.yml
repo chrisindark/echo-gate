@@ -1,0 +1,46 @@
+# Native (CPU) inference server, containerized.
+#
+#   docker compose -f deploy/compose/inference-native.yml up -d --build
+#
+# For a GPU host use inference.yml (Infinity, single container) or
+# inference-split.yml (one container per role pool) instead. All three serve the
+# same contract on 7997, so a consumer only ever changes INFERENCE_BASE_URL.
+
+services:
+  inference:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      # Bake the weights into the image so the first request is not a download.
+      # Remove (or set 0) to keep the image ~2.5 GB smaller and fill the volume
+      # on first start instead.
+      args:
+        PREFETCH: ${INFERENCE_PREFETCH:-0}
+    image: inference-platform:${INFERENCE_TAG:-local}
+    ports:
+      - "${INFERENCE_PORT:-7997}:7997"
+    environment:
+      INFERENCE_HOST: 0.0.0.0
+      INFERENCE_PORT: 7997
+      INFERENCE_DEVICE: cpu
+      INFERENCE_ROLES: ${INFERENCE_ROLES:-embed,sparse,rerank,relevance,nli,zero-shot}
+      INFERENCE_MODEL_CACHE: /models
+      INFERENCE_LOG_LEVEL: ${INFERENCE_LOG_LEVEL:-info}
+    volumes:
+      - inference-models:/models
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import sys, urllib.request;
+          sys.exit(0 if urllib.request.urlopen("http://127.0.0.1:7997/health", timeout=4).status == 200 else 1)
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 180s
+    restart: unless-stopped
+
+volumes:
+  inference-models:

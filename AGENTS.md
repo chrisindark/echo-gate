@@ -55,10 +55,14 @@ provider behavior, or persistence decision is genuinely unspecified.
 
 - `chat/` — public completions API and request/response schema.
 - `llm/` — router service (orchestration), provider adapters, cache confidence.
-- `embedding/` — dense embeddings (remote via `inference-platform/`, or
-  `sentence-transformers` in-process) and sparse (BM25, always local).
+- `embedding/` — dense embeddings (via `inference-platform/` over HTTP) and sparse
+  (BM25, still local — see `inference-platform/README.md` for why). No in-process
+  model path.
 - `inference/` — HTTP client for the shared inference platform (`/embeddings`,
   `/rerank`, `/classify`), role routing, and error classification.
+- `inference-platform/` (repo root, not under `api/app/`) — the shared model server
+  itself: a uv project with its own `pyproject.toml`/`uv.lock` and `src/inference_platform/`
+  package. Never imported by the gateway; expected to move to its own repository.
 - `redis/`, `qdrant/` — exact + vector cache storage and Qdrant cache collection.
 - `intent_classifier/` — intent LLM classification and regex entity extraction.
 - `reranking/`, `verifier/` — cross-encoder rerank plus judge/NLI evaluation.
@@ -130,11 +134,19 @@ Routing decisions: `REDIS_EXACT`, `QDRANT_EXACT`, `QDRANT_FAST`, `QDRANT_SEMANTI
 ## Verify
 
 - Unit tests: `poetry run pytest` (suite in `tests/`, configured in `pyproject.toml`)
-- In-process models are an optional extra (`poetry install --extras local-models`);
-  without it, model roles come from `INFERENCE_BASE_URL`. Do not move
-  `sentence-transformers` back into the main dependencies — it pulls ~5GB of
-  CUDA libraries into every image (0.71GB image becomes 9.4GB).
+- Model roles come only from `INFERENCE_BASE_URL` (`inference-platform/`); there is
+  no in-process path and `sentence-transformers` is not a dependency. Startup calls
+  `InferenceClient.verify()` and refuses to boot on a missing engine, an unloaded
+  role, or an embed dim/model mismatch. Do not reintroduce an in-process fallback:
+  it pulls ~5GB of CUDA libraries into every image (0.71GB becomes 9.4GB) and
+  creates a second, differently-behaving code path that silently masks a dead
+  engine. Runtime failures stay fail-open (cache miss → provider) and surface on
+  `/api/v1/health/deps` as `inference: failed`.
 - Backend syntax/import check: `poetry run python -m compileall api/app`
+- Inference platform (separate dependency root): `cd inference-platform && uv sync`
+  once, then `uv run pytest` (wire-contract tests, no weight downloads),
+  `uv run ruff check .`, and `./dev/serve.sh` to run it. Drift guard against a
+  running engine: `uv run python evals/check.py`.
 - Infra for local runs: `docker compose -f deploy/compose/docker-compose.yml up -d qdrant redis postgres`
 - Run the API: `poetry run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload`
   (`dev.sh` starts the API and the UI together)

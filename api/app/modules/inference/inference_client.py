@@ -1,9 +1,12 @@
 """HTTP client for the shared inference platform.
 
 Implements the consumer side of `inference-platform/contract/INFERENCE_CONTRACT.md`.
-Everything here is fail-open by design: the gateway must still answer from the
+Request-path calls are fail-open by design: the gateway must still answer from the
 provider when the inference service is unreachable, so callers treat
 `InferenceUnavailable` as "skip the cache layer", never as a request failure.
+Startup is the exception -- `verify()` raises `InferenceConfigError` so a
+misconfigured or missing engine stops the process instead of silently serving
+with no cache at all.
 
 Score scales are preserved deliberately. The contract exposes normalized
 `score`/`probabilities` *and* `score_raw`/`logits`; this client returns the raw
@@ -56,6 +59,15 @@ class InferenceRequestError(InferenceError):
 
     This is a caller bug -- a wrong model id or a payload the contract does not
     allow -- so it is logged loudly rather than silently swallowed.
+    """
+
+
+class InferenceConfigError(InferenceError):
+    """The engine cannot serve this gateway; the process must not start.
+
+    Raised only from `verify()` at startup. A request-path failure is a
+    `InferenceUnavailable` and degrades; a boot-time failure means every request
+    would silently bypass the cache, so it is fatal instead.
     """
 
 
@@ -515,88 +527,143 @@ class InferenceClient:
         self._raise_for(response, "classify")
         return self._extract_logits(response.json(), len(pairs))
 
-    # -- startup probe -----------------------------------------------------
+    # -- startup verification ----------------------------------------------
 
-    async def probe(self) -> dict[str, Any] | None:
-        """Log the engine's effective models across all endpoints so version skew is visible.
+    def required_roles(self) -> list[str]:
+        """Roles this gateway depends on, honouring the USE_* role toggles."""
+        roles = ["embed"]
+        if config.USE_RERANKER_MODEL:
+            roles.append("rerank")
+        if config.USE_RELEVANCE_MODEL:
+            roles.append("relevance")
+        if config.USE_NLI_MODEL:
+            roles.append("nli")
+        return roles
 
-        A dimension mismatch against the running Qdrant collection is a silent
-        cache corruption, so it is worth one WARNING at startup.
-        Probes each unique configured endpoint (single host in dev, multiple in split prod).
+    def role_urls(self) -> dict[str, str]:
+        """Resolve the endpoint that serves each role."""
+        return {
+            "embed": self.embed_url or self.base_url,
+            "rerank": self.rerank_url or self.base_url,
+            "relevance": self.relevance_url or self.rerank_url or self.base_url,
+            "nli": self.nli_url or self.base_url,
+        }
+
+    async def verify(self) -> dict[str, Any]:
+        """Fail startup unless the engine can serve every role this gateway needs.
+
+        Nothing is loaded in-process any more, so a missing engine is not a
+        "working but degraded" state: every request would bypass the cache while
+        `/ready` stayed green, and the only symptom would be a hit rate that never
+        rises. That is a silent regression rather than a transient fault, so this
+        raises instead of logging.
+
+        Checked here, all fatal:
+
+        * an engine URL is configured at all;
+        * every distinct configured endpoint is reachable;
+        * each required role is reported as loaded by that role's endpoint, which
+          catches an engine that started without one model;
+        * the engine's embedding dim and model id match what the Qdrant collection
+          was populated with -- a mismatch mixes two vector spaces in one index.
+
+        `GET /models` is contract, not a requirement: an engine that answers 404/405
+        (Infinity) is reachable but unverifiable, so those checks are skipped with a
+        warning rather than blocking a valid deployment.
         """
         if not self.enabled:
-            return None
-
-        distinct_urls = sorted(
-            set(
-                filter(
-                    None,
-                    [
-                        self.base_url,
-                        self.embed_url,
-                        self.rerank_url,
-                        self.relevance_url,
-                        self.nli_url,
-                    ],
-                )
+            raise InferenceConfigError(
+                "INFERENCE_BASE_URL is not set. Dense embeddings, reranking and NLI "
+                "are no longer loaded in-process; start the inference engine and "
+                "point INFERENCE_BASE_URL at it (see docs/DEVELOPMENT.md)."
             )
-        )
-        if not distinct_urls:
-            return None
 
-        last_body = None
-        for url in distinct_urls:
+        role_urls = self.role_urls()
+        bodies: dict[str, dict[str, Any]] = {}
+        unverified: set[str] = set()
+        for url in sorted({url for url in role_urls.values() if url}):
             try:
                 response = await self._async_for(url).get("/models")
             except (httpx.HTTPError, OSError) as exc:
+                raise InferenceConfigError(
+                    f"inference: cannot reach {url} ({exc!r}). Start the inference "
+                    "engine (cd inference-platform && uv run inference-platform) "
+                    "or fix INFERENCE_BASE_URL."
+                ) from exc
+            if response.status_code in (404, 405):
+                # Third-party engines (Infinity) implement the three inference
+                # routes but not our introspection endpoint. Reachable is all we
+                # can prove, so say so once instead of refusing to boot.
+                unverified.add(url)
                 logger.warning(
-                    "inference: cannot reach %s (%r); semantic caching will degrade "
-                    "to the provider path until it is available",
+                    "inference: %s does not implement GET /models (HTTP %s); role and "
+                    "dimension verification is skipped for it. A role that is not "
+                    "loaded will surface as a degraded cache at request time.",
                     url,
-                    exc,
+                    response.status_code,
                 )
+                bodies[url] = {}
                 continue
-
             if response.status_code >= 400:
-                logger.warning(
-                    "inference: %s/models returned HTTP %s", url, response.status_code
+                raise InferenceConfigError(
+                    f"inference: {url}/models returned HTTP {response.status_code}"
                 )
-                continue
+            bodies[url] = response.json() or {}
 
-            body = response.json()
-            last_body = body
-            loaded = body.get("loaded") or {}
-            embed = loaded.get("embed") or {}
-            if embed or loaded:
-                logger.info(
-                    "inference: serving %d role(s) from %s (device=%s, embed=%s rev=%s dim=%s)",
-                    len(loaded),
-                    url,
-                    body.get("device"),
-                    embed.get("model"),
-                    embed.get("revision"),
-                    embed.get("dim"),
+        missing = [
+            role
+            for role in self.required_roles()
+            if role_urls[role] not in unverified
+            and role not in ((bodies.get(role_urls[role]) or {}).get("loaded") or {})
+        ]
+        if missing:
+            loaded: set[str] = set()
+            failed: dict[str, Any] = {}
+            for body in bodies.values():
+                loaded.update(body.get("loaded") or {})
+                failed.update(body.get("failed") or {})
+            raise InferenceConfigError(
+                f"inference: engine is missing required role(s) {sorted(missing)}; "
+                f"loaded={sorted(loaded)} failed={failed}. Check "
+                "inference-platform/models.lock.yaml and the engine log."
+            )
+
+        embed = ((bodies.get(role_urls["embed"]) or {}).get("loaded") or {}).get(
+            "embed"
+        ) or {}
+        remote_dim = embed.get("dim")
+        if remote_dim and int(remote_dim) != int(config.INFERENCE_EMBEDDING_DIM):
+            raise InferenceConfigError(
+                f"inference: engine serves dim={remote_dim} but the gateway expects "
+                f"INFERENCE_EMBEDDING_DIM={config.INFERENCE_EMBEDDING_DIM}. Qdrant "
+                "vectors would be mixed; fix the lock or create a new collection."
+            )
+        remote_model = str(embed.get("model") or "")
+        if remote_model and config.EMBEDDING_MODEL_NAME:
+            if config.EMBEDDING_MODEL_NAME not in remote_model:
+                raise InferenceConfigError(
+                    f"inference: engine serves {remote_model} but "
+                    f"EMBEDDING_MODEL_NAME={config.EMBEDDING_MODEL_NAME}. Cached "
+                    "points were written under a different model; bump "
+                    "EMBEDDING_VERSION and migrate rather than mixing them."
                 )
-            if embed:
-                remote_dim = embed.get("dim")
-                expected_dim = config.INFERENCE_EMBEDDING_DIM
-                if remote_dim and expected_dim and int(remote_dim) != int(expected_dim):
-                    logger.warning(
-                        "inference: embedding dim mismatch at %s -- engine serves %s but the "
-                        "gateway expects %s (INFERENCE_EMBEDDING_DIM). Qdrant vectors "
-                        "will not match; fix before trusting cache hits.",
-                        url,
-                        remote_dim,
-                        expected_dim,
-                    )
-                remote_model = str(embed.get("model") or "")
-                if remote_model and config.EMBEDDING_MODEL_NAME:
-                    if config.EMBEDDING_MODEL_NAME not in remote_model:
-                        logger.warning(
-                            "inference: engine at %s serves %s but EMBEDDING_MODEL_NAME=%s; "
-                            "existing vectors were written under a different model",
-                            url,
-                            remote_model,
-                            config.EMBEDDING_MODEL_NAME,
-                        )
-        return last_body
+
+        logger.debug(
+            "inference: verified %d role(s) across %d endpoint(s) "
+            "(embed=%s rev=%s dim=%s device=%s)",
+            len(self.required_roles()),
+            len(bodies),
+            remote_model,
+            embed.get("revision"),
+            remote_dim,
+            next(iter(bodies.values())).get("device"),
+        )
+        return next(iter(bodies.values()))
+
+    async def healthy(self) -> bool:
+        """Non-raising `verify()`, for dependency alerting (`/health/deps`)."""
+        try:
+            await self.verify()
+        except InferenceError:
+            return False
+        return True

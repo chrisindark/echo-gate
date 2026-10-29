@@ -13,44 +13,110 @@ changes' entry with a `[BREAKING]` marker.
 ### Added
 
 - **Shared inference platform (`INFERENCE_BASE_URL`)**: dense embeddings,
-  reranking, relevance, and NLI can be served over HTTP by `inference-platform/`
+  reranking, relevance, and NLI are served over HTTP by `inference-platform/`
   instead of being loaded into every gateway process. One contract
   (`inference-platform/contract/INFERENCE_CONTRACT.md`) with two
   implementations: a native FastAPI server for laptops, and Infinity for GPU
   hosts. Requests route by **role** (`embed` / `rerank` / `relevance` / `nli`)
   so the two distinct cross-encoders cannot be confused for one another.
-  Leaving `INFERENCE_BASE_URL` empty preserves the previous in-process
-  behaviour exactly.
+- **Strict startup verification**: `InferenceClient.verify()` runs at the end of
+  startup and refuses to boot when no engine URL is set, an endpoint is
+  unreachable, a required role is not loaded, or the engine's embedding
+  dimension / model id disagrees with `INFERENCE_EMBEDDING_DIM` /
+  `EMBEDDING_MODEL_NAME`. Previously a missing engine left the gateway serving
+  every request with no cache while `/ready` stayed green.
 - **`api/app/modules/inference/`**: `InferenceClient` — connection-pooled
   `httpx` client with role routing, retries for transient faults, and error
   classification (`InferenceUnavailable` vs `InferenceUnreachable` vs
-  `InferenceRequestError`).
+  `InferenceRequestError` vs `InferenceConfigError`).
 - **`inference-platform/`**: models lockfile with Hugging Face revisions,
   a drift-guard eval set, a latency bench, and a compose file for the Infinity
   deployment.
+- **`sparse` role on the shared contract**: `POST /embeddings` accepts `sparse:
+  true` and returns BM25 `indices`/`values` for the same batch as the dense
+  `data`, in one round trip — a hybrid consumer pays one hop, not two. `/health`
+  reports every role's `kind` and, for sparse, the `fastembed` `backend` version,
+  because the tokenizer build is part of the sparse vector space. A sparse
+  failure returns the dense vectors plus `sparse_error` instead of failing the
+  request. Echo Gate keeps BM25 local until its Qdrant collection is rebuilt; the
+  role exists for doc-nexus and agent-forge.
+- **`inference-platform/` is its own dependency root**: `pyproject.toml` +
+  committed `uv.lock`, a `src/inference_platform/` package (`api`, `roles`,
+  `schemas`, `settings`, `errors`), a console entry point, and a wire-contract
+  test suite that runs without downloading weights. It replaces
+  `dev/requirements.txt` and the single-file `dev/native_server.py`, so the
+  directory can move to its own repository unchanged.
+- **Zero-shot classification (`POST /classify`, `mode: "zero-shot"`)**: candidate
+  labels become NLI hypotheses, so mail/document triage needs one small
+  cross-encoder instead of a generative model. Each input returns independent
+  per-label entailment probabilities (`scores`), a softmax across labels
+  (`scores_normalized`) for single-choice ranking, and a pre-sorted `ranked` list.
+  The label set, the `hypothesis_template`, and the pair budget are validated with
+  structured `400`s. Documented honestly as a *ranking*: the shipped NLI
+  checkpoint separates topics well and intents poorly.
+- **A dedicated `zero-shot` role, and a model set sized for the machine it runs
+  on.** Zero-shot mode now prefers its own binary entailment checkpoint
+  (`ModernBERT-base-zeroshot-v2.0`) and falls back to `nli` on engines that lack
+  one; responses name the answering `role` and `model`. Every role's default was
+  replaced with a checkpoint that is genuinely better at its job on this machine:
+  `embed` `all-MiniLM-L6-v2` → `bge-small-en-v1.5` (paraphrase 0.62 → 0.85 at the
+  same 384 dims, so the Qdrant schema survives), `rerank` `bge-reranker-base` →
+  `gte-reranker-modernbert-base` (1.08 GB → 598 MB, and the only candidate that
+  separates short query↔prompt pairs on the raw-logit scale the confidence gate
+  uses), `nli` `nli-deberta-v3-small` → `nli-MiniLM2-L6-H768` (552 MB → 316 MB,
+  same verdicts, 2× faster). The five dense/cross-encoder roles now total
+  **1419 MB instead of 1809 MB**, and a live paraphrase moved from a 0.05
+  composite rerank score (outside the calibrated band) to 0.91 (inside it). The
+  production upgrade for every role is recorded as a comment in
+  `inference-platform/models.lock.yaml` and as a release checklist in
+  `docs/ROADMAP.md`.
+- **The native server is deployable off the laptop**: a CPU-only `Dockerfile`
+  (torch pinned to the PyTorch CPU index — the PyPI wheel drags the whole CUDA
+  runtime into the image on Linux), `deploy/compose/inference-native.yml`, and a
+  Helm chart in `deploy/helm/inference-platform` with readiness on `/health`, TCP
+  liveness (so a permanently unloaded role is "unready", not a restart loop),
+  optional model-cache PVC with a prefetch init container, and an
+  `inference-platform-prefetch` command that fills a cache without serving.
 
 ### Changed
 
-- **Model calls across the HTTP boundary are fail-open**: an unreachable
-  inference engine now degrades the request to the provider and reports
+- **`inference-platform/` packaging**: `dev/requirements.txt` and
+  `dev/native_server.py` are gone; the server is the installed
+  `inference_platform` package and `dev/serve.sh` runs
+  `uv run --frozen inference-platform`. `dev.sh`, `docs/DEVELOPMENT.md`, and
+  `AGENTS.md` use `uv sync` / `uv run` instead of
+  `python3.11 -m venv` + `pip install -r`.
+
+- **The in-process model path is gone, not just optional.** `EmbeddingService`
+  and `CrossEncoderService` hold only an `InferenceClient`; the Ollama embedding
+  mode, the lazy `sentence-transformers` imports, and the `local-models` extra
+  were deleted along with `--build-arg INSTALL_LOCAL_MODELS`. `poetry.lock` loses
+  ~1,270 lines. `USE_RERANKER_MODEL` / `USE_RELEVANCE_MODEL` / `USE_NLI_MODEL`
+  survive as per-role toggles (a disabled role raises instead of calling the
+  engine).
+- **A dead engine now pages instead of hiding**: `check_inference` is part of
+  `GET /api/v1/health/deps` (`"inference": "failed"`, overall `degraded`) while
+  `/ready` still gates on Postgres alone, since the gateway can still answer
+  from the provider.
+- **Model calls across the HTTP boundary are fail-open at runtime**: an
+  unreachable inference engine degrades the request to the provider and reports
   `cache_bypassed` (log reason `inference_unavailable`) instead of raising. A
   refused connection fails fast in ~1-3ms rather than spending the latency
   budget on retry backoff.
-- **`CrossEncoderService` and `EmbeddingService` import torch lazily**, so a
-  deployment running against the inference platform never loads it
-  (verified: `torch`, `transformers`, and `sentence_transformers` are absent
-  from `sys.modules`). `JudgeService` now awaits the cross-encoder async
-  variants instead of blocking the event loop.
-- Measured parity with the in-process models is float-exact (max abs diff
-  ~5e-7 for rerank, relevance, and NLI logits; cosine 1.0 for embeddings).
+- **`JudgeService` awaits the cross-encoder async variants** instead of blocking
+  the event loop.
+- Measured parity with the previous in-process models is float-exact (max abs
+  diff ~5e-7 for rerank, relevance, and NLI logits; cosine 1.0 for embeddings).
+- `scripts/calibrate_reranker.py` scores through `CrossEncoderService` against
+  the engine, so calibration and production use the same model and request path.
 
 - **Gateway image diet**: `sentence-transformers`, `transformers`, and `torch`
-  are now the optional `local-models` extra rather than main dependencies, and
-  the Dockerfile is multi-stage, so poetry and its wheel cache stay out of the
-  runtime image. Measured: **0.71GB** engine-backed vs **9.4GB** with the extra
-  (CUDA libraries alone are 3.3GB of the ~5.2GB it adds) vs 1.04GB for the
-  single-stage predecessor. Bytecode is precompiled, which costs ~0.1GB and
-  halves cold import (2.4s → 1.17s).
+  are no longer dependencies, and the Dockerfile is multi-stage, so poetry and
+  its wheel cache stay out of the runtime image. Measured: **0.71GB** vs
+  **9.4GB** for the pre-removal build with in-process models (CUDA libraries
+  alone were 3.3GB of the ~5.2GB it added) vs 1.04GB for the single-stage
+  predecessor. Bytecode is precompiled, which costs ~0.1GB and halves cold import
+  (2.4s → 1.17s).
   The image now also sets `PROJECT_NAME`, which `FastAPI` requires at import
   time, and pins `BM25_MODEL_PATH` so sparse BM25 resolves deterministically
   offline.
@@ -59,6 +125,28 @@ changes' entry with a `[BREAKING]` marker.
 
 ### Fixed
 
+- **Semantic cache writes and searches raised `AttributeError`.** Removing the
+  in-process model path deleted `EmbeddingService.model_name`, but the router
+  still read it to build the Qdrant `embedding_model` payload field and filter.
+  It is now a property sourced from `INFERENCE_EMBED_MODEL` /
+  `EMBEDDING_MODEL_NAME`, which `InferenceClient.verify()` already keeps in sync
+  with the engine.
+- **`scripts/migrate_embeddings.py` could not migrate anything.** It hardcoded
+  `EMBEDDING_DIM = 768` (the engine emits 384) and aimed at a collection schema
+  the gateway no longer writes (`intent_embedding` / `response_embedding`), then
+  built a fresh `EmbeddingService` per text through a stale Ollama/nomic path. It
+  is now a re-embed migration: it derives the dimension from the engine, creates
+  the target through `LlmCacheCollectionService` so the schema cannot drift,
+  batch-embeds each dense field, copies the BM25 sparse vectors unchanged (they
+  are tokenizer-coupled, not model-coupled), and rewrites
+  `embedding_model`/`embedding_version` on each payload. Dry-run by default.
+- **The LLM judge could never run.** `judge_service.py` built its
+  `ChatCompletionRequest` without `service_name`, so the schema validated
+  `LLM_JUDGE_MODEL` (`gemini-3.5-flash-lite`) against the default `"ollama"`
+  allow-list and raised `ValidationError` on every call. The shadow pipeline
+  swallowed it, recorded `is_equivalent = None` for every evaluation, and could
+  never establish equivalence. Both judge requests now pass
+  `config.LLM_JUDGE_SERVICE`.
 - **BM25 could not be pre-baked into a container.** `fastembed` keeps two caches:
   `cache_folder` (Hugging Face) and `cache_dir` (the extracted model the library
   actually reads). `EmbeddingService` passed only the former, so the artifact

@@ -241,9 +241,9 @@ the app calls `ensure_indexes()` at startup.
 | `system_prompt_bm25` | sparse | System lexical. |
 | `user_prompt_bm25` | sparse | User lexical. |
 
-- Dense size = `embedding_service.embedding_dimension` (default **384** for
-  `all-MiniLM-L6-v2`). A dimension mismatch raises at startup rather than silently
-  failing.
+- Dense size = `embedding_service.embedding_dimension` (default **384**, the dim
+  of `BAAI/bge-small-en-v1.5`). A dimension mismatch raises at startup rather than
+  silently failing.
 - Quantization: INT8 scalar (`quantile=0.99`, `always_ram=True`).
 - `on_disk_payload=True`.
 - The commented-out `prompt_bm25` sparse vector is intentionally disabled.

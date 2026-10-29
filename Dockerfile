@@ -22,17 +22,10 @@ RUN python -m venv /opt/venv
 
 COPY pyproject.toml poetry.lock ./
 
-# `--only main` leaves out the optional `local-models` extra, which is what
-# carries torch / transformers / sentence-transformers. Those are the reason this
-# image used to be multi-gigabyte: dense embeddings, reranking, relevance, and NLI
-# are served by `inference-platform/` over HTTP instead.
-#
-# Set --build-arg INSTALL_LOCAL_MODELS=true to bake the in-process fallback in
-# (useful for air-gapped development, costs ~8.8GB).
-ARG INSTALL_LOCAL_MODELS=false
-RUN extra="" ; \
-    if [ "$INSTALL_LOCAL_MODELS" = "true" ]; then extra="--extras local-models" ; fi ; \
-    poetry export --only main $extra --format requirements.txt \
+# No torch, transformers or sentence-transformers: dense embeddings, reranking,
+# relevance, and NLI are served by `inference-platform/` over HTTP, and the app
+# refuses to start without it. That is why this image is ~0.7GB instead of 9.4GB.
+RUN poetry export --only main --format requirements.txt \
         --output /tmp/requirements.txt --without-hashes ; \
     /opt/venv/bin/pip install --no-cache-dir -r /tmp/requirements.txt ; \
     # Nothing installs packages at runtime, so pip/setuptools stay out of the
@@ -89,6 +82,6 @@ COPY . .
 EXPOSE 8000
 
 # Requires INFERENCE_BASE_URL to point at the inference platform. Without it the
-# gateway falls back to in-process models and fails fast with an explicit error
-# naming the `local-models` extra.
+# gateway refuses to start (`InferenceConfigError`): there is no in-process model
+# path to fall back to.
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

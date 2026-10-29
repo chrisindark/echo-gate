@@ -1,0 +1,116 @@
+# Defaults for the native (CPU) inference server. Tune roles per deployment:
+# loading a role costs its weights in RAM, and nothing else.
+replicaCount: 1
+
+image:
+  repository: inference-platform
+  tag: ""            # defaults to .Chart.AppVersion
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+
+securityContext:
+  allowPrivilegeEscalation: false
+  # Left writable on purpose: the model cache lives on the container filesystem
+  # unless a volume is mounted, and Hugging Face writes lock files into it. With
+  # modelCache.persistence.enabled plus prefetch, set both to true and mount a
+  # writable emptyDir at /tmp.
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop: ["ALL"]
+
+service:
+  type: ClusterIP
+  port: 7997
+  annotations: {}
+
+# Comma-separated roles to load; empty means "every role declared in the lock".
+roles: embed,sparse,rerank,relevance,nli,zero-shot
+# auto | cpu | cuda | mps. In a cluster this is almost always cpu.
+device: cpu
+
+modelCache:
+  persistence:
+    # Off by default so the image's baked weights (build-arg PREFETCH=1) are used
+    # and no storage class is required. Turn it on when the image is built without
+    # PREFETCH and cold starts from the network are too slow or too frequent.
+    enabled: false
+    size: 20Gi
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    annotations: {}
+  # Init container that fills the cache before the server starts. Only useful
+  # with persistence enabled; requires the image to contain the CLI (it does).
+  prefetch:
+    enabled: false
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        memory: 4Gi
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 2Gi
+  limits:
+    # torch + four small checkpoints. Raise it if you add a role or a larger model.
+    memory: 6Gi
+
+# Readiness uses /health, which is 503 while any requested role is unloaded: an
+# engine that cannot serve its roles is taken out of the Service instead of
+# failing requests. Liveness is a TCP check deliberately — a permanent role-load
+# failure must show up as "unready" and stay inspectable, not as a CrashLoopBackOff.
+probes:
+  startup:
+    periodSeconds: 10
+    failureThreshold: 60    # 10 minutes for a cold volume
+  readiness:
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+  liveness:
+    periodSeconds: 20
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# Scaling this on CPU is a compromise: the work is model-bound, and a second
+# replica means a second copy of every weight. On a GPU pool scale on queue depth
+# (KEDA / custom metrics on in-flight requests) instead. Keep minReplicas at 1
+# unless you have a warm weight volume, otherwise every scale-up pays a download.
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 75
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 0
+
+# Set to true when persistence uses a ReadWriteOnce volume: two pods cannot mount
+# the same RWO claim on different nodes, so a rolling update would deadlock.
+recreateOnUpdate: false
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+terminationGracePeriodSeconds: 30

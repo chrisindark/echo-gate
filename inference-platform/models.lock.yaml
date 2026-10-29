@@ -1,24 +1,52 @@
 # Single authority for "which model answers role X".
 #
+# The defaults below are chosen for a 16 GB laptop: each one is the smallest
+# checkpoint that is genuinely good at its job, not the best on a leaderboard.
+# Every role also names the production swap in a comment; going up costs RAM and,
+# for `embed`, a new Qdrant collection because the dimension changes.
+# Measured on this M4 (16 GB): ~0.98 GB of checkpoints for all five roles.
+#
 # `revision` is the Hugging Face commit SHA. Empty means "unpinned" — run
-# `python tools/pin_models.py --write` once to record the resolved SHA, then
-# commit the result. Consumers must persist the model id + revision they used
-# (Echo Gate stores it as `embedding_version` on every cached point) so a
+# `uv run python tools/pin_models.py --write` once to record the resolved SHA,
+# then commit the result. Consumers must persist the model id + revision they
+# used (Echo Gate stores it as `embedding_version` on every cached point) so a
 # swap is detectable rather than silent.
 #
-# Never change a role's `model` or `dim` in place. Add a new role, dual-write,
-# migrate, then retire the old one.
+# `kind` selects the loader: `embedder` (dense vectors), `cross-encoder` (pairwise
+# scores), `sparse` (BM25 indices + weights). It is explicit so the lock is
+# self-describing; it is inferred from `dim` only for older files.
+#
+# Changing a role's model in place is a migration, not an edit:
+#   * `embed` — vectors from two models are not comparable even at the same dim.
+#     Re-embed the corpus (`python -m app.scripts.migrate_embeddings --write`) or
+#     accept a cold cache. Echo Gate's Qdrant filter also pins `embedding_model`,
+#     so stale points are quarantined instead of silently mixed. A `dim` change
+#     additionally needs a new collection.
+#   * `rerank` / `nli` — scores are calibration inputs. Re-run `evals/` (and the
+#     gateway's threshold calibration) before serving, or thresholds tuned for the
+#     old model will admit the wrong candidates.
+#   * `sparse` — the tokenizer is part of the vector space: a fastembed change is a
+#     re-index, not a config flip.
 
 version: 1
 
 roles:
 
   # Dense embeddings used for semantic cache lookup / RAG chunk search.
-  # `dim` is locked into the Qdrant collection at creation time — changing it
-  # requires a new collection, not a migration.
+  #
+  # `bge-small-en-v1.5` is the biggest quality step that keeps dim=384, so the
+  # Qdrant schema does not change. Measured on the cache's own prompt pairs:
+  # paraphrase 0.85 / same-intent 0.73 / unrelated 0.46, against 0.62 / 0.38 / 0.01
+  # for all-MiniLM-L6-v2. The *floor* moves with it, which is why the eval
+  # thresholds were recalibrated: bge cosines are not comparable to MiniLM's.
+  #
+  # Production swap: `Alibaba-NLP/gte-modernbert-base` (149M, dim 768) for long
+  # context and a large quality jump, or `Qwen/Qwen3-Embedding-0.6B` (dim 1024) for
+  # multilingual / best quality. Both change `dim`: new collection + re-embed.
   embed:
-    model: sentence-transformers/all-MiniLM-L6-v2
+    model: BAAI/bge-small-en-v1.5
     revision: ""
+    kind: embedder
     dim: 384
     distance: cosine
     normalize: true
@@ -27,9 +55,36 @@ roles:
   # Primary cross-encoder used to rescore candidate cached prompts.
   # Raw logits are unbounded, so the served `score` is sigmoid-normalized to
   # [0, 1] to stay comparable across implementations.
+  #
+  # This role is judged on the *production* pair shape — a short question against
+  # a short cached prompt — not on long passages. Measured raw logits there
+  # (relevant / identical / unrelated):
+  #
+  #   gte-reranker-modernbert-base  598 MB   0.80 / 0.99 / -1.6   <- chosen
+  #   bge-reranker-base            1082 MB   0.24 / 1.00 /  0.00   (previous)
+  #   mxbai-rerank-xsmall-v1        146 MB   0.06 / 0.73 /  0.01
+  #   mxbai-rerank-base-v1          369 MB   0.08 / 0.51 /  0.00
+  #
+  # Echo Gate compares `score_raw` against CACHE_CONFIDENCE_THRESHOLDS (0.85-0.98),
+  # so the *scale* matters as much as the ranking. The two mxbai models rank
+  # correctly but never reach 0.85 even for an exact duplicate, which would have
+  # silently disabled the semantic cache; `bge-reranker-base` only cleared the gate
+  # for near-duplicates. This one separates relevant from irrelevant with margin at
+  # half the size. Both mxbai models are still fine for long-passage QA reranking —
+  # they are just out of distribution here.
+  #
+  # ModernBERT loads as a native `ModernBertForSequenceClassification`, no
+  # `trust_remote_code`; 8192-token context.
+  #
+  # Production swap: `Qwen/Qwen3-Reranker-0.6B` (1.2 GB, best multilingual ranking,
+  # but a causal-LM yes/no head rather than a plain cross-encoder, so it needs an
+  # adapter here) or, drop-in, `BAAI/bge-reranker-v2-m3` (2.3 GB fp32) /
+  # `jinaai/jina-reranker-v2-base-multilingual` (557 MB). Recalibrate
+  # `CACHE_CONFIDENCE_THRESHOLDS` after any swap: they are raw-logit thresholds.
   rerank:
-    model: BAAI/bge-reranker-base
+    model: Alibaba-NLP/gte-reranker-modernbert-base
     revision: ""
+    kind: cross-encoder
     dim: null
     normalize: false
     endpoint: /rerank
@@ -37,19 +92,33 @@ roles:
   # Second cross-encoder with different semantics: query -> answer relevance,
   # consumed on a 1..5 scale. Kept as its own role because it is a different
   # model with a different calibration, not a variant of `rerank`.
+  #
+  # Already at the "small but capable" point (91 MB), so it stays. Production
+  # swap: `Alibaba-NLP/gte-reranker-modernbert-base`, or `ms-marco-MiniLM-L12-v2`
+  # for a cheap step up.
   relevance:
     model: cross-encoder/ms-marco-MiniLM-L-6-v2
     revision: ""
+    kind: cross-encoder
     dim: null
     normalize: false
     endpoint: /rerank
 
   # NLI / contradiction detection used to gate cache hits.
+  #
   # Label order is part of the contract: the gateway indexes these positions
   # directly (contradiction flag uses index 0, entailment probability index 1).
+  # `nli-MiniLM2-L6-H768` keeps that order, costs 316 MB instead of 552 MB, and
+  # scores the same as `nli-deberta-v3-small` on the pinned cases (10.7 ms vs
+  # 17 ms per pair on M4/MPS).
+  #
+  # Production swap: `tasksource/ModernBERT-base-nli` (598 MB) — but its label
+  # order is (entailment, neutral, contradiction), so the gateway's positional
+  # indexing must become label-keyed first.
   nli:
-    model: cross-encoder/nli-deberta-v3-small
+    model: cross-encoder/nli-MiniLM2-L6-H768
     revision: ""
+    kind: cross-encoder
     dim: null
     labels:
       - contradiction
@@ -57,5 +126,41 @@ roles:
       - neutral
     endpoint: /classify
 
-# Deliberately absent: sparse/BM25. See README — tokenizer fidelity means it
-# must stay local to each consumer.
+  # Zero-shot classification: each requested label becomes a hypothesis and its
+  # entailment probability is the score (`/classify` with `mode: "zero-shot"`).
+  #
+  # Deliberately binary (`entailment` / `not_entailment`): these checkpoints are
+  # trained for exactly that question, and it shows. On the eval cases the 3-way
+  # `nli` model scored 0.956 (invoice -> billing) and 0.079 (password reset);
+  # this one scores 0.974 and 0.998. It still cannot separate *intent* — a
+  # phishing email ranks "account notice" first — because that is a judgement
+  # about the sender, not a topic the text entails.
+  #
+  # Production swap: `MoritzLaurer/ModernBERT-large-zeroshot-v2.0` (792 MB).
+  zero-shot:
+    model: MoritzLaurer/ModernBERT-base-zeroshot-v2.0
+    revision: ""
+    kind: cross-encoder
+    dim: null
+    labels:
+      - entailment
+      - not_entailment
+    endpoint: /classify
+
+  # Lexical BM25 vectors, answered on /embeddings with "sparse": true.
+  #
+  # Tokenizer identity is part of the vector space: vectors written by a different
+  # fastembed build are not comparable. New consumers (doc-nexus) should take
+  # sparse from here so every product shares one tokenizer. Echo Gate keeps its
+  # BM25 local because its Qdrant collection already holds vectors from the
+  # gateway's own fastembed version — it moves here if that collection is rebuilt.
+  #
+  # `revision` stays empty on purpose: fastembed resolves and pins its own model
+  # snapshot, so a Hugging Face SHA here would not govern what is loaded.
+  sparse:
+    model: Qdrant/bm25
+    revision: ""
+    kind: sparse
+    dim: null
+    normalize: false
+    endpoint: /embeddings

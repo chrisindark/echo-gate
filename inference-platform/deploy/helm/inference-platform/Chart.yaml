@@ -1,0 +1,17 @@
+apiVersion: v2
+name: inference-platform
+description: Shared encoder-serving layer (dense embeddings, sparse BM25, rerank, NLI) over HTTP
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.25.0"
+keywords:
+  - inference
+  - embeddings
+  - reranker
+  - nli
+maintainers:
+  - name: echo-gate
+annotations:
+  # Intentionally no HPA-on-CPU default: see values.yaml autoscaling comments.
+  category: MachineLearning

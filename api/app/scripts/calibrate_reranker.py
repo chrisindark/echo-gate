@@ -25,6 +25,9 @@ Usage:
     poetry run python -m app.scripts.calibrate_reranker --limit 60 --max-candidates 40
     poetry run python -m app.scripts.calibrate_reranker --scoring-mode additive
     poetry run python -m app.scripts.calibrate_reranker --score-source base
+
+Requires a running inference engine (`INFERENCE_BASE_URL`): scoring goes through
+the same `CrossEncoderService` the gateway uses, so the numbers match production.
 """
 
 import argparse
@@ -65,33 +68,22 @@ _FACTOR_KEYS = (
 )
 
 
-class _CrossEncoderAdapter:
-    """Minimal `rerank_predict`-compatible wrapper around one CrossEncoder.
+class _EngineReranker:
+    """`rerank_predict`-compatible adapter over the shared inference engine.
 
-    Avoids loading the relevance/NLI models that `CrossEncoderService` also
-    builds, which keeps calibration fast and dependency-light.
+    Calibration must score with the same code path production serves, so this is
+    the real `CrossEncoderService` rather than a locally loaded `CrossEncoder`.
+    The model is whichever the engine maps to the `rerank` role; pin it with
+    `INFERENCE_RERANK_MODEL` when the engine serves more than one.
     """
 
-    def __init__(self, model_name: str, cache_folder: str) -> None:
-        try:
-            from sentence_transformers import CrossEncoder
-        except ImportError as exc:  # pragma: no cover - deployment shape
-            raise SystemExit(
-                "This script needs the in-process cross-encoder. Install the "
-                "local-models extra: poetry install --extras local-models"
-            ) from exc
+    def __init__(self) -> None:
+        from app.modules.verifier.cross_encoder_service import CrossEncoderService
 
-        self._model = CrossEncoder(
-            model_name, local_files_only=True, cache_folder=cache_folder
-        )
+        self._service = CrossEncoderService()
 
     def rerank_predict(self, pairs: list[tuple[str, str]]) -> list[float]:
-        if not pairs:
-            return []
-        scores = self._model.predict(pairs, show_progress_bar=False)
-        if hasattr(scores, "ndim") and scores.ndim == 0:
-            return [float(scores)]
-        return [float(score) for score in scores]
+        return self._service.rerank_predict(pairs)
 
 
 def _build_candidate(prompt: str, entities: list[str]) -> dict[str, Any]:
@@ -201,12 +193,6 @@ def main() -> None:
         default="reranker_calibration",
         help="Prefix for the .csv and .json outputs.",
     )
-    parser.add_argument(
-        "--model-name", default=config.RERANKER_MODEL_NAME, help="Cross-encoder model."
-    )
-    parser.add_argument(
-        "--hf-home", default="./.model_cache", help="Local model cache directory."
-    )
     args = parser.parse_args()
 
     if args.scoring_mode:
@@ -218,7 +204,7 @@ def main() -> None:
         f"| score_source={args.score_source}"
     )
 
-    cross_encoder = _CrossEncoderAdapter(args.model_name, args.hf_home)
+    cross_encoder = _EngineReranker()
     reranker = RerankerService(cross_encoder, InstructionVerifier())
     entity_extractor = EntityExtractorService()
 

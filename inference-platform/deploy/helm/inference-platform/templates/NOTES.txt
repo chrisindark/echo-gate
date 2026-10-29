@@ -1,0 +1,32 @@
+inference-platform {{ .Chart.AppVersion }} is deployed as {{ include "inference-platform.fullname" . }}.
+
+It serves the shared contract on port {{ .Values.service.port }}:
+
+  /health  /models  /embeddings  /rerank  /classify
+
+Roles requested: {{ .Values.roles }}
+Device:           {{ .Values.device }}
+Model cache:      {{- if .Values.modelCache.persistence.enabled }} PVC {{ include "inference-platform.fullname" . }}-models ({{ .Values.modelCache.persistence.size }}, {{ .Values.modelCache.persistence.accessMode }}){{- if .Values.modelCache.prefetch.enabled }}, warm-start prefetch enabled{{ else }}, first start downloads the weights{{ end }}{{- else }} baked into the image / container filesystem{{ end }}
+
+Check readiness (503 here means a requested role failed to load, and the pod is
+deliberately kept out of the Service):
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "inference-platform.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }} &
+  curl -s localhost:{{ .Values.service.port }}/health | python3 -m json.tool
+  curl -s localhost:{{ .Values.service.port }}/models | python3 -m json.tool
+
+Point consumers at it:
+
+  INFERENCE_BASE_URL=http://{{ include "inference-platform.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}
+
+Run the drift guard from a checkout of the repo against this deployment:
+
+  INFERENCE_BASE_URL=http://localhost:{{ .Values.service.port }} uv run python evals/check.py
+
+Notes:
+- The container has no authentication. Keep this Service cluster-internal
+  (ClusterIP) and put authorization in front of the consumers, not here.
+- Liveness is a TCP check on purpose: a permanently unloaded role must be visible
+  as "unready" and stay inspectable rather than restart-looping.
+- Scaling on CPU is a compromise; the work is model-bound. On a GPU pool, scale
+  on queue depth instead, and keep a warm weight volume.

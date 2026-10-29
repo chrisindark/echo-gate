@@ -12,7 +12,7 @@ the chat playground, trace explorer, and analytics dashboards.
 | HTTP API | `api/app/main.py`, `api/app/modules/*/*_controller.py` | FastAPI app, middleware, routers. |
 | Routing/cache core | `api/app/modules/llm/llm_router_service.py` | Owns the request lifecycle: exact cache, semantic cache, verification, provider call, cache write, logging. |
 | Provider adapters | `api/app/modules/llm/llm_provider_service.py` | One method per provider: `google-genai`/`gemini`, `openai`, `groq`, `openrouter`, `ollama`. |
-| Embeddings | `api/app/modules/embedding/embedding_service.py` | Dense embeddings (remote via `inference-platform/`, or `sentence-transformers` in-process) and sparse lexical embeddings (BM25, always local). |
+| Embeddings | `api/app/modules/embedding/embedding_service.py` | Dense embeddings (via `inference-platform/` over HTTP) and sparse lexical embeddings (BM25, still local — see the inference platform section for why). |
 | Inference platform | `api/app/modules/inference/inference_client.py` | HTTP client for the shared model server: embeddings, reranking, relevance, NLI. Fail-open; owns role routing and error classification. |
 | Redis cache | `api/app/modules/redis/redis_service.py` | Exact-match cache and quota counters. |
 | Qdrant cache | `api/app/modules/qdrant/llm_cache_collection_service.py` | Vector cache collection `embeddings_multivector`: upsert, exact search, dense search, hybrid RRF search, expiry deletion. |
@@ -234,10 +234,21 @@ When the indicator reports `READY`, set `CACHE_MODE=active` (and enable the
 
 ## Shared inference platform
 
-Dense embeddings, reranking, relevance, and NLI can be served by a separate
-deployable (`inference-platform/`, a sibling dependency root inside this repo)
-instead of being loaded into the gateway process. One contract, two
-implementations: a native FastAPI server for laptops and Infinity for GPU hosts.
+Dense embeddings, reranking, relevance, and NLI are served by a separate
+deployable (`inference-platform/`, a sibling dependency root inside this repo,
+packaged with uv and intended to move to its own repository) instead of being
+loaded into the gateway process. One contract, two implementations: a native
+FastAPI server for laptops and Infinity for GPU hosts. The same contract also
+serves a `sparse` (BM25) role, which the gateway does not use yet — its existing
+Qdrant collection holds vectors from the gateway's own tokenizer, so sparse stays
+local here until that collection is rebuilt. `/classify` additionally supports
+zero-shot labels (`mode: "zero-shot"`), which is how doc-nexus and agent-forge
+classify without a generative model.
+
+The native server ships as a CPU-only image plus a Helm chart
+(`inference-platform/deploy/helm/inference-platform`); Infinity remains the
+option for GPU hosts and real concurrency. Both answer the same contract, so the
+gateway neither knows nor cares which one is behind `INFERENCE_BASE_URL`.
 
 ```
 Local / Single-node:
@@ -255,12 +266,13 @@ gateway / doc-nexus / agent-forge
       └── INFERENCE_NLI_URL      ──► inference-classify:7999 (/classify)
 ```
 
-`INFERENCE_BASE_URL` empty keeps everything in-process (the previous behaviour);
-setting it switches `EmbeddingService` and `CrossEncoderService` to HTTP and stops
-them importing torch at all. In production, setting `INFERENCE_EMBED_URL`,
-`INFERENCE_RERANK_URL`, and `INFERENCE_NLI_URL` splits the three roles into
-independent containers with separate connection pools and failure domains,
-eliminating cross-encoder head-of-line blocking on cache embeddings.
+There is no in-process mode. `EmbeddingService` and `CrossEncoderService` only ever
+hold an `InferenceClient`; the gateway does not depend on `sentence-transformers`
+at all, so a second, differently-behaving code path cannot silently take over. In
+production, setting `INFERENCE_EMBED_URL`, `INFERENCE_RERANK_URL`, and
+`INFERENCE_NLI_URL` splits the three roles into independent containers with
+separate connection pools and failure domains, eliminating cross-encoder
+head-of-line blocking on cache embeddings.
 
 ### Roles
 
@@ -283,6 +295,13 @@ only.
 
 ### Failure semantics
 
+- **Strict at boot, fail-open at runtime.** `DependencyContainer.initialize()` ends
+  with `InferenceClient.verify()`, which raises `InferenceConfigError` — and so
+  stops the process — when no engine URL is configured, an endpoint is
+  unreachable, a required role is not loaded, or the engine's embedding dim/model
+  differs from `INFERENCE_EMBEDDING_DIM` / `EMBEDDING_MODEL_NAME`. A gateway with
+  no working engine would otherwise answer every request from the provider, with
+  no cache, while reporting itself healthy.
 - **Fail-open on the serving path.** An unreachable engine is a cache miss, not a
   request failure: `evaluate_semantic_cache` catches `InferenceUnavailable`,
   records `mark_cache_degraded("inference_unavailable")` (surfacing as
@@ -298,12 +317,13 @@ only.
   `probabilities`, but the gateway consumes `score_raw` and `logits`, because
   every existing threshold (`reranker` cutoffs, the `(raw + 10) / 4` relevance
   mapping, and the judge's own softmax) was calibrated on raw cross-encoder
-  logits. Measured parity with the in-process models is float-exact (max abs diff
-  ~5e-7); migrating thresholds onto the normalized scale is a separate change
-  that needs recalibration, not a rename.
-- **Version skew is loud.** `DependencyContainer.initialize()` probes `/models` and
-  warns on an embedding-dimension or model-id mismatch, since a silent model swap
-  corrupts the vector space rather than raising an error.
+  logits. Measured parity with the previous in-process path is float-exact (max
+  abs diff ~5e-7); migrating thresholds onto the normalized scale is a separate
+  change that needs recalibration, not a rename.
+- **Alerts, not silence.** A runtime engine outage fails `check_inference` on
+  `GET /api/v1/health/deps` (`"inference": "failed"`, overall `degraded`) while
+  `/ready` stays green — the same policy as Redis and Qdrant: page someone, do not
+  evict replicas that can still answer correctly.
 
 ### Image and process cost
 
@@ -311,13 +331,14 @@ Measured on the same Dockerfile (arm64, `docker image inspect`):
 
 | Build | Image (docker-reported) |
 | --- | ---: |
-| Gateway, engine-backed (image default) | **0.71GB** |
-| Gateway with `--build-arg INSTALL_LOCAL_MODELS=true` | 9.4GB |
+| Gateway, engine-backed | **0.71GB** |
 | Single-stage predecessor (poetry + wheel cache in the image) | 1.04GB |
+| Pre-removal build with in-process models (`sentence-transformers`) | 9.4GB |
 
-The `local-models` extra adds ~5.2GB of installed content, dominated by `nvidia`
-CUDA libraries (3.3GB), `torch` (0.9GB) and `triton` (0.8GB) — GPU support these
-CPU-sized models never use on the request path.
+The ~8.7GB difference was `nvidia` CUDA libraries (3.3GB), `torch` (0.9GB) and
+`triton` (0.8GB) plus transformers — GPU support these CPU-sized models never used
+on the request path. Dropping the in-process path removed the dependency, not just
+the install.
 
 Of the 0.71GB floor, `onnxruntime` (59MB, for BM25) and numpy (70MB) are the
 largest single items; the rest is grpcio, psycopg, cryptography, SQLAlchemy, and the
