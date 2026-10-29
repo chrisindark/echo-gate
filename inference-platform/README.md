@@ -67,7 +67,8 @@ isolated pools (`inference-embed:7997`, `inference-rerank:7998`,
 embeddings. Consumers wire to them via `INFERENCE_EMBED_URL`,
 `INFERENCE_RERANK_URL`, and `INFERENCE_NLI_URL`.
 
-Requests are routed by **role** (`embed`, `sparse`, `rerank`, `relevance`, `nli`)
+Requests are routed by **role** (`embed`, `sparse`, `rerank`, `relevance`, `nli`,
+`zero-shot`)
 so that two roles sharing a route cannot be confused for one another. An explicit
 `model` pin takes precedence and is mandatory when running Infinity, which routes
 by model id only — set `INFERENCE_EMBED_MODEL` and friends in the gateway's
@@ -140,7 +141,7 @@ Values that matter (full list and comments in `values.yaml`):
 
 | value | default | why |
 | :--- | :--- | :--- |
-| `roles` | `embed,sparse,rerank,relevance,nli` | a role costs its weights in RAM; drop what you do not serve |
+| `roles` | `embed,sparse,rerank,relevance,nli,zero-shot` | a role costs its weights in RAM; drop what you do not serve |
 | `modelCache.persistence.enabled` | `false` | baked image weights are used; enable when building without `PREFETCH` |
 | `modelCache.prefetch.enabled` | `false` | init container fills the volume so the first request is not a download |
 | `recreateOnUpdate` | `false` | set automatically for a `ReadWriteOnce` model volume |
@@ -304,6 +305,68 @@ Reading it:
 
 Reproduce with `uv run python tools/bench.py` against a running server.
 
+## Model selection
+
+Each role is served by the smallest checkpoint that is genuinely good at the job,
+so the whole set fits on a 16 GB laptop. `models.lock.yaml` carries the same
+choices with per-role reasoning; the gateway's release checklist lives in
+`docs/ROADMAP.md`.
+
+| role | default | weights | production option |
+| :--- | :--- | ---: | :--- |
+| `embed` | `BAAI/bge-small-en-v1.5` | 128 MB | `Alibaba-NLP/gte-modernbert-base` (768-dim, long context) or `Qwen/Qwen3-Embedding-0.6B` (1024-dim, multilingual) |
+| `sparse` | `Qdrant/bm25` | ~5 MB | same — tokenizer identity is the contract |
+| `rerank` | `Alibaba-NLP/gte-reranker-modernbert-base` | 598 MB | `Qwen/Qwen3-Reranker-0.6B` (best multilingual, but a causal-LM yes/no head) or drop-in `jinaai/jina-reranker-v2-base-multilingual` / `BAAI/bge-reranker-v2-m3` |
+| `relevance` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | 88 MB | `gte-reranker-modernbert-base`, or `ms-marco-MiniLM-L12-v2` |
+| `nli` | `cross-encoder/nli-MiniLM2-L6-H768` | 316 MB | `tasksource/ModernBERT-base-nli` (label order differs, see below) |
+| `zero-shot` | `MoritzLaurer/ModernBERT-base-zeroshot-v2.0` | 289 MB | `MoritzLaurer/ModernBERT-large-zeroshot-v2.0` |
+
+1419 MB of dense/cross-encoder weights against 1809 MB for the previous set
+(BM25 adds ~5 MB), with a *much* better reranker and better embeddings. How the call was made:
+
+- **`embed`**: the previous `all-MiniLM-L6-v2` scored 0.62 on a paraphrase of the
+  same question and 0.38 on the same intent in different words — too close to
+  noise. `bge-small-en-v1.5` gets 0.85 and 0.73 at the same 384 dimensions, so the
+  Qdrant schema survives. Its *floor* moves too: unrelated English sentences sit
+  around 0.42–0.47 instead of ~0.00, so cosines are not comparable across the two
+  models — the eval thresholds were re-baselined, not loosened.
+- **`rerank`**: judged on the pair shape the cache actually sends — a short
+  question against a short cached prompt — not on the long passages these models
+  are trained on. Raw logits there (relevant / identical / unrelated):
+  `gte-reranker-modernbert-base` 0.80 / 0.99 / -1.6; `bge-reranker-base`
+  0.24 / 1.00 / 0.00; `mxbai-rerank-xsmall-v1` 0.06 / 0.73 / 0.01. Echo Gate
+  compares `score_raw` against 0.85–0.98, so the *scale* decides: the two 146/369 MB
+  mxbai models rank correctly but never reach the gate even for a duplicate, and
+  `bge-reranker-base` only cleared it for near-duplicates. The ModernBERT reranker
+  separates with margin at half of bge's size — and a live paraphrase that used to
+  score 0.05 composite now scores 0.91, i.e. inside the band the thresholds were
+  calibrated for.
+- **`relevance`**: already small and load-bearing, so unchanged.
+- **`nli`**: `nli-deberta-v3-small` (552 MB) and `nli-MiniLM2-L6-H768` (316 MB)
+  agree on every pinned case, at 10.7 ms vs 17 ms per pair. Both keep the
+  `[contradiction, entailment, neutral]` label order the gateway indexes
+  positionally.
+- **`zero-shot`** got its own role because it is a different *kind* of model. A
+  3-way NLI model reads its entailment head with two other classes competing; a
+  binary entailment model answers the actual question. Measured on the same
+  labels: invoice → "billing" 0.956 → 0.974, password reset 0.079 → 0.998.
+
+Honest limits, both pinned by goldens so a swap surfaces them:
+
+- Zero-shot separates **topics**, not **intent**. A phishing email ranks "account
+  notice" at 0.971 and "phishing" at 0.001, because that is a judgement about the
+  sender, not something the text entails. Use it for routing, not for abuse
+  detection.
+- A *question* used as an NLI premise makes an unrelated answer read as
+  contradiction (p≈0.99) instead of neutral. Echo Gate passes a question as the
+  premise, so the quirk is the behaviour in production and is asserted in
+  `evals/golden_pairs.jsonl`.
+
+Reproduce the comparison: `uv run python tools/bench.py` measures the served
+models end to end; the candidate evaluation behind this table was a throwaway
+script that scored each model on the same prompt pairs, the eval goldens, and
+per-item latency/RSS on MPS.
+
 ## Pinning
 
 `models.lock.yaml` is the single authority for "which model answers role X".
@@ -320,6 +383,19 @@ so a Hugging Face SHA in the lock would not describe what actually loads. The
 tokenizer build is reported at runtime as `backend` on `/health`, and *that* string
 is the version to record next to sparse vectors.
 
-Never mutate a role's model in place. Serve the new one under a new id, dual-write,
-then migrate. Qdrant collections are dimension-locked, so a silent model swap is a
-silent cache corruption, not an error.
+Never mutate a role's model in place without doing the migration. Serve the new one
+under a new id, dual-write, then migrate. Qdrant collections are dimension-locked, so
+a silent model swap is a silent cache corruption, not an error.
+
+The migration, when you do want to swap:
+
+- **`embed`** — vectors from two models are not comparable even at the same dimension.
+  Re-embed the corpus
+  (`python -m app.scripts.migrate_embeddings --target embeddings_multivector_v2 --write`
+  in the gateway, which copies sparse vectors and payloads and recomputes the dense
+  ones), or accept a cold cache. Echo Gate's Qdrant filter also pins
+  `payload.embedding_model`, so stale points are quarantined rather than mixed. A
+  `dim` change additionally needs a new collection.
+- **`rerank` / `nli` / `zero-shot`** — scores are calibration inputs. Re-run
+  [`evals/check.py`](evals/check.py) and the gateway's threshold calibration before
+  serving, or thresholds tuned for the old model will admit the wrong candidates.

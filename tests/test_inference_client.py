@@ -628,7 +628,7 @@ class _SplitRoutingTest(unittest.IsolatedAsyncioTestCase):
                     "device": "cpu",
                     "loaded": {
                         role: {
-                            "model": "sentence-transformers/all-MiniLM-L6-v2"
+                            "model": config.EMBEDDING_MODEL_NAME
                             if role == "embed"
                             else f"model-{role}",
                             "revision": "abc",
@@ -673,7 +673,7 @@ class _StartupVerificationTest(unittest.IsolatedAsyncioTestCase):
     def _loaded(**overrides):
         loaded = {
             "embed": {
-                "model": "sentence-transformers/all-MiniLM-L6-v2",
+                "model": config.EMBEDDING_MODEL_NAME,
                 "revision": "abc",
                 "dim": config.INFERENCE_EMBEDDING_DIM,
             },
@@ -733,7 +733,7 @@ class _StartupVerificationTest(unittest.IsolatedAsyncioTestCase):
             await self._verify(
                 self._loaded(
                     embed={
-                        "model": "sentence-transformers/all-MiniLM-L6-v2",
+                        "model": config.EMBEDDING_MODEL_NAME,
                         "revision": "abc",
                         "dim": config.INFERENCE_EMBEDDING_DIM + 384,
                     }

@@ -28,6 +28,11 @@ SPEC = {
             "kind": "cross-encoder",
             "labels": ["contradiction", "entailment", "neutral"],
         },
+        "zero-shot": {
+            "model": "fake/zero-shot",
+            "kind": "cross-encoder",
+            "labels": ["entailment", "not_entailment"],
+        },
         "sparse": {"model": "fake/bm25", "kind": "sparse"},
     },
 }
@@ -100,14 +105,20 @@ class FakeNLI(FakeRole):
     hypothesis length.
     """
 
-    def __init__(self, labels: list[str] | None = None) -> None:
+    def __init__(
+        self, labels: list[str] | None = None, model_id: str = "fake/nli"
+    ) -> None:
         super().__init__(
             "cross-encoder",
-            "fake/nli",
+            model_id,
             labels=labels or ["contradiction", "entailment", "neutral"],
         )
 
     def predict(self, pairs: list[tuple[str, str]], batch_size: int) -> np.ndarray:
+        # Logits are emitted in the role's *declared* label order, the way a real
+        # checkpoint's `id2label` defines them: a 2-label zero-shot model puts
+        # entailment at index 0, a 3-way NLI model puts it at index 1.
+        base = {"contradiction": -2.0, "neutral": 0.0}
         rows = []
         for premise, hypothesis in pairs:
             premised = {word.strip(".,!?").lower() for word in premise.split()}
@@ -115,8 +126,14 @@ class FakeNLI(FakeRole):
                 len(word) > 3 and word.lower() in premised
                 for word in re.findall(r"[A-Za-z]+", hypothesis)
             )
-            row = [-2.0, 3.0 if matches else -2.0, 0.0]
-            rows.append(row[: len(self.labels)])
+            rows.append(
+                [
+                    (3.0 if matches else -2.0)
+                    if label == "entailment"
+                    else base.get(label, -2.0)
+                    for label in self.labels
+                ]
+            )
         return np.array(rows, dtype=np.float32)
 
 
@@ -139,6 +156,11 @@ def default_roles(*, sparse_fail: bool = False) -> dict:
         "embed": FakeDense(),
         "rerank": FakeCrossEncoder(),
         "nli": FakeNLI(),
+        # A dedicated zero-shot checkpoint is binary: entailment vs not. That is
+        # the shape the real lock declares, so the fake matches it.
+        "zero-shot": FakeNLI(
+            labels=["entailment", "not_entailment"], model_id="fake/zero-shot"
+        ),
         "sparse": FakeSparse(fail=sparse_fail),
     }
 
@@ -154,6 +176,10 @@ def build_client(
     registry.roles = (
         roles if roles is not None else default_roles(sparse_fail=sparse_fail)
     )
+    # `Registry.load` names each role after its lock key; the fakes are built
+    # directly, so mirror that or `role.name` in a response would be meaningless.
+    for name, role in registry.roles.items():
+        role.name = name
     return TestClient(create_app(registry, load_models=False))
 
 
@@ -380,6 +406,16 @@ def test_classify_returns_normalized_label_probabilities() -> None:
     assert body["results"][0]["label"] in body["labels"]
 
 
+def test_classify_names_the_answering_role_and_model() -> None:
+    """Consumers need to know which model answered, not just what it said."""
+    with build_client() as client:
+        body = client.post(
+            "/classify", json={"role": "nli", "pairs": [["question", "an answer"]]}
+        ).json()
+    assert body["role"] == "nli"
+    assert body["model"] == "fake/nli"
+
+
 def test_classify_pairs_mode_requires_pairs() -> None:
     with build_client() as client:
         response = client.post("/classify", json={"role": "nli", "inputs": ["x"]})
@@ -424,16 +460,56 @@ def test_zero_shot_ranks_labels_without_training_anything() -> None:
     assert second["scores"]["weather"] > second["scores"]["invoice"]
 
 
+def test_zero_shot_uses_the_dedicated_role_when_the_lock_declares_one() -> None:
+    with build_client() as client:
+        body = client.post("/classify", json=ZERO_SHOT).json()
+    assert body["role"] == "zero-shot"
+    assert body["model"] == "fake/zero-shot"
+    # Binary model: the score is P(entailment) directly, with no neutral class
+    # diluting it.
+    assert body["entailment_label"] == "entailment"
+
+
+def test_zero_shot_falls_back_to_the_nli_role_on_engines_that_lack_it() -> None:
+    spec = {
+        "version": 1,
+        "roles": {k: v for k, v in SPEC["roles"].items() if k != "zero-shot"},
+    }
+    roles = {k: v for k, v in default_roles().items() if k != "zero-shot"}
+    with build_client(roles=roles, spec=spec) as client:
+        body = client.post("/classify", json=ZERO_SHOT).json()
+    assert body["role"] == "nli"
+    assert body["model"] == "fake/nli"
+
+
 def test_zero_shot_normalized_scores_are_a_distribution_over_labels() -> None:
     with build_client() as client:
         body = client.post("/classify", json=ZERO_SHOT).json()
     for row in body["results"]:
         assert sum(row["scores_normalized"].values()) == pytest.approx(1.0)
-        # Entailment probabilities are independent, so they need not sum to 1.
-        assert sum(row["scores"].values()) > 1.0
         assert row["scores_normalized"][row["label"]] == pytest.approx(
             max(row["scores_normalized"].values())
         )
+
+
+def test_zero_shot_scores_are_independent_not_a_distribution() -> None:
+    """Two labels that both fit the input each score high.
+
+    That is the contract's point: every label is its own NLI question, so scores
+    can sum above 1 and must not be read as a distribution. `scores_normalized`
+    exists for consumers that must pick exactly one.
+    """
+    payload = {
+        "mode": "zero-shot",
+        "inputs": ["my invoice was charged twice"],
+        "labels": ["invoice", "charged"],
+    }
+    with build_client() as client:
+        row = client.post("/classify", json=payload).json()["results"][0]
+    assert row["scores"]["invoice"] > 0.5
+    assert row["scores"]["charged"] > 0.5
+    assert sum(row["scores"].values()) > 1.0
+    assert sum(row["scores_normalized"].values()) == pytest.approx(1.0)
 
 
 def test_zero_shot_accepts_a_custom_hypothesis_template() -> None:
@@ -489,8 +565,10 @@ def test_zero_shot_enforces_the_pair_budget() -> None:
 
 def test_zero_shot_needs_an_entailment_class() -> None:
     roles = default_roles()
+    # Pinned to `nli` explicitly: the dedicated role is declared (and has an
+    # entailment class), so an unpinned request would never reach this failure.
     roles["nli"] = FakeNLI(labels=["contradiction", "neutral"])
     with build_client(roles=roles) as client:
-        response = client.post("/classify", json=ZERO_SHOT)
+        response = client.post("/classify", json={**ZERO_SHOT, "role": "nli"})
     assert response.status_code == 400
     assert response.json()["detail"]["error"] == "no_entailment_label"

@@ -23,7 +23,7 @@ services:
       INFERENCE_HOST: 0.0.0.0
       INFERENCE_PORT: 7997
       INFERENCE_DEVICE: cpu
-      INFERENCE_ROLES: ${INFERENCE_ROLES:-embed,sparse,rerank,relevance,nli}
+      INFERENCE_ROLES: ${INFERENCE_ROLES:-embed,sparse,rerank,relevance,nli,zero-shot}
       INFERENCE_MODEL_CACHE: /models
       INFERENCE_LOG_LEVEL: ${INFERENCE_LOG_LEVEL:-info}
     volumes:

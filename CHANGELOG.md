@@ -54,6 +54,22 @@ changes' entry with a `[BREAKING]` marker.
   The label set, the `hypothesis_template`, and the pair budget are validated with
   structured `400`s. Documented honestly as a *ranking*: the shipped NLI
   checkpoint separates topics well and intents poorly.
+- **A dedicated `zero-shot` role, and a model set sized for the machine it runs
+  on.** Zero-shot mode now prefers its own binary entailment checkpoint
+  (`ModernBERT-base-zeroshot-v2.0`) and falls back to `nli` on engines that lack
+  one; responses name the answering `role` and `model`. Every role's default was
+  replaced with a checkpoint that is genuinely better at its job on this machine:
+  `embed` `all-MiniLM-L6-v2` → `bge-small-en-v1.5` (paraphrase 0.62 → 0.85 at the
+  same 384 dims, so the Qdrant schema survives), `rerank` `bge-reranker-base` →
+  `gte-reranker-modernbert-base` (1.08 GB → 598 MB, and the only candidate that
+  separates short query↔prompt pairs on the raw-logit scale the confidence gate
+  uses), `nli` `nli-deberta-v3-small` → `nli-MiniLM2-L6-H768` (552 MB → 316 MB,
+  same verdicts, 2× faster). The five dense/cross-encoder roles now total
+  **1419 MB instead of 1809 MB**, and a live paraphrase moved from a 0.05
+  composite rerank score (outside the calibrated band) to 0.91 (inside it). The
+  production upgrade for every role is recorded as a comment in
+  `inference-platform/models.lock.yaml` and as a release checklist in
+  `docs/ROADMAP.md`.
 - **The native server is deployable off the laptop**: a CPU-only `Dockerfile`
   (torch pinned to the PyTorch CPU index — the PyPI wheel drags the whole CUDA
   runtime into the image on Linux), `deploy/compose/inference-native.yml`, and a
@@ -109,6 +125,28 @@ changes' entry with a `[BREAKING]` marker.
 
 ### Fixed
 
+- **Semantic cache writes and searches raised `AttributeError`.** Removing the
+  in-process model path deleted `EmbeddingService.model_name`, but the router
+  still read it to build the Qdrant `embedding_model` payload field and filter.
+  It is now a property sourced from `INFERENCE_EMBED_MODEL` /
+  `EMBEDDING_MODEL_NAME`, which `InferenceClient.verify()` already keeps in sync
+  with the engine.
+- **`scripts/migrate_embeddings.py` could not migrate anything.** It hardcoded
+  `EMBEDDING_DIM = 768` (the engine emits 384) and aimed at a collection schema
+  the gateway no longer writes (`intent_embedding` / `response_embedding`), then
+  built a fresh `EmbeddingService` per text through a stale Ollama/nomic path. It
+  is now a re-embed migration: it derives the dimension from the engine, creates
+  the target through `LlmCacheCollectionService` so the schema cannot drift,
+  batch-embeds each dense field, copies the BM25 sparse vectors unchanged (they
+  are tokenizer-coupled, not model-coupled), and rewrites
+  `embedding_model`/`embedding_version` on each payload. Dry-run by default.
+- **The LLM judge could never run.** `judge_service.py` built its
+  `ChatCompletionRequest` without `service_name`, so the schema validated
+  `LLM_JUDGE_MODEL` (`gemini-3.5-flash-lite`) against the default `"ollama"`
+  allow-list and raised `ValidationError` on every call. The shadow pipeline
+  swallowed it, recorded `is_equivalent = None` for every evaluation, and could
+  never establish equivalence. Both judge requests now pass
+  `config.LLM_JUDGE_SERVICE`.
 - **BM25 could not be pre-baked into a container.** `fastembed` keeps two caches:
   `cache_folder` (Hugging Face) and `cache_dir` (the extracted model the library
   actually reads). `EmbeddingService` passed only the former, so the artifact

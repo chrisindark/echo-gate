@@ -41,7 +41,7 @@ service:
   annotations: {}
 
 # Comma-separated roles to load; empty means "every role declared in the lock".
-roles: embed,sparse,rerank,relevance,nli
+roles: embed,sparse,rerank,relevance,nli,zero-shot
 # auto | cpu | cuda | mps. In a cluster this is almost always cpu.
 device: cpu
 

@@ -251,7 +251,18 @@ def create_app(
 
     @app.post("/classify")
     async def classify(request: ClassifyRequest) -> Any:
-        role = reg.require(request.model, "nli", request.role)
+        # Zero-shot gets its own role when the lock declares one: a model trained
+        # for entailment-vs-not entails far more crisply than a 3-way NLI model
+        # reading its entailment head (measured: 0.998 vs 0.079 on the same case).
+        # Engines without that role keep answering the mode from `nli`, so this is
+        # additive rather than a second required model.
+        declared = reg.spec.get("roles") or {}
+        default_role = (
+            "zero-shot"
+            if request.mode == "zero-shot" and "zero-shot" in declared
+            else "nli"
+        )
+        role = reg.require(request.model, default_role, request.role)
         if not role.labels:
             raise api_error(400, "no_labels_declared", model=role.model_id)
         if request.mode == "zero-shot":
@@ -285,7 +296,13 @@ def create_app(
                 }
             )
 
-        return {"mode": "pairs", "labels": role.labels, "results": results}
+        return {
+            "mode": "pairs",
+            "role": role.name,
+            "model": role.model_id,
+            "labels": role.labels,
+            "results": results,
+        }
 
     async def _classify_zero_shot(role: _Role, request: ClassifyRequest) -> Any:
         inputs = list(request.inputs or [])
@@ -387,6 +404,10 @@ def create_app(
 
         return {
             "mode": "zero-shot",
+            # Which role answered, so a consumer can tell the dedicated zero-shot
+            # model from the `nli` fallback without reading the lock file.
+            "role": role.name,
+            "model": role.model_id,
             "labels": labels,
             "entailment_label": role.labels[entailment_index],
             "hypothesis_template": template,

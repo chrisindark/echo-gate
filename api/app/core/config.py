@@ -324,8 +324,15 @@ class Config:
             self.INTENT_TTL_SECONDS = default_intent_ttls
 
         # Model Configuration & Pipeline Versioning
+        #
+        # Local defaults are the small-but-capable checkpoints served by
+        # `inference-platform/models.lock.yaml` (bge-small, gte-reranker-modernbert,
+        # nli-MiniLM2); the lock also names the production swap for each role.
+        # `InferenceClient.verify()` refuses to boot when this id and the engine's
+        # model disagree, and the id is the Qdrant `embedding_model` filter value,
+        # so a swap is visible instead of silently mixing vector spaces.
         self.EMBEDDING_MODEL_NAME = os.getenv(
-            "EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2"
+            "EMBEDDING_MODEL_NAME", "BAAI/bge-small-en-v1.5"
         )
         self.EMBEDDING_VERSION = os.getenv("EMBEDDING_VERSION", "v1")
         self.SPARSE_EMBEDDING_VERSION = os.getenv("SPARSE_EMBEDDING_VERSION", "v1")
@@ -339,7 +346,7 @@ class Config:
         self.RERANKER_VERSION = os.getenv("RERANKER_VERSION", "v1")
         self.JUDGE_PROMPT_VERSION = os.getenv("JUDGE_PROMPT_VERSION", "v1")
         self.RERANKER_MODEL_NAME = os.getenv(
-            "RERANKER_MODEL_NAME", "BAAI/bge-reranker-base"
+            "RERANKER_MODEL_NAME", "Alibaba-NLP/gte-reranker-modernbert-base"
         )
         # How reranker signals are combined: "multiplicative" (bounded factors
         # multiplied into the cross-encoder score) or "additive" (symmetric
@@ -387,7 +394,7 @@ class Config:
             "CROSS_ENCODER_RELEVANCE_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2"
         )
         self.CROSS_ENCODER_NLI_MODEL = os.getenv(
-            "CROSS_ENCODER_NLI_MODEL", "cross-encoder/nli-deberta-v3-small"
+            "CROSS_ENCODER_NLI_MODEL", "cross-encoder/nli-MiniLM2-L6-H768"
         )
 
         # Shared Inference Platform

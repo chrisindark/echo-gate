@@ -24,9 +24,9 @@ the probes. No authentication: the service is expected on a private network only
    position.
 4. **Requests are routed by role.** Every request carries exactly one of
    `role` or `model`. `role` selects one of the roles in `models.lock.yaml`
-   (`embed`, `rerank`, `relevance`, `nli`, `sparse`); `model` names a served model
-   id explicitly and wins over `role`. The server rejects an unknown role or model
-   rather than substituting one.
+   (`embed`, `rerank`, `relevance`, `nli`, `zero-shot`, `sparse`); `model` names a
+   served model id explicitly and wins over `role`. The server rejects an unknown
+   role or model rather than substituting one.
 
    This rule exists because two roles share the `/rerank` route: without it an
    unpinned rerank call is served by the engine's default reranker, so a
@@ -49,13 +49,18 @@ the probes. No authentication: the service is expected on a private network only
   "status": "ok",
   "version": "1",
   "roles": {
-    "embed":  {"model": "sentence-transformers/all-MiniLM-L6-v2", "kind": "embedder",      "loaded": true, "device": "mps", "dim": 384},
-    "rerank": {"model": "BAAI/bge-reranker-base",                "kind": "cross-encoder", "loaded": true, "device": "mps", "dim": null},
-    "nli":    {"model": "cross-encoder/nli-deberta-v3-small",    "kind": "cross-encoder", "loaded": true, "device": "mps", "labels": ["contradiction", "entailment", "neutral"]},
-    "sparse": {"model": "Qdrant/bm25",                           "kind": "sparse",        "loaded": true, "backend": "fastembed 0.9.1"}
+    "embed":     {"model": "BAAI/bge-small-en-v1.5",              "kind": "embedder",      "loaded": true, "device": "mps", "dim": 384},
+    "rerank":    {"model": "Alibaba-NLP/gte-reranker-modernbert-base", "kind": "cross-encoder", "loaded": true, "device": "mps", "dim": null},
+    "relevance": {"model": "cross-encoder/ms-marco-MiniLM-L-6-v2", "kind": "cross-encoder", "loaded": true, "device": "mps", "dim": null},
+    "nli":       {"model": "cross-encoder/nli-MiniLM2-L6-H768",    "kind": "cross-encoder", "loaded": true, "device": "mps", "labels": ["contradiction", "entailment", "neutral"]},
+    "zero-shot": {"model": "MoritzLaurer/ModernBERT-base-zeroshot-v2.0", "kind": "cross-encoder", "loaded": true, "device": "mps", "labels": ["entailment", "not_entailment"]},
+    "sparse":    {"model": "Qdrant/bm25",                         "kind": "sparse",        "loaded": true, "backend": "fastembed 0.9.1"}
   }
 }
 ```
+
+Model ids are whatever the deployment's `models.lock.yaml` declares — treat them as
+opaque strings, and read `labels` rather than assuming a label order.
 
 `kind` is `embedder` (dense vectors), `cross-encoder` (pairwise scores), or
 `sparse` (lexical indices + weights), and tells a consumer what a role can answer
@@ -107,7 +112,7 @@ Dense only — the default, and what every pre-existing consumer sends:
 ```json
 {
   "object": "list",
-  "model": "sentence-transformers/all-MiniLM-L6-v2",
+  "model": "BAAI/bge-small-en-v1.5",
   "data": [
     {"object": "embedding", "index": 0, "embedding": [0.0123, -0.0456, "..."]},
     {"object": "embedding", "index": 1, "embedding": [0.0789, -0.0112, "..."]}
@@ -121,7 +126,7 @@ Dense and sparse together (`"dense": true, "sparse": true`):
 ```json
 {
   "object": "list",
-  "model": "sentence-transformers/all-MiniLM-L6-v2",
+  "model": "BAAI/bge-small-en-v1.5",
   "sparse_model": "Qdrant/bm25",
   "data": [
     {"object": "embedding", "index": 0, "embedding": [0.0123, -0.0456, "..."]}
@@ -183,7 +188,7 @@ Cohere-compatible, extended with the raw score.
     {"index": 0, "score": 0.9412, "score_raw": 2.7710},
     {"index": 1, "score": 0.0331, "score_raw": -3.3760}
   ],
-  "meta": {"model": "BAAI/bge-reranker-base", "billed_units": {"documents": 2}}
+  "meta": {"model": "Alibaba-NLP/gte-reranker-modernbert-base", "billed_units": {"documents": 2}}
 }
 ```
 
@@ -198,7 +203,8 @@ Cohere-compatible, extended with the raw score.
 
 NLI on a role, in one of two modes. `mode` defaults to `"pairs"`, so a consumer
 written before zero-shot existed is unaffected. Both modes require a role whose
-lock declares `labels` (the `nli` role by default).
+lock declares `labels`: `pairs` defaults to `nli`, `zero-shot` to the `zero-shot`
+role when the lock has one.
 
 ### `mode: "pairs"` (default)
 
@@ -216,6 +222,8 @@ Explicit premise/hypothesis pairs. Echo Gate sends `[user_prompt, cached_answer]
 ```json
 {
   "mode": "pairs",
+  "role": "nli",
+  "model": "cross-encoder/nli-MiniLM2-L6-H768",
   "labels": ["contradiction", "entailment", "neutral"],
   "results": [
     {
@@ -241,9 +249,14 @@ becomes the hypothesis of an NLI pair, and the pair's entailment probability is
 that label's score. This is how agent-forge triages mail without a generative
 model — one small cross-encoder instead of a 3B-parameter LLM.
 
+The mode prefers the dedicated `zero-shot` role when the lock declares one (a
+binary entailment model, which is what these checkpoints are trained for) and
+falls back to `nli` on engines that only serve that. Pin `role` explicitly to
+choose; the response always states which model answered.
+
 ```json
 {
-  "role": "nli",
+  "role": "zero-shot",
   "mode": "zero-shot",
   "inputs": ["Please find attached the invoice for last month's subscription."],
   "labels": ["billing", "password reset", "shipping"],
@@ -254,6 +267,8 @@ model — one small cross-encoder instead of a 3B-parameter LLM.
 ```json
 {
   "mode": "zero-shot",
+  "role": "zero-shot",
+  "model": "MoritzLaurer/ModernBERT-base-zeroshot-v2.0",
   "labels": ["billing", "password reset", "shipping"],
   "entailment_label": "entailment",
   "hypothesis_template": "This text is about {}.",
@@ -261,18 +276,20 @@ model — one small cross-encoder instead of a 3B-parameter LLM.
     {
       "index": 0,
       "label": "billing",
-      "score": 0.9561,
-      "scores": {"billing": 0.9561, "password reset": 0.0012, "shipping": 0.0004},
-      "scores_normalized": {"billing": 0.9981, "password reset": 0.0011, "shipping": 0.0008},
+      "score": 0.9740,
+      "scores": {"billing": 0.9740, "password reset": 0.0002, "shipping": 0.0001},
+      "scores_normalized": {"billing": 0.9997, "password reset": 0.0002, "shipping": 0.0001},
       "ranked": [
-        {"label": "billing", "score": 0.9561, "score_normalized": 0.9981},
-        {"label": "password reset", "score": 0.0012, "score_normalized": 0.0011},
-        {"label": "shipping", "score": 0.0004, "score_normalized": 0.0008}
+        {"label": "billing", "score": 0.9740, "score_normalized": 0.9997},
+        {"label": "password reset", "score": 0.0002, "score_normalized": 0.0002},
+        {"label": "shipping", "score": 0.0001, "score_normalized": 0.0001}
       ]
     }
   ]
 }
 ```
+
+`mode: "pairs"` responses carry the same `role` and `model` fields.
 
 - **`scores` are independent, not a distribution.** Each label is a separate NLI
   decision, so several labels can each score `0.8`. Compare them, do not sum them.
@@ -291,12 +308,13 @@ model — one small cross-encoder instead of a 3B-parameter LLM.
   `bad_hypothesis_template`, `no_entailment_label` (the role has no `entailment`
   class, so there is nothing to score).
 - **Quality is a model question, not a contract question.** The shipped
-  `nli-deberta-v3-small` is a good *topic* discriminator (invoice → billing 0.96)
-  and a poor *intent* discriminator (a phishing email may rank "account notice"
-  above "phishing"). Calibrate a threshold per label set, treat a low top score
-  as "unknown" rather than forcing a choice, and prefer short noun-phrase labels.
-  Changing the label set or the template changes every score: store both next to
-  the classification you persist.
+  `zero-shot` model separates *topics* well (invoice → billing 0.97, password
+  reset 0.998) and *intent* not at all (a phishing email ranks "account notice"
+  at 0.97 and "phishing" at 0.001, because that is a judgement about the sender
+  rather than something the text entails). Calibrate a threshold per label set,
+  treat a low top score as "unknown" rather than forcing a choice, and prefer
+  short noun-phrase labels. Changing the label set or the template changes every
+  score: store both next to the classification you persist.
 - Optional for third-party engines: Infinity serves only `mode: "pairs"`. A
   consumer must treat a `4xx` mentioning the mode (or `501 mode_not_supported`)
   as "unsupported here" and fall back to its generative path, exactly as it does

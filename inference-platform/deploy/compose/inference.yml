@@ -31,10 +31,14 @@ services:
       # Dense embeddings. The dim here is locked into Qdrant collections on the
       # consumer side — changing it requires a new collection, not a redeploy.
       - --model-id
-      - "${EMBED_MODEL:-sentence-transformers/all-MiniLM-L6-v2}"
-      # Primary reranker.
+      - "${EMBED_MODEL:-BAAI/bge-small-en-v1.5}"
+      # Primary reranker. Note these defaults are validated against the native
+      # server, not against Infinity's supported-architecture list: if this
+      # Infinity version cannot load a model (ModernBERT is recent), pin a
+      # supported equivalent here rather than changing models.lock.yaml — see
+      # models.lock.yaml for the drop-in multilingual alternatives.
       - --model-id
-      - "${RERANK_MODEL:-BAAI/bge-reranker-base}"
+      - "${RERANK_MODEL:-Alibaba-NLP/gte-reranker-modernbert-base}"
       # Relevance cross-encoder (separate role: different model, different
       # calibration; see models.lock.yaml).
       - --model-id
@@ -42,7 +46,7 @@ services:
       # NLI / contradiction. Label order drives /classify output; keep it in
       # sync with models.lock.yaml.
       - --model-id
-      - "${NLI_MODEL:-cross-encoder/nli-deberta-v3-small}"
+      - "${NLI_MODEL:-cross-encoder/nli-MiniLM2-L6-H768}"
       - --batch-size
       - "${INFERENCE_BATCH_SIZE:-32}"
       - --device

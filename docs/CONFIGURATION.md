@@ -205,7 +205,7 @@ Behaviour:
   unverified, so role/dimension checks are skipped and pins become the only skew
   guard.
 - **Roles, not just models.** Requests are routed by role (`embed`, `rerank`,
-  `relevance`, `nli`). This matters because two different cross-encoders back
+  `relevance`, `nli`; `/classify` also offers `zero-shot`). This matters because two different cross-encoders back
   `rerank` and `relevance`; an unpinned request would otherwise be served by the
   engine's default reranker and quietly score relevance against the wrong model.
   An explicit `INFERENCE_*_MODEL` pin takes precedence and is what the Infinity
@@ -258,7 +258,7 @@ Default `INTENT_TTL_SECONDS`: `weather` 300 · `product_info` 3600 ·
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `EMBEDDING_MODEL_NAME` | `all-MiniLM-L6-v2` | Model id the engine is expected to serve (384-dim) and the tag stored as `embedding_model` on every cached point. Startup fails if `/models` reports a different model. |
+| `EMBEDDING_MODEL_NAME` | `BAAI/bge-small-en-v1.5` | Model id the engine is expected to serve (384-dim) and the tag stored as `embedding_model` on every cached point — the semantic search filters on it, so a swap quarantines old vectors instead of mixing spaces. Startup fails if the engine reports a different model. |
 | `EMBEDDING_VERSION` | `v1` | Version tag for dense embeddings in Qdrant; bump to partition vector space when switching embedding models without dropped indices. |
 | `SPARSE_EMBEDDING_VERSION` | `v1` | Version tag for sparse BM25 embeddings in Qdrant; bump when BM25 tokenizer or corpus changes. |
 | `CACHE_KEY_VERSION` | `v1` | Version tag for Redis and Qdrant cache keys; bump to invalidate or segregate cache entries globally. |
@@ -268,10 +268,10 @@ Default `INTENT_TTL_SECONDS`: `weather` 300 · `product_info` 3600 ·
 | `CORE_QUERY_EXTRACTOR_VERSION` | `v1` | Core query extractor prompt and model version tag. |
 | `RERANKER_VERSION` | `v1` | Reranker scoring logic and model version tag. |
 | `JUDGE_PROMPT_VERSION` | `v1` | Equivalence judge prompt template version tag for verifier and shadow cache. |
-| `RERANKER_MODEL_NAME` | `BAAI/bge-reranker-base` | Declared reranker model name. |
+| `RERANKER_MODEL_NAME` | `Alibaba-NLP/gte-reranker-modernbert-base` | Declared reranker model name. `InferenceClient.rerank` returns `score_raw`, and `CACHE_CONFIDENCE_THRESHOLDS` (0.85–0.98) are compared against that raw logit scale — recalibrate with `scripts/calibrate_reranker.py` after any swap, or the gate is either always-reject or always-accept. |
 | `RERANKER_SCORING_MODE` | `multiplicative` | How reranker signals combine: `multiplicative` (bounded factors multiplied into the cross-encoder score) or `additive` (symmetric bounded deltas). |
 | `CROSS_ENCODER_RELEVANCE_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Relevance cross-encoder. |
-| `CROSS_ENCODER_NLI_MODEL` | `cross-encoder/nli-deberta-v3-small` | NLI cross-encoder for contradiction/entailment. |
+| `CROSS_ENCODER_NLI_MODEL` | `cross-encoder/nli-MiniLM2-L6-H768` | NLI cross-encoder for contradiction/entailment. `judge_service.py` indexes the logits positionally as `[contradiction, entailment, neutral]`, so a replacement must keep that label order. |
 | `USE_RERANKER_MODEL` | `true` | Enable the `rerank` role. `false` raises `InferenceUnavailable` instead of calling the engine, and removes it from the startup check. |
 | `USE_RELEVANCE_MODEL` | `true` | Enable the `relevance` role (same behaviour). |
 | `USE_NLI_MODEL` | `true` | Enable the `nli` role (same behaviour). |
