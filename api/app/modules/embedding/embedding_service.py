@@ -75,6 +75,18 @@ class EmbeddingService:
             self.bm25_local_files_only,
         )
 
+    @property
+    def model_name(self) -> str:
+        """Identity of the dense model, as recorded on every cache point.
+
+        The weights live in the inference engine, so the name comes from config:
+        `InferenceClient.verify()` refuses to start when the engine serves a
+        different model, which keeps this value truthful. It is also the value
+        written to the Qdrant `embedding_model` payload field and used as a search
+        filter, so a swap quarantines old vectors instead of mixing two spaces.
+        """
+        return config.INFERENCE_EMBED_MODEL or config.EMBEDDING_MODEL_NAME
+
     # -- dense -------------------------------------------------------------
 
     @log_latency()

@@ -116,6 +116,10 @@ class JudgeService:
         )
 
         request = ChatCompletionRequest(
+            # The schema validates `model` against the provider's allow-list, so
+            # omitting the service falls back to "ollama" and rejects a
+            # google-genai judge model before the call is ever made.
+            service_name=config.LLM_JUDGE_SERVICE,
             model=config.LLM_JUDGE_MODEL,
             messages=[ChatMessage(role="user", content=prompt)],
             response_format={"type": "json_object"},
@@ -154,6 +158,7 @@ class JudgeService:
         # Deliberately tiny: the answer is one word, and this runs out of band on
         # every shadow match, so it must stay cheap.
         request = ChatCompletionRequest(
+            service_name=config.LLM_JUDGE_SERVICE,
             model=config.LLM_JUDGE_MODEL,
             messages=[ChatMessage(role="user", content=prompt)],
             temperature=config.LLM_JUDGE_TEMPERATURE,
