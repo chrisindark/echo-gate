@@ -152,7 +152,7 @@ class DependencyContainer:
             embedding_svc = cls.get_embedding_service()
             cls._llm_cache_collection_service = LlmCacheCollectionService(
                 client_service=cls.get_qdrant_client_service(),
-                collection_name="embeddings_multivector",
+                collection_name=config.QDRANT_COLLECTION_NAME,
                 vector_size=embedding_svc.embedding_dimension,
             )
         return cls._llm_cache_collection_service

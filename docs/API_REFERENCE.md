@@ -256,6 +256,14 @@ The main gateway endpoint. OpenAI-compatible request; returns a
 }
 ```
 
+**Streaming cache hits — `X-Cache-Prefer: instant`.** A `stream: true` cache hit
+is normally replayed as SSE chunks. Send `X-Cache-Prefer: instant` to get the
+hit as a single `ChatCompletionResponse` JSON body instead (with
+`X-Cache: HIT`), which lets a client skip the stream parser. A cache miss still
+returns a normal `text/event-stream` response; the gateway does not repeat the
+lookups it already missed. Unknown values are ignored, so the header is safe to
+set unconditionally.
+
 `cache_info.source` is one of `redis`, `qdrant_exact_path`, `qdrant_fast_path`,
 `qdrant_semantic_path`, `llm`, or `mock`. `cache_info.cache_hit` distinguishes
 served-from-cache from a fresh provider call. For `QDRANT_SEMANTIC` decisions,

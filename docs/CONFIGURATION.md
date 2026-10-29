@@ -58,6 +58,7 @@ default in `config.py`. Copy `api/app/.env.example` to `api/app/.env.local` (or
 | `REDIS_URL` | `redis://localhost:6379/0` | Redis (exact cache + quota counters). |
 | `QDRANT_URL` | `http://localhost:6333` | Qdrant HTTP endpoint. |
 | `QDRANT_API_KEY` | unset | Qdrant Cloud auth. |
+| `QDRANT_COLLECTION_NAME` | `embeddings_multivector` | Cache collection the gateway reads/writes. Point it at a migrated collection (e.g. `embeddings_multivector_v2`) and restart to complete an embedding-model swap. |
 | `QDRANT_REPLICATION_FACTOR` | unset | Collection replication factor (int). |
 | `QDRANT_WRITE_CONSISTENCY_FACTOR` | unset | Write consistency factor (int). |
 | `CELERY_BROKER_URL` | `redis://localhost:6379/1` | Celery broker. |

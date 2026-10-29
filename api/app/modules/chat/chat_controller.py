@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app.core.constants import EchoGateHeaders
+from app.core.constants import CACHE_PREFER_INSTANT, EchoGateHeaders
 from app.core.dependencies import get_llm_router_service
 from app.core.error_classification import classify_provider_error
 from app.core.guards import api_key_auth_optional_guard, llm_quota_guard
@@ -75,13 +75,40 @@ async def create_chat_completion(
             pass
 
     if request.stream:
+        # `X-Cache-Prefer: instant` lets a caller that only wants the answer skip
+        # SSE parsing entirely: a cache hit is returned as one JSON body. A miss
+        # falls through to the normal upstream stream, and the lookups that just
+        # missed are not repeated.
+        cache_prefer = (
+            (http_request.headers.get(EchoGateHeaders.CACHE_PREFER) or "")
+            .strip()
+            .lower()
+        )
+        skip_cache_lookup = False
+        if cache_prefer == CACHE_PREFER_INSTANT:
+            instant_response = await llmRouterService.get_instant_cache_hit(
+                request, api_key=api_key
+            )
+            if instant_response is not None:
+                http_response.headers[EchoGateHeaders.CACHE] = "HIT"
+                http_response.headers[EchoGateHeaders.GATEWAY_DEGRADATION] = (
+                    getattr(instant_response, "_degradation_state", None) or "none"
+                )
+                return instant_response
+            skip_cache_lookup = True
+
         if timeout_budget_ms is not None:
             stream_iter = llmRouterService.generate_stream(
-                request, api_key=api_key, timeout_budget_ms=timeout_budget_ms
+                request,
+                api_key=api_key,
+                timeout_budget_ms=timeout_budget_ms,
+                skip_cache_lookup=skip_cache_lookup,
             ).__aiter__()
         else:
             stream_iter = llmRouterService.generate_stream(
-                request, api_key=api_key
+                request,
+                api_key=api_key,
+                skip_cache_lookup=skip_cache_lookup,
             ).__aiter__()
 
         first_chunk = None
