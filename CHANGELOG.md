@@ -46,6 +46,21 @@ changes' entry with a `[BREAKING]` marker.
   test suite that runs without downloading weights. It replaces
   `dev/requirements.txt` and the single-file `dev/native_server.py`, so the
   directory can move to its own repository unchanged.
+- **Zero-shot classification (`POST /classify`, `mode: "zero-shot"`)**: candidate
+  labels become NLI hypotheses, so mail/document triage needs one small
+  cross-encoder instead of a generative model. Each input returns independent
+  per-label entailment probabilities (`scores`), a softmax across labels
+  (`scores_normalized`) for single-choice ranking, and a pre-sorted `ranked` list.
+  The label set, the `hypothesis_template`, and the pair budget are validated with
+  structured `400`s. Documented honestly as a *ranking*: the shipped NLI
+  checkpoint separates topics well and intents poorly.
+- **The native server is deployable off the laptop**: a CPU-only `Dockerfile`
+  (torch pinned to the PyTorch CPU index — the PyPI wheel drags the whole CUDA
+  runtime into the image on Linux), `deploy/compose/inference-native.yml`, and a
+  Helm chart in `deploy/helm/inference-platform` with readiness on `/health`, TCP
+  liveness (so a permanently unloaded role is "unready", not a restart loop),
+  optional model-cache PVC with a prefetch init container, and an
+  `inference-platform-prefetch` command that fills a cache without serving.
 
 ### Changed
 

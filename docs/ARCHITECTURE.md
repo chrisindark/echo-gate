@@ -241,7 +241,14 @@ loaded into the gateway process. One contract, two implementations: a native
 FastAPI server for laptops and Infinity for GPU hosts. The same contract also
 serves a `sparse` (BM25) role, which the gateway does not use yet — its existing
 Qdrant collection holds vectors from the gateway's own tokenizer, so sparse stays
-local here until that collection is rebuilt.
+local here until that collection is rebuilt. `/classify` additionally supports
+zero-shot labels (`mode: "zero-shot"`), which is how doc-nexus and agent-forge
+classify without a generative model.
+
+The native server ships as a CPU-only image plus a Helm chart
+(`inference-platform/deploy/helm/inference-platform`); Infinity remains the
+option for GPU hosts and real concurrency. Both answer the same contract, so the
+gateway neither knows nor cares which one is behind `INFERENCE_BASE_URL`.
 
 ```
 Local / Single-node:

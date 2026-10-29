@@ -20,6 +20,9 @@ from inference_platform.roles import Registry, _Role
 from inference_platform.schemas import ClassifyRequest, EmbeddingsRequest, RerankRequest
 from inference_platform.settings import (
     CONTRACT_VERSION,
+    MAX_LABELS,
+    MAX_PAIRS,
+    MAX_ZERO_SHOT_INPUTS,
     load_lock,
     prepare_cache_env,
     resolve_device,
@@ -243,7 +246,7 @@ def create_app(
         }
 
     # ------------------------------------------------------------------ #
-    # /classify
+    # /classify: explicit NLI pairs, or zero-shot labels via hypotheses
     # ------------------------------------------------------------------ #
 
     @app.post("/classify")
@@ -251,8 +254,21 @@ def create_app(
         role = reg.require(request.model, "nli", request.role)
         if not role.labels:
             raise api_error(400, "no_labels_declared", model=role.model_id)
+        if request.mode == "zero-shot":
+            return await _classify_zero_shot(role, request)
+        return await _classify_pairs(role, request)
 
-        pairs = [(premise, hypothesis) for premise, hypothesis in request.pairs]
+    async def _classify_pairs(role: _Role, request: ClassifyRequest) -> Any:
+        pairs = [(premise, hypothesis) for premise, hypothesis in request.pairs or []]
+        if not pairs:
+            raise api_error(
+                400,
+                "missing_pairs",
+                message='mode="pairs" requires `pairs`; omit `mode` for this shape',
+            )
+        if len(pairs) > MAX_PAIRS:
+            raise api_error(400, "too_many_pairs", limit=MAX_PAIRS, got=len(pairs))
+
         scores = await asyncio.to_thread(role.predict, pairs, request.batch_size)
         rows = scores.tolist() if scores.ndim > 1 else [[s] for s in scores.tolist()]
 
@@ -269,7 +285,113 @@ def create_app(
                 }
             )
 
-        return {"labels": role.labels, "results": results}
+        return {"mode": "pairs", "labels": role.labels, "results": results}
+
+    async def _classify_zero_shot(role: _Role, request: ClassifyRequest) -> Any:
+        inputs = list(request.inputs or [])
+        labels = [label.strip() for label in (request.labels or [])]
+        template = request.hypothesis_template
+
+        if not inputs:
+            raise api_error(
+                400, "missing_inputs", message='mode="zero-shot" requires `inputs`'
+            )
+        if not labels:
+            raise api_error(
+                400, "missing_labels", message='mode="zero-shot" requires `labels`'
+            )
+        if any(not label for label in labels):
+            raise api_error(400, "empty_label", message="labels must not be blank")
+        if len(set(labels)) != len(labels):
+            # Duplicates would silently collapse in the `scores` object, so the
+            # caller gets an error instead of a score that vanished.
+            raise api_error(400, "duplicate_labels", labels=labels)
+        if "{}" not in template:
+            raise api_error(
+                400,
+                "bad_hypothesis_template",
+                message="`hypothesis_template` must contain a `{}` placeholder",
+                template=template,
+            )
+        if len(inputs) > MAX_ZERO_SHOT_INPUTS:
+            raise api_error(
+                400, "too_many_inputs", limit=MAX_ZERO_SHOT_INPUTS, got=len(inputs)
+            )
+        if len(labels) > MAX_LABELS:
+            raise api_error(400, "too_many_labels", limit=MAX_LABELS, got=len(labels))
+        budget = len(inputs) * len(labels)
+        if budget > MAX_PAIRS:
+            raise api_error(
+                400,
+                "too_many_pairs",
+                limit=MAX_PAIRS,
+                got=budget,
+                message="inputs * labels must stay within the pair budget",
+            )
+
+        entailment_index = next(
+            (
+                index
+                for index, label in enumerate(role.labels)
+                if label.lower() == "entailment"
+            ),
+            None,
+        )
+        if entailment_index is None:
+            raise api_error(
+                400,
+                "no_entailment_label",
+                model=role.model_id,
+                labels=role.labels,
+                message="zero-shot scoring needs an `entailment` class in the NLI role",
+            )
+
+        # One forward pass per (input, label). The whole grid goes in one batched
+        # call: per-pair requests would pay the model's fixed overhead N times.
+        pairs = [(text, template.format(label)) for text in inputs for label in labels]
+        scores = await asyncio.to_thread(role.predict, pairs, request.batch_size)
+        rows = scores.tolist() if scores.ndim > 1 else [[s] for s in scores.tolist()]
+
+        results = []
+        for index in range(len(inputs)):
+            window = rows[index * len(labels) : (index + 1) * len(labels)]
+            entailment = []
+            for row in window:
+                logits = [float(v) for v in row[: len(role.labels)]]
+                entailment.append(_softmax(logits)[entailment_index])
+            # Per-label entailment probabilities are independent: three labels can
+            # all score 0.8, because each is a separate NLI decision. The
+            # normalized copy is a softmax across labels for "pick exactly one"
+            # consumers; it is for ranking only, not for thresholding.
+            normalized = _softmax(entailment)
+            order = sorted(
+                range(len(labels)), key=lambda i: entailment[i], reverse=True
+            )
+            results.append(
+                {
+                    "index": index,
+                    "label": labels[order[0]],
+                    "score": entailment[order[0]],
+                    "scores": dict(zip(labels, entailment, strict=False)),
+                    "scores_normalized": dict(zip(labels, normalized, strict=False)),
+                    "ranked": [
+                        {
+                            "label": labels[i],
+                            "score": entailment[i],
+                            "score_normalized": normalized[i],
+                        }
+                        for i in order
+                    ],
+                }
+            )
+
+        return {
+            "mode": "zero-shot",
+            "labels": labels,
+            "entailment_label": role.labels[entailment_index],
+            "hypothesis_template": template,
+            "results": results,
+        }
 
     return app
 

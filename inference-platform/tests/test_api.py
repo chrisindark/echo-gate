@@ -9,6 +9,8 @@ a live server.
 
 from __future__ import annotations
 
+import re
+
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
@@ -89,6 +91,35 @@ class FakeCrossEncoder(FakeRole):
         return np.array(raw, dtype=np.float32)
 
 
+class FakeNLI(FakeRole):
+    """Entailment is high when the hypothesis names a word from the premise.
+
+    That is what a working zero-shot setup looks like from the outside: the
+    hypothesis `This text is about invoice.` entails a premise that talks about an
+    invoice. It makes the ranking assertions meaningful instead of relying on
+    hypothesis length.
+    """
+
+    def __init__(self, labels: list[str] | None = None) -> None:
+        super().__init__(
+            "cross-encoder",
+            "fake/nli",
+            labels=labels or ["contradiction", "entailment", "neutral"],
+        )
+
+    def predict(self, pairs: list[tuple[str, str]], batch_size: int) -> np.ndarray:
+        rows = []
+        for premise, hypothesis in pairs:
+            premised = {word.strip(".,!?").lower() for word in premise.split()}
+            matches = any(
+                len(word) > 3 and word.lower() in premised
+                for word in re.findall(r"[A-Za-z]+", hypothesis)
+            )
+            row = [-2.0, 3.0 if matches else -2.0, 0.0]
+            rows.append(row[: len(self.labels)])
+        return np.array(rows, dtype=np.float32)
+
+
 class FakeSparse(FakeRole):
     def __init__(self, fail: bool = False) -> None:
         super().__init__("sparse", "fake/bm25")
@@ -107,7 +138,7 @@ def default_roles(*, sparse_fail: bool = False) -> dict:
     return {
         "embed": FakeDense(),
         "rerank": FakeCrossEncoder(),
-        "nli": FakeCrossEncoder(labels=["contradiction", "entailment", "neutral"]),
+        "nli": FakeNLI(),
         "sparse": FakeSparse(fail=sparse_fail),
     }
 
@@ -342,10 +373,18 @@ def test_classify_returns_normalized_label_probabilities() -> None:
         body = client.post(
             "/classify", json={"role": "nli", "pairs": [["question", "an answer"]]}
         ).json()
+    assert body["mode"] == "pairs"
     assert body["labels"] == ["contradiction", "entailment", "neutral"]
     probs = body["results"][0]["probabilities"]
     assert sum(probs.values()) == pytest.approx(1.0)
     assert body["results"][0]["label"] in body["labels"]
+
+
+def test_classify_pairs_mode_requires_pairs() -> None:
+    with build_client() as client:
+        response = client.post("/classify", json={"role": "nli", "inputs": ["x"]})
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "missing_pairs"
 
 
 def test_classify_rejects_a_role_without_labels() -> None:
@@ -355,3 +394,103 @@ def test_classify_rejects_a_role_without_labels() -> None:
         )
     assert response.status_code == 400
     assert response.json()["detail"]["error"] == "no_labels_declared"
+
+
+# --------------------------------------------------------------------------- #
+# /classify?mode=zero-shot
+# --------------------------------------------------------------------------- #
+
+ZERO_SHOT = {
+    "mode": "zero-shot",
+    "inputs": ["my invoice was charged twice", "the weather is mild today"],
+    "labels": ["invoice", "weather"],
+}
+
+
+def test_zero_shot_ranks_labels_without_training_anything() -> None:
+    with build_client() as client:
+        body = client.post("/classify", json=ZERO_SHOT).json()
+    assert body["mode"] == "zero-shot"
+    assert body["entailment_label"] == "entailment"
+    assert body["labels"] == ["invoice", "weather"]
+    assert body["hypothesis_template"] == "This text is about {}."
+
+    first, second = body["results"]
+    assert first["index"] == 0
+    assert first["label"] == "invoice"
+    assert first["score"] == pytest.approx(first["ranked"][0]["score"])
+    assert first["scores"]["invoice"] > first["scores"]["weather"]
+    assert second["label"] == "weather"
+    assert second["scores"]["weather"] > second["scores"]["invoice"]
+
+
+def test_zero_shot_normalized_scores_are_a_distribution_over_labels() -> None:
+    with build_client() as client:
+        body = client.post("/classify", json=ZERO_SHOT).json()
+    for row in body["results"]:
+        assert sum(row["scores_normalized"].values()) == pytest.approx(1.0)
+        # Entailment probabilities are independent, so they need not sum to 1.
+        assert sum(row["scores"].values()) > 1.0
+        assert row["scores_normalized"][row["label"]] == pytest.approx(
+            max(row["scores_normalized"].values())
+        )
+
+
+def test_zero_shot_accepts_a_custom_hypothesis_template() -> None:
+    payload = {**ZERO_SHOT, "hypothesis_template": "This email is about {}."}
+    with build_client() as client:
+        body = client.post("/classify", json=payload).json()
+    assert body["hypothesis_template"] == "This email is about {}."
+
+
+def test_zero_shot_requires_the_placeholder_in_the_template() -> None:
+    payload = {**ZERO_SHOT, "hypothesis_template": "This email is about billing."}
+    with build_client() as client:
+        response = client.post("/classify", json=payload)
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "bad_hypothesis_template"
+
+
+def test_zero_shot_rejects_duplicate_labels() -> None:
+    payload = {**ZERO_SHOT, "labels": ["invoice", "invoice"]}
+    with build_client() as client:
+        response = client.post("/classify", json=payload)
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "duplicate_labels"
+
+
+def test_zero_shot_requires_inputs_and_labels() -> None:
+    with build_client() as client:
+        no_inputs = client.post(
+            "/classify", json={"mode": "zero-shot", "labels": ["invoice"]}
+        )
+        no_labels = client.post(
+            "/classify", json={"mode": "zero-shot", "inputs": ["x"]}
+        )
+    assert no_inputs.status_code == 400
+    assert no_inputs.json()["detail"]["error"] == "missing_inputs"
+    assert no_labels.status_code == 400
+    assert no_labels.json()["detail"]["error"] == "missing_labels"
+
+
+def test_zero_shot_enforces_the_pair_budget() -> None:
+    payload = {
+        "mode": "zero-shot",
+        "inputs": [f"document {i}" for i in range(20)],
+        "labels": [f"label{i}" for i in range(20)],
+    }
+    with build_client() as client:
+        response = client.post("/classify", json=payload)
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["error"] == "too_many_pairs"
+    assert detail["got"] == 400
+
+
+def test_zero_shot_needs_an_entailment_class() -> None:
+    roles = default_roles()
+    roles["nli"] = FakeNLI(labels=["contradiction", "neutral"])
+    with build_client(roles=roles) as client:
+        response = client.post("/classify", json=ZERO_SHOT)
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "no_entailment_label"

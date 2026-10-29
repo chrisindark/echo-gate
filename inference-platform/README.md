@@ -20,6 +20,7 @@ never imports this package.
 | Sparse BM25 vectors (`/embeddings`, `sparse: true`) | Which candidates to send, fusion weights |
 | Cross-encoder rerank (`/rerank`) | Which candidates to send |
 | NLI / contradiction (`/classify`) | Whether a contradiction blocks a cache hit |
+| Zero-shot labels (`/classify`, `mode: "zero-shot"`) | Which label sets exist, and their thresholds |
 | — | Entity extraction (pure regex, microseconds) |
 | — | Qdrant, Redis, Postgres (separate per app) |
 | — | Generative calls (intent, judge) — those are not encoders |
@@ -80,12 +81,96 @@ environment for a production deployment.
   is continuous batching and pinned multi-model serving, neither of which a
   single-user laptop benefits from.
 
+## Deployment
+
+| situation | use |
+| :--- | :--- |
+| laptop (M4, MPS) | `./dev/serve.sh` on the host — the only place Metal exists |
+| one VM, no GPU | the image: `docker compose -f deploy/compose/inference-native.yml up -d --build` |
+| Kubernetes, no GPU | `deploy/helm/inference-platform` |
+| GPU host, real concurrency | Infinity: `deploy/compose/inference.yml`, or `inference-split.yml` for per-role pools |
+
+All four serve the same contract; a consumer changes `INFERENCE_BASE_URL` and
+nothing else. The native image is CPU-only on purpose — a Linux container cannot
+reach Metal, so a "GPU" variant of this server would only ever work on CUDA, where
+Infinity is the better implementation anyway. That is why `pyproject.toml` pins
+torch to the CPU index: the PyPI wheel drags the whole CUDA runtime into the image
+as a hard dependency on Linux.
+
+### Container
+
+```bash
+docker build -t inference-platform:0.1.0 .
+docker run --rm -p 7997:7997 -v inference-models:/models inference-platform:0.1.0
+
+# weights baked into the image: bigger image, immediate first request
+docker build -t inference-platform:0.1.0 --build-arg PREFETCH=1 .
+```
+
+- `/models` is the model cache (`INFERENCE_MODEL_CACHE`). Mount a volume or every
+  new container downloads the weights again.
+- `PREFETCH=0` (default) keeps the image small and fills `/models` on first start;
+  `PREFETCH=1` runs `inference-platform-prefetch` at build time. To fill a volume
+  from an existing image, override the entrypoint:
+
+  ```bash
+  docker run --rm -v inference-models:/models \
+    --entrypoint inference-platform-prefetch inference-platform:0.1.0
+  ```
+
+- Runs as uid 10001, non-root, no capabilities, one uvicorn worker.
+- **Measured image: 2.08 GB before weights** (torch 690 MB, transformers 120 MB,
+  scipy + scikit-learn 180 MB, onnxruntime 60 MB; no CUDA — torch comes from the
+  PyTorch CPU index). Adding `PREFETCH=1` adds ~2.5 GB of checkpoints. The image
+  cannot be small while `sentence-transformers` is the dense/cross-encoder
+  runtime; serving dense through ONNX and dropping torch is the only way to get
+  near 600 MB, and that is a separate change. The trade is one warm copy of the
+  weights per host instead of one per consumer process.
+
+### Kubernetes
+
+```bash
+helm install inference deploy/helm/inference-platform \
+  --namespace inference --create-namespace \
+  --set image.repository=registry.example.com/inference-platform \
+  --set image.tag=0.1.0
+```
+
+Values that matter (full list and comments in `values.yaml`):
+
+| value | default | why |
+| :--- | :--- | :--- |
+| `roles` | `embed,sparse,rerank,relevance,nli` | a role costs its weights in RAM; drop what you do not serve |
+| `modelCache.persistence.enabled` | `false` | baked image weights are used; enable when building without `PREFETCH` |
+| `modelCache.prefetch.enabled` | `false` | init container fills the volume so the first request is not a download |
+| `recreateOnUpdate` | `false` | set automatically for a `ReadWriteOnce` model volume |
+| `autoscaling.enabled` | `false` | CPU HPA is a compromise; the work is model-bound (see below) |
+| `resources.limits.memory` | `6Gi` | torch + four small checkpoints |
+
+Deliberate behaviours:
+
+- **Readiness is `/health`**, which is `503` while any requested role is unloaded,
+  so a broken engine leaves the Service instead of failing requests.
+- **Liveness is a TCP check.** A permanent role-load failure must stay visible as
+  "unready" and inspectable, not turn into a restart loop that hides the log.
+- The startup probe allows 10 minutes: that is what filling a cold 2.5 GB volume
+  costs on a slow link.
+- `INFERENCE_ROLES` is explicit per release; nothing is loaded implicitly.
+- **There is no authentication.** Keep the Service `ClusterIP` and authenticate the
+  consumers, not this.
+
+On GPU pools, scale on queue depth (in-flight requests via KEDA or a custom
+metric), not CPU: a second replica is a second copy of every weight, and the
+useful signal is how long requests wait, not how busy the CPU is.
+
 ## Layout
+
 
 ```
 pyproject.toml              dependency root (uv); no overlap with the gateway's Poetry env
 uv.lock                     committed lock: `uv sync --frozen` is reproducible
 models.lock.yaml            role -> model id, HF revision, dim, kind, label order
+Dockerfile                  CPU image; --build-arg PREFETCH=1 bakes the weights
 contract/INFERENCE_CONTRACT.md
 src/inference_platform/
   api.py                    FastAPI app factory, routes, response shaping
@@ -93,11 +178,14 @@ src/inference_platform/
   schemas.py                request models
   settings.py               lock path, role selection, device, cache dirs
   errors.py                 structured error shape
+  prefetch.py               download every role's weights without serving
   __main__.py               console entry point (uvicorn, one worker)
 tests/                      wire-contract tests against stand-in roles (no downloads)
 dev/serve.sh                laptop runner (uv run inference-platform)
-deploy/compose/inference.yml    Infinity, production
-deploy/compose/inference-split.yml
+deploy/compose/inference-native.yml   this package, containerized (CPU)
+deploy/compose/inference.yml          Infinity, production GPU
+deploy/compose/inference-split.yml    Infinity, one pool per role
+deploy/helm/inference-platform/       Kubernetes chart for the native server
 deploy/.env.example         model pins for Infinity
 tools/pin_models.py         records HF commit SHAs into models.lock.yaml
 tools/bench.py              latency harness

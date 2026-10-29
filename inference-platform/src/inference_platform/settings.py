@@ -26,6 +26,11 @@ PACKAGE_ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = PACKAGE_ROOT.parent.parent
 
 MAX_DOCUMENTS = 256
+# Zero-shot classification costs len(inputs) * len(labels) forward passes, so it
+# gets its own caps and one combined budget rather than letting inputs grow.
+MAX_ZERO_SHOT_INPUTS = 64
+MAX_LABELS = 32
+MAX_PAIRS = MAX_DOCUMENTS
 
 
 def lock_path() -> Path:

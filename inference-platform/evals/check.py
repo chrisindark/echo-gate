@@ -31,6 +31,14 @@ CASES = Path(__file__).resolve().parent / "golden_pairs.jsonl"
 
 
 def post(path: str, payload: dict) -> dict:
+    status, body = request_json(path, payload)
+    if status >= 400:
+        raise SystemExit(f"{path} -> HTTP {status}: {json.dumps(body)[:400]}")
+    return body
+
+
+def request_json(path: str, payload: dict) -> tuple[int, dict]:
+    """POST and return the status even on an error, for capability probing."""
     request = urllib.request.Request(
         f"{BASE_URL}{path}",
         data=json.dumps(payload).encode(),
@@ -39,10 +47,13 @@ def post(path: str, payload: dict) -> dict:
     )
     try:
         with urllib.request.urlopen(request, timeout=120) as response:
-            return json.loads(response.read())
+            return response.status, json.loads(response.read())
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode(errors="replace")
-        raise SystemExit(f"{path} -> HTTP {exc.code}: {detail}") from exc
+        try:
+            return exc.code, json.loads(detail)
+        except ValueError:
+            return exc.code, {"raw": detail}
     except urllib.error.URLError as exc:
         raise SystemExit(
             f"cannot reach {BASE_URL}{path}: {exc.reason}\n"
@@ -184,6 +195,72 @@ def check_sparse() -> list[str]:
     return failures
 
 
+ZERO_SHOT_CASE = {
+    "text": (
+        "Please find attached the invoice for last month's subscription; "
+        "payment is due within 30 days."
+    ),
+    "labels": ["billing", "password reset", "shipping"],
+    "expect_label": "billing",
+    "expect_min_score": 0.5,
+}
+
+
+def check_zero_shot() -> list[str] | None:
+    """Zero-shot plumbing, or `None` when the engine does not implement the mode.
+
+    The assertion is deliberately a *topic* case, which this NLI model does well
+    (entailment 0.95). It is not an accuracy benchmark: the same model scores
+    "phishing" emails as "account notice", so intent-style labels would make this
+    guard flaky for reasons that have nothing to do with the contract.
+    """
+    status, body = request_json(
+        "/classify",
+        {
+            "mode": "zero-shot",
+            "inputs": [ZERO_SHOT_CASE["text"]],
+            "labels": ZERO_SHOT_CASE["labels"],
+        },
+    )
+    if status in (400, 404, 405, 422, 501):
+        return None
+    if status != 200:
+        return [f"HTTP {status}: {json.dumps(body)[:300]}"]
+
+    failures: list[str] = []
+    if body.get("mode") != "zero-shot":
+        failures.append(f"mode echoed as {body.get('mode')!r}")
+    if body.get("entailment_label") != "entailment":
+        failures.append(f"entailment_label is {body.get('entailment_label')!r}")
+
+    rows = body.get("results") or []
+    if len(rows) != 1:
+        return failures + [f"expected 1 result row, got {len(rows)}"]
+    row = rows[0]
+
+    ranked = row.get("ranked") or []
+    scores = [item["score"] for item in ranked]
+    if scores != sorted(scores, reverse=True):
+        failures.append(f"ranked not sorted by score: {scores}")
+    if row.get("label") != ranked[0]["label"]:
+        failures.append("`label` is not the top-ranked entry")
+    if ranked[0]["label"] != ZERO_SHOT_CASE["expect_label"]:
+        failures.append(
+            f"top label {ranked[0]['label']!r} != expected "
+            f"{ZERO_SHOT_CASE['expect_label']!r} — zero-shot sanity regressed "
+            f"({[(r['label'], round(r['score'], 3)) for r in ranked]})"
+        )
+    if row.get("score", 0.0) < ZERO_SHOT_CASE["expect_min_score"]:
+        failures.append(
+            f"top score {row.get('score'):.3f} < "
+            f"{ZERO_SHOT_CASE['expect_min_score']} "
+            "(label phrasing or template changed?)"
+        )
+    if abs(sum((row.get("scores_normalized") or {}).values()) - 1.0) > 1e-3:
+        failures.append("scores_normalized does not sum to 1")
+    return failures
+
+
 HANDLERS = {
     "rerank": check_rerank,
     "classify": check_classify,
@@ -225,6 +302,19 @@ def main() -> int:
         print("skip  sparse (role not loaded on this engine)")
 
     total = len(cases) + (1 if "sparse" in loaded else 0)
+    zero_shot_failures = check_zero_shot()
+    if zero_shot_failures is None:
+        print("skip  zero-shot (engine does not implement mode=zero-shot)")
+    elif zero_shot_failures:
+        failed += 1
+        total += 1
+        print("FAIL  zero-shot")
+        for failure in zero_shot_failures:
+            print(f"        {failure}")
+    else:
+        total += 1
+        print("ok    zero-shot")
+
     print(f"\n{total - failed}/{total} passed against {BASE_URL}")
     return 1 if failed else 0
 

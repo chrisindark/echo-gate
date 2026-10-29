@@ -73,6 +73,15 @@ uv sync                             # own dependency root (uv, not the gateway's
 ./dev/serve.sh                      # http://localhost:7997, runs on the host
 ```
 
+Deploying it elsewhere (the contract is identical; only `INFERENCE_BASE_URL`
+changes on the consumer side):
+
+```bash
+docker build -t inference-platform:local .            # CPU-only native server
+docker compose -f deploy/compose/inference-native.yml up -d --build
+helm template deploy/helm/inference-platform          # render the Kubernetes chart
+```
+
 Then set `INFERENCE_BASE_URL=http://localhost:7997` in `api/app/.env.local`
 (`http://host.docker.internal:7997` if the API runs in a container and the engine
 on the host). `dev.sh` starts the engine, the API, and the UI together.

@@ -196,7 +196,13 @@ Cohere-compatible, extended with the raw score.
 
 ## `POST /classify`
 
-NLI over premise/hypothesis pairs. Echo Gate sends `[user_prompt, cached_answer]`.
+NLI on a role, in one of two modes. `mode` defaults to `"pairs"`, so a consumer
+written before zero-shot existed is unaffected. Both modes require a role whose
+lock declares `labels` (the `nli` role by default).
+
+### `mode: "pairs"` (default)
+
+Explicit premise/hypothesis pairs. Echo Gate sends `[user_prompt, cached_answer]`.
 
 ```json
 {
@@ -209,6 +215,7 @@ NLI over premise/hypothesis pairs. Echo Gate sends `[user_prompt, cached_answer]
 
 ```json
 {
+  "mode": "pairs",
   "labels": ["contradiction", "entailment", "neutral"],
   "results": [
     {
@@ -226,6 +233,74 @@ NLI over premise/hypothesis pairs. Echo Gate sends `[user_prompt, cached_answer]
   specific class must read `probabilities[label]` so a label-order change is a
   visible failure rather than a silent inversion.
 - `logits` are unnormalized and returned for debugging only.
+
+### `mode: "zero-shot"`
+
+Classification into caller-supplied labels with no training step: each label
+becomes the hypothesis of an NLI pair, and the pair's entailment probability is
+that label's score. This is how agent-forge triages mail without a generative
+model — one small cross-encoder instead of a 3B-parameter LLM.
+
+```json
+{
+  "role": "nli",
+  "mode": "zero-shot",
+  "inputs": ["Please find attached the invoice for last month's subscription."],
+  "labels": ["billing", "password reset", "shipping"],
+  "hypothesis_template": "This text is about {}."
+}
+```
+
+```json
+{
+  "mode": "zero-shot",
+  "labels": ["billing", "password reset", "shipping"],
+  "entailment_label": "entailment",
+  "hypothesis_template": "This text is about {}.",
+  "results": [
+    {
+      "index": 0,
+      "label": "billing",
+      "score": 0.9561,
+      "scores": {"billing": 0.9561, "password reset": 0.0012, "shipping": 0.0004},
+      "scores_normalized": {"billing": 0.9981, "password reset": 0.0011, "shipping": 0.0008},
+      "ranked": [
+        {"label": "billing", "score": 0.9561, "score_normalized": 0.9981},
+        {"label": "password reset", "score": 0.0012, "score_normalized": 0.0011},
+        {"label": "shipping", "score": 0.0004, "score_normalized": 0.0008}
+      ]
+    }
+  ]
+}
+```
+
+- **`scores` are independent, not a distribution.** Each label is a separate NLI
+  decision, so several labels can each score `0.8`. Compare them, do not sum them.
+- `scores_normalized` is a softmax *across labels* for consumers that must pick
+  exactly one. Use it for ranking; never threshold on it.
+- `ranked` is the same data sorted descending, so a consumer that only needs the
+  winner does not re-sort. `label`/`score` are the top entry, for symmetry with
+  `mode: "pairs"`.
+- `hypothesis_template` must contain `{}`; the server substitutes each label into
+  it. The default measured best of the phrasings tried on the shipped model
+  (`This text is about {}.`).
+- Limits: `labels` ≤ 32, `inputs` ≤ 64, and `inputs × labels` ≤ 256 (one forward
+  pass per pair). Violations are `400` with `too_many_inputs`, `too_many_labels`,
+  or `too_many_pairs`.
+- Errors: `missing_inputs`, `missing_labels`, `empty_label`, `duplicate_labels`,
+  `bad_hypothesis_template`, `no_entailment_label` (the role has no `entailment`
+  class, so there is nothing to score).
+- **Quality is a model question, not a contract question.** The shipped
+  `nli-deberta-v3-small` is a good *topic* discriminator (invoice → billing 0.96)
+  and a poor *intent* discriminator (a phishing email may rank "account notice"
+  above "phishing"). Calibrate a threshold per label set, treat a low top score
+  as "unknown" rather than forcing a choice, and prefer short noun-phrase labels.
+  Changing the label set or the template changes every score: store both next to
+  the classification you persist.
+- Optional for third-party engines: Infinity serves only `mode: "pairs"`. A
+  consumer must treat a `4xx` mentioning the mode (or `501 mode_not_supported`)
+  as "unsupported here" and fall back to its generative path, exactly as it does
+  for a `503`.
 
 ## Consumer obligations
 

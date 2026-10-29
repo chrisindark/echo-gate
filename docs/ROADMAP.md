@@ -432,6 +432,11 @@ comparison and no data-driven threshold calibration. Remaining work:
 > vectors. Echo Gate itself still computes BM25 locally (its Qdrant collection
 > holds vectors from the gateway's own tokenizer, so moving the tokenizer means
 > re-indexing); doc-nexus and agent-forge are the consumers for the served role.
+> It also gained zero-shot classification (`/classify` with `mode: "zero-shot"`,
+> labels as NLI hypotheses) and a real deployment path: CPU-only image, compose
+> file, and a Helm chart. Measured limitation: the shipped NLI checkpoint ranks
+> topics well and intents poorly, so zero-shot is a calibrated ranking, not a
+> drop-in intent classifier.
 
 - [x] **High-performance model serving**: embeddings, reranking, relevance, and
   NLI are served by `inference-platform/` over HTTP; `CrossEncoderService` and
