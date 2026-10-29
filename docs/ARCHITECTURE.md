@@ -408,6 +408,29 @@ TTL is chosen by `IntentClassifierService.calculate_ttl(intent, time_sensitivity
 accepted; moderate accepted only at a middling temperature (0.6–1.6) and only for
 subjective intents (`chitchat`, `greeting`); everything else rejected.
 
+### Value-aware retention (vCache)
+
+The intent TTL is the floor, not the verdict. At write time
+`save_to_qdrant_cache` records what the entry is worth — `provider_cost` from
+`app/core/pricing.py`, `latency_ms` from the provider span, `token_count` from
+usage — and `app/modules/qdrant/retention_policy.py` turns that into a stretched
+TTL and a `retention_value` score. The multiplier is
+`(1 + log10(1 + cost * 100)) * (1 + latency_ms / 1000)`, capped by
+`CACHE_RETENTION_MAX_TTL_SECONDS`, so a free fast answer keeps its intent TTL
+while an expensive slow one can reach 30 days.
+
+Serving-time hits bump `hit_count` and re-score the point in a background task
+(Qdrant has no atomic counter, so it is a read-modify-write that may be lost —
+it only affects eviction priority). The eviction task
+(`delete_expired_vectors`) no longer issues a flat `expires_at < now` delete.
+Expired entries below `CACHE_RETENTION_PROTECT_THRESHOLD` (and legacy points
+with no score) are deleted immediately, protected entries get
+`CACHE_RETENTION_GRACE_PERIOD_SECONDS`, and when
+`CACHE_RETENTION_MAX_POINTS` is set the overflow is removed lowest
+`retention_value` first. `CACHE_RETENTION_ENABLED=false` restores the old sweep.
+Entries past `expires_at` are never served regardless — retention only decides
+when the vector storage is reclaimed.
+
 ## Multi-tenancy (Postgres RLS)
 
 The app connects as a non-owner role (`DB_APP_ROLE`, default `echo_gate_app`), so

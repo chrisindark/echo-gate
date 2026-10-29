@@ -457,11 +457,16 @@ comparison and no data-driven threshold calibration. Remaining work:
   dominated). Multi-stage build keeps poetry and its wheel cache out of the
   runtime image. Implementations: the `inference_platform` service in this repo
   (`uv run inference-platform`) for laptops, Infinity for GPU hosts.
-- [ ] **Cost-aware cache retention (vCache-style)**: record generation metrics
-  (latency seconds, token usage, model tier) in cache-entry metadata; weight
-  retention to protect expensive responses (slow reasoning models, complex
-  RAG outputs) from eviction while aggressively evicting cheap ones (short
-  chitchat, greetings) — maximizing latency/dollar saved per MB of cache.
+- [x] **Cost-aware cache retention (vCache-style)** (`2026-10-29`): cache
+  entries record `provider_cost` (from `app/core/pricing.py`), `latency_ms`,
+  `token_count`, `hit_count`, and a `retention_value` score. The intent TTL is
+  stretched by `(1 + log10(1 + cost * 100)) * (1 + latency_ms / 1000)` up to
+  `CACHE_RETENTION_MAX_TTL_SECONDS`, hits bump `hit_count` out of band, and the
+  eviction sweep deletes expired entries below
+  `CACHE_RETENTION_PROTECT_THRESHOLD` first, keeps valuable ones for a grace
+  period, and evicts capacity overflow lowest-value first. Curves live in
+  `app/modules/qdrant/retention_policy.py`; knobs in `docs/CONFIGURATION.md`;
+  tests in `tests/test_retention_policy.py`.
 - [ ] **Response cost estimate endpoint**: `POST /api/v1/chat/estimate`
   returns estimated token count (prompt tokens via tokenizer approximation)
   and estimated cost across available models, without calling any provider.

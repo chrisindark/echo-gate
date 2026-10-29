@@ -10,6 +10,7 @@ from app.core.degradation import mark_cache_degraded
 from app.core.logger import log_latency
 from app.modules.qdrant.qdrant_client_service import QdrantClientService
 from app.modules.qdrant.qdrant_schema import QdrantPayload
+from app.modules.qdrant.retention_policy import compute_retention_value
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +61,11 @@ class LlmCacheCollectionService:
         ("core_subject", models.PayloadSchemaType.KEYWORD),
         ("subject_modifier", models.PayloadSchemaType.KEYWORD),
         ("action_modifier", models.PayloadSchemaType.KEYWORD),
+        ("provider_cost", models.PayloadSchemaType.FLOAT),
+        ("latency_ms", models.PayloadSchemaType.INTEGER),
+        ("token_count", models.PayloadSchemaType.INTEGER),
+        ("retention_value", models.PayloadSchemaType.FLOAT),
+        ("hit_count", models.PayloadSchemaType.INTEGER),
     ]
 
     @property
@@ -434,6 +440,10 @@ class LlmCacheCollectionService:
         metadata: dict[str, Any] | None = None,
         created_at: int | None = None,
         expires_at: int | None = None,
+        provider_cost: float | None = None,
+        latency_ms: int | None = None,
+        token_count: int | None = None,
+        retention_value: float | None = None,
     ) -> str | None:
         try:
             point_id = str(uuid.uuid4())
@@ -461,6 +471,10 @@ class LlmCacheCollectionService:
                 cache_key_version=cache_key_version,
                 created_at=created_at,
                 expires_at=expires_at,
+                provider_cost=provider_cost,
+                latency_ms=latency_ms,
+                token_count=token_count,
+                retention_value=retention_value,
                 metadata=metadata,
             )
 
@@ -525,27 +539,176 @@ class LlmCacheCollectionService:
             logger.exception("Failed to delete point %s from Qdrant", point_id)
             return False
 
-    @log_latency()
-    def delete_expired(self) -> None:
-        """Deletes vectors where expires_at is less than the current time."""
+    def record_hit(self, point_id: str) -> bool:
+        """Bump ``hit_count`` and refresh ``retention_value`` for a served entry.
+
+        Qdrant has no atomic counter, so this is a read-modify-write. Callers run
+        it as a background task: a lost increment only costs an eviction
+        priority nudge, never a response.
+        """
         try:
-            import time
-
-            now = int(time.time())
-
-            logger.info(f"Deleting Qdrant points where expires_at < {now}")
-
-            self.client_service.delete(
+            records = self.client_service.retrieve(
                 collection_name=self.collection_name,
-                points_selector=models.Filter(
+                ids=[point_id],
+                with_payload=True,
+            )
+            if not records:
+                logger.debug(
+                    "Cache hit on unknown point %s; skipping increment", point_id
+                )
+                return False
+
+            payload = records[0].payload or {}
+            hit_count = int(payload.get("hit_count") or 0) + 1
+            retention_value = compute_retention_value(
+                payload.get("provider_cost"),
+                payload.get("latency_ms"),
+                payload.get("token_count"),
+                hit_count,
+            )
+            self.client_service.set_payload(
+                collection_name=self.collection_name,
+                payload={"hit_count": hit_count, "retention_value": retention_value},
+                points=[point_id],
+            )
+            logger.debug(
+                "Recorded cache hit %s for point %s (retention_value=%.3f)",
+                hit_count,
+                point_id,
+                retention_value,
+            )
+            return True
+        except Exception:
+            logger.warning("Failed to record cache hit for point %s", point_id)
+            return False
+
+    def _delete_points_matching(self, points_filter: models.Filter) -> None:
+        self.client_service.delete(
+            collection_name=self.collection_name,
+            points_selector=points_filter,
+        )
+
+    def evict_expired(self) -> None:
+        """Evict lapsed entries, protecting the valuable ones from a flat sweep.
+
+        Cheap entries (low provider cost, short latency, few hits) are deleted as
+        soon as their TTL lapses. Entries at or above
+        ``CACHE_RETENTION_PROTECT_THRESHOLD`` get
+        ``CACHE_RETENTION_GRACE_PERIOD_SECONDS`` of extra life, so a re-warm or a
+        TTL bump does not have to pay for re-embedding and re-generating them.
+        Points written before retention metadata existed have no score and are
+        treated as cheap.
+        """
+        import time
+
+        now = int(time.time())
+
+        if not config.CACHE_RETENTION_ENABLED:
+            logger.info(f"Deleting Qdrant points where expires_at < {now}")
+            self._delete_points_matching(
+                models.Filter(
                     must=[
                         models.FieldCondition(
                             key="expires_at",
                             range=models.Range(lt=now),
                         )
                     ]
-                ),
+                )
             )
+            return
+
+        threshold = config.CACHE_RETENTION_PROTECT_THRESHOLD
+        logger.info(
+            "Evicting expired Qdrant points with retention_value < %s (expires_at < %s)",
+            threshold,
+            now,
+        )
+        self._delete_points_matching(
+            models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="expires_at",
+                        range=models.Range(lt=now),
+                    )
+                ],
+                should=[
+                    models.FieldCondition(
+                        key="retention_value",
+                        range=models.Range(lt=threshold),
+                    ),
+                    models.IsEmptyCondition(
+                        is_empty=models.PayloadField(key="retention_value")
+                    ),
+                ],
+            )
+        )
+
+        grace_cutoff = now - config.CACHE_RETENTION_GRACE_PERIOD_SECONDS
+        logger.info(
+            "Evicting protected Qdrant points past the grace period (expires_at < %s)",
+            grace_cutoff,
+        )
+        self._delete_points_matching(
+            models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="expires_at",
+                        range=models.Range(lt=grace_cutoff),
+                    )
+                ]
+            )
+        )
+
+    def evict_over_capacity(self) -> int:
+        """Delete the lowest-value points when the collection exceeds its cap.
+
+        No-op unless ``CACHE_RETENTION_MAX_POINTS`` is positive. Returns the
+        number of points evicted.
+        """
+        max_points = config.CACHE_RETENTION_MAX_POINTS
+        if max_points <= 0:
+            return 0
+
+        total = self.client_service.count(
+            collection_name=self.collection_name, exact=False
+        )
+        overflow = total - max_points
+        if overflow <= 0:
+            return 0
+
+        # Bound the work per sweep: the task runs on the eviction schedule, so
+        # a large overage drains across runs instead of in one long delete.
+        batch_size = min(overflow, 1000)
+        records, _ = self.client_service.scroll(
+            collection_name=self.collection_name,
+            limit=batch_size,
+            with_payload=False,
+            order_by=models.OrderBy(
+                key="retention_value", direction=models.Direction.ASC
+            ),
+        )
+        point_ids = [str(record.id) for record in records]
+        if not point_ids:
+            return 0
+
+        logger.info(
+            "Evicting %s low-value point(s) from '%s' to enforce max_points=%s",
+            len(point_ids),
+            self.collection_name,
+            max_points,
+        )
+        self.client_service.delete(
+            collection_name=self.collection_name,
+            points_selector=models.PointIdsList(points=point_ids),
+        )
+        return len(point_ids)
+
+    @log_latency()
+    def delete_expired(self) -> None:
+        """Run the value-aware eviction sweep (TTL then capacity)."""
+        try:
+            self.evict_expired()
+            self.evict_over_capacity()
             logger.info("Successfully requested deletion of expired Qdrant points.")
         except Exception:
             logger.exception("Failed to delete expired vectors from Qdrant")

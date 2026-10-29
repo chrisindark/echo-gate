@@ -12,6 +12,15 @@ changes' entry with a `[BREAKING]` marker.
 
 ### Added
 
+- **Value-aware cache retention (vCache-style)**: cache entries now record
+  `provider_cost`, `latency_ms`, `token_count`, `hit_count`, and a
+  `retention_value` score, so intent TTLs stretch for slow, expensive answers
+  (up to `CACHE_RETENTION_MAX_TTL_SECONDS`) and the eviction sweep deletes
+  cheap expired entries first while protecting valuable ones for a grace period
+  (`CACHE_RETENTION_PROTECT_THRESHOLD`) and evicting capacity overflow
+  lowest-value first (`CACHE_RETENTION_MAX_POINTS`). Curves live in
+  `app/modules/qdrant/retention_policy.py`; set `CACHE_RETENTION_ENABLED=false`
+  to restore the flat TTL sweep.
 - **Shared inference platform (`INFERENCE_BASE_URL`)**: dense embeddings,
   reranking, relevance, and NLI are served over HTTP by `inference-platform/`
   instead of being loaded into every gateway process. One contract

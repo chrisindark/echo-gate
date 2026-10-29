@@ -100,6 +100,21 @@ class QdrantPayload(BaseModel):
     expires_at: int | None = Field(
         None, description="Unix timestamp of when this cache entry expires"
     )
+    provider_cost: float | None = Field(
+        None,
+        description="Provider spend in USD that a cache hit on this entry avoided",
+    )
+    latency_ms: int | None = Field(
+        None, description="Provider latency in ms that a cache hit on this entry avoids"
+    )
+    token_count: int | None = Field(
+        None, description="Prompt + completion tokens the entry occupies"
+    )
+    retention_value: float | None = Field(
+        None,
+        description="Value score used to protect expensive entries from eviction",
+    )
+    hit_count: int = Field(0, description="Number of times this entry has been served")
     metadata: dict[str, Any] | None = Field(
         default_factory=dict, description="Additional custom metadata"
     )

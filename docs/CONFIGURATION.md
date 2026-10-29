@@ -254,6 +254,33 @@ Default `INTENT_TTL_SECONDS`: `weather` 300 · `product_info` 3600 ·
 
 `time_sensitivity >= 0.9` or intent `finance_market` is never cached.
 
+## Cache retention (vCache-style)
+
+TTLs stay intent-driven, but the write path stretches them by entry value and
+the eviction sweep protects the valuable entries instead of letting every point
+die on the same clock. Scoring lives in
+`app/modules/qdrant/retention_policy.py`:
+
+- `CACHE_RETENTION_ENABLED` — `true` by default. `false` restores the flat
+  `expires_at < now` sweep and skips TTL stretching.
+- `CACHE_RETENTION_MAX_TTL_SECONDS` — `2592000` (30 days). Ceiling for the
+  stretched TTL; the intent TTL cannot push an entry past it.
+- `CACHE_RETENTION_PROTECT_THRESHOLD` — `5.0`. Dimensionless score at/above
+  which an expired entry is kept for the grace period. For calibration: a 0.3 s
+  flash greeting scores ~1.4, an 8 s Claude code answer ~10.
+- `CACHE_RETENTION_GRACE_PERIOD_SECONDS` — `259200` (3 days). Extra life for
+  protected entries before they are evicted anyway.
+- `CACHE_RETENTION_MAX_POINTS` — `0` (disabled). Positive values cap the
+  collection: when it is exceeded, the lowest-value points are evicted first on
+  the next eviction sweep.
+
+The multiplier applied to the base TTL is
+`(1 + log10(1 + cost * 100)) * (1 + latency_ms / 1000)`, so free/local models on
+fast responses stay at (just above) their intent TTL. A hit on a served entry bumps its
+`hit_count` (background read-modify-write; Qdrant has no atomic counter) and
+raises `retention_value`, because an entry that is actually being served is
+saving its cost repeatedly.
+
 ## Models and ML services
 
 | Variable | Default | Purpose |
