@@ -417,7 +417,8 @@ comparison and no data-driven threshold calibration. Remaining work:
 
 ### Phase 3 — Performance and cost of serving
 
-*Detailed execution tracker, architecture specs, and multi-project integration plans live in [`docs/PHASE_3_EXECUTION_PLAN.md`](./PHASE_3_EXECUTION_PLAN.md).*
+*Complete (2026-10-29). The execution tracker that drove this phase was deleted
+once every step landed; what follows is the record.*
 
 > **Status (2026-10-28):** model serving is fully split. A separate
 > `inference-platform/` dependency root serves dense embeddings, reranking,
