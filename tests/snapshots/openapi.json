@@ -1764,6 +1764,97 @@
         "title": "ChatCompletionResponse",
         "type": "object"
       },
+      "ChatEstimateRequest": {
+        "description": "Input for the pre-flight cost estimate.\n\nDeliberately not ``ChatCompletionRequest``: the estimate prices *every*\nenabled model, so it takes only what changes the token count and never a\nprovider/model pair that must pass registry validation.",
+        "properties": {
+          "max_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Tokens"
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/ChatMessage"
+            },
+            "title": "Messages",
+            "type": "array"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "tools": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/Tool"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tools"
+          }
+        },
+        "required": [
+          "messages"
+        ],
+        "title": "ChatEstimateRequest",
+        "type": "object"
+      },
+      "ChatEstimateResponse": {
+        "properties": {
+          "completion_tokens": {
+            "title": "Completion Tokens",
+            "type": "integer"
+          },
+          "estimates": {
+            "items": {
+              "$ref": "#/components/schemas/ModelCostEstimate"
+            },
+            "title": "Estimates",
+            "type": "array"
+          },
+          "model": {
+            "description": "Model whose tokenizer produced the counts",
+            "title": "Model",
+            "type": "string"
+          },
+          "prompt_tokens": {
+            "title": "Prompt Tokens",
+            "type": "integer"
+          },
+          "tokenizer": {
+            "description": "Tokenizer actually used; a `heuristic` label means the BPE vocabulary was unavailable",
+            "title": "Tokenizer",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model",
+          "tokenizer",
+          "prompt_tokens",
+          "completion_tokens",
+          "estimates"
+        ],
+        "title": "ChatEstimateResponse",
+        "type": "object"
+      },
       "ChatMessage": {
         "properties": {
           "content": {
@@ -4232,6 +4323,39 @@
         "title": "ModelBreakdownItem",
         "type": "object"
       },
+      "ModelCostEstimate": {
+        "properties": {
+          "cost_completion": {
+            "title": "Cost Completion",
+            "type": "number"
+          },
+          "cost_prompt": {
+            "title": "Cost Prompt",
+            "type": "number"
+          },
+          "cost_total": {
+            "title": "Cost Total",
+            "type": "number"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "service": {
+            "title": "Service",
+            "type": "string"
+          }
+        },
+        "required": [
+          "service",
+          "model",
+          "cost_prompt",
+          "cost_completion",
+          "cost_total"
+        ],
+        "title": "ModelCostEstimate",
+        "type": "object"
+      },
       "QdrantSearchRequest": {
         "properties": {
           "messages": {
@@ -6387,6 +6511,66 @@
           }
         },
         "summary": "Semantic Search",
+        "tags": [
+          "Chat"
+        ]
+      }
+    },
+    "/api/v1/chat/estimate": {
+      "post": {
+        "description": "Estimate prompt tokens and per-model dollar cost without calling a provider.",
+        "operationId": "estimate_chat_cost_api_v1_chat_estimate_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatEstimateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatEstimateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Estimate Chat Cost",
         "tags": [
           "Chat"
         ]

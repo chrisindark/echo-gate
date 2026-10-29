@@ -275,6 +275,48 @@ curl -X POST "http://localhost:8000/api/v1/chat/completions" \
   }'
 ```
 
+### `POST /api/v1/chat/estimate`
+
+Pre-flight cost estimate. Counts prompt tokens with `tiktoken` and prices the
+request across every enabled provider/model pair **without calling a provider**.
+Optional `X-API-Key` (anonymous is allowed); no quota guard, because nothing is
+billed upstream.
+
+**Request body** (`ChatEstimateRequest`):
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `messages` | array | Same shape as completions. Per-message overhead (+4) and reply priming (+3) are included. |
+| `tools` | array | Optional tool declarations; their JSON is counted as prompt tokens. |
+| `max_tokens` | int | Assumed completion length. Falls back to `ESTIMATE_DEFAULT_COMPLETION_TOKENS` (256). |
+| `model` | string | Optional tokenizer hint; aliases resolve to their first target. Unknown models use `cl100k_base`. |
+
+**Response** (`ChatEstimateResponse`):
+
+```json
+{
+  "model": "gpt-4o-mini",
+  "tokenizer": "o200k_base",
+  "prompt_tokens": 24,
+  "completion_tokens": 256,
+  "estimates": [
+    { "service": "ollama", "model": "qwen3:8b", "cost_prompt": 0.0, "cost_completion": 0.0, "cost_total": 0.0 },
+    { "service": "openai", "model": "gpt-4o-mini", "cost_prompt": 0.0000036, "cost_completion": 0.0001536, "cost_total": 0.0001572 }
+  ]
+}
+```
+
+`estimates` is sorted cheapest first. `tokenizer` names the vocabulary that
+produced the count; a `heuristic (4 chars/token)` label means the BPE encoding
+was unavailable (offline engine) and the counts are approximate.
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/chat/estimate" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "gpt-4o-mini", "max_tokens": 256,
+       "messages": [{"role": "user", "content": "Explain quantum computing in one paragraph."}]}'
+```
+
 ### `POST /api/v1/chat/completions/semantic-search`
 
 Diagnostic: runs only the semantic cache path and returns its internal result

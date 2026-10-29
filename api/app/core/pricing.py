@@ -80,6 +80,11 @@ PRICING_CONFIG = {
     },
 }
 
+# `gemini` and `google-genai` are the same provider under both accepted service
+# names (`LlmProviderService.generate_completion` routes both to the Gemini
+# adapter), so a price lookup must not depend on which spelling the caller used.
+PRICING_CONFIG["gemini"] = PRICING_CONFIG["google-genai"]
+
 
 def get_model_prices(provider: str, model: str) -> tuple[float, float]:
     """

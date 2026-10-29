@@ -102,6 +102,16 @@ Retries apply only to timeouts/connection errors and HTTP 408/429/500/502/503/50
 (`app/core/retry.py`). HTTP 400/401/403/500 are fatal and short-circuit the
 fallback entirely.
 
+## Cost estimation
+
+`POST /api/v1/chat/estimate` prices a request across every enabled model without
+calling a provider (see `docs/API_REFERENCE.md`). Prompt tokens come from
+`tiktoken`; completion tokens are `max_tokens` when the caller sets it.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `ESTIMATE_DEFAULT_COMPLETION_TOKENS` | `256` | Assumed completion length when `max_tokens` is omitted. |
+
 ## Cache layers
 
 `CACHE_MODE` selects how the cache pipeline is allowed to affect serving.
@@ -318,8 +328,8 @@ used.
 
 | Variable | Default |
 | --- | --- |
-| `INTENT_CLASSIFIER_SERVICE` | `ollama` |
-| `INTENT_CLASSIFIER_MODEL` | `qwen2.5-coder:3b` |
+| `INTENT_CLASSIFIER_SERVICE` | `groq` |
+| `INTENT_CLASSIFIER_MODEL` | `openai/gpt-oss-20b` |
 | `INTENT_CLASSIFIER_TEMPERATURE` | `0.0` |
 | `INTENT_CLASSIFIER_TIMEOUT_SECONDS` | `2.5` |
 | `INTENT_CLASSIFIER_MAX_TOKENS` | `500` |

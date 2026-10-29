@@ -467,10 +467,14 @@ comparison and no data-driven threshold calibration. Remaining work:
   period, and evicts capacity overflow lowest-value first. Curves live in
   `app/modules/qdrant/retention_policy.py`; knobs in `docs/CONFIGURATION.md`;
   tests in `tests/test_retention_policy.py`.
-- [ ] **Response cost estimate endpoint**: `POST /api/v1/chat/estimate`
-  returns estimated token count (prompt tokens via tokenizer approximation)
-  and estimated cost across available models, without calling any provider.
-  Helps budget-constrained callers pick the right model before committing.
+- [x] **Response cost estimate endpoint** (`2026-10-29`): `POST /api/v1/chat/estimate`
+  returns the prompt token count (`tiktoken`, with a length-estimate fallback
+  when the encoding file is unavailable) and a cheapest-first cost matrix
+  (`cost_prompt`, `cost_completion`, `cost_total`) across every enabled model,
+  without calling any provider. `max_tokens` sets the assumed completion
+  length; `ESTIMATE_DEFAULT_COMPLETION_TOKENS` (256) covers the omitted case.
+  Implementation: `app/modules/chat/chat_estimate_service.py`; tests:
+  `tests/test_chat_estimate.py`.
 - [ ] **Streaming cache hit optimization**: when a cache hit is detected on a
   `stream: true` request, offer an opt-in `X-Cache-Prefer: instant` header
   that returns the full response as a single non-streaming JSON body (with

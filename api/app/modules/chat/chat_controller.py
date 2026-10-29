@@ -9,10 +9,13 @@ from app.core.dependencies import get_llm_router_service
 from app.core.error_classification import classify_provider_error
 from app.core.guards import api_key_auth_optional_guard, llm_quota_guard
 from app.core.responses import BaseAPIResponse
+from app.modules.chat.chat_estimate_service import chat_estimate_service
 from app.modules.chat.chat_schema import (
     SSE_DONE_EVENT,
     ChatCompletionRequest,
     ChatCompletionResponse,
+    ChatEstimateRequest,
+    ChatEstimateResponse,
     format_sse_event,
 )
 from app.modules.llm.llm_router_service import LlmRouterService
@@ -147,6 +150,18 @@ async def create_chat_completion(
     http_response.headers[EchoGateHeaders.GATEWAY_DEGRADATION] = degradation
 
     return llm_response
+
+
+@api_v1_router.post(
+    "/estimate",
+    response_model=ChatEstimateResponse,
+    # Same optional identity as the completions surface (anonymous is allowed),
+    # but no quota guard: nothing is generated and no provider is called.
+    dependencies=[Depends(api_key_auth_optional_guard)],
+)
+async def estimate_chat_cost(request: ChatEstimateRequest) -> ChatEstimateResponse:
+    """Estimate prompt tokens and per-model dollar cost without calling a provider."""
+    return chat_estimate_service.estimate(request)
 
 
 @api_v1_router.post(

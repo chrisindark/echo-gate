@@ -201,6 +201,13 @@ class Config:
             os.getenv("DEFAULT_CACHE_TTL_SECONDS", str(1 * 24 * 60 * 60))
         )
 
+        # Response cost estimation (`POST /api/v1/chat/estimate`).
+        # Completion tokens are unknowable before generation, so the estimate
+        # assumes `max_tokens` when the caller sets it and this budget when not.
+        self.ESTIMATE_DEFAULT_COMPLETION_TOKENS = int(
+            os.getenv("ESTIMATE_DEFAULT_COMPLETION_TOKENS", "256")
+        )
+
         # Value-aware cache retention (vCache-style).
         #
         # Entry TTLs are still intent-driven, but generation cost and latency

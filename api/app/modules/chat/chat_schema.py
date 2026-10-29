@@ -124,6 +124,39 @@ class ChatCompletionRequest(BaseModel):
         return self
 
 
+class ChatEstimateRequest(BaseModel):
+    """Input for the pre-flight cost estimate.
+
+    Deliberately not ``ChatCompletionRequest``: the estimate prices *every*
+    enabled model, so it takes only what changes the token count and never a
+    provider/model pair that must pass registry validation.
+    """
+
+    messages: list[ChatMessage]
+    tools: list[Tool] | None = None
+    max_tokens: int | None = None
+    # Tokenizer hint only. Aliases are resolved to their first target.
+    model: str | None = None
+
+
+class ModelCostEstimate(BaseModel):
+    service: str
+    model: str
+    cost_prompt: float
+    cost_completion: float
+    cost_total: float
+
+
+class ChatEstimateResponse(BaseModel):
+    model: str = Field(description="Model whose tokenizer produced the counts")
+    tokenizer: str = Field(
+        description="Tokenizer actually used; a `heuristic` label means the BPE vocabulary was unavailable"
+    )
+    prompt_tokens: int
+    completion_tokens: int
+    estimates: list[ModelCostEstimate]
+
+
 class Choice(BaseModel):
     index: int
     message: ChatMessage
