@@ -31,6 +31,11 @@ MAX_DOCUMENTS = 256
 MAX_ZERO_SHOT_INPUTS = 64
 MAX_LABELS = 32
 MAX_PAIRS = MAX_DOCUMENTS
+# Alternate phrasings per label when the caller supplies `hypotheses`. Each one
+# is another forward pass per input, so the per-label cap is small on purpose:
+# the measured gain saturates around 2-3 phrasings (a fourth adds cost, not
+# accuracy), and a runaway list would consume the whole pair budget.
+MAX_HYPOTHESES_PER_LABEL = 8
 
 
 def lock_path() -> Path:

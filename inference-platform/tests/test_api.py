@@ -572,3 +572,156 @@ def test_zero_shot_needs_an_entailment_class() -> None:
         response = client.post("/classify", json={**ZERO_SHOT, "role": "nli"})
     assert response.status_code == 400
     assert response.json()["detail"]["error"] == "no_entailment_label"
+
+
+# --------------------------------------------------------------------------- #
+# /classify?mode=zero-shot with verbatim `hypotheses`
+# --------------------------------------------------------------------------- #
+
+# Two labels over one premise. Only the second `phishing` phrasing shares a word
+# with the premise, so a correct implementation must score the label by its best
+# phrasing, not its first or last.
+PREMISE = "your access was suspended after unusual activity"
+
+CLAIM_HYPOTHESES = {
+    "phishing": [
+        "This message reports a routine account statement.",
+        "This message pressures the reader to click a suspended link urgently.",
+    ],
+    "account notice": [
+        "This message reports a routine account statement.",
+    ],
+}
+
+
+def test_zero_shot_accepts_verbatim_hypotheses_keyed_by_label() -> None:
+    payload = {
+        "mode": "zero-shot",
+        "inputs": [PREMISE],
+        "hypotheses": CLAIM_HYPOTHESES,
+    }
+    with build_client() as client:
+        body = client.post("/classify", json=payload).json()
+
+    # `labels` may be omitted: the hypothesis keys are the label set.
+    assert body["labels"] == ["phishing", "account notice"]
+    assert body["hypotheses"] == CLAIM_HYPOTHESES
+    # No template was applied, so echoing one would misdescribe the request.
+    assert body["hypothesis_template"] is None
+    assert body["entailment_label"] == "entailment"
+
+    row = body["results"][0]
+    assert row["label"] == "phishing"
+    assert set(row["scores"]) == set(CLAIM_HYPOTHESES)
+    # The phrasing that carried the label, so a caller can tell "wrong label"
+    # from "phrasing never entailed".
+    assert row["best_hypothesis"]["phishing"] == CLAIM_HYPOTHESES["phishing"][1]
+
+
+def test_zero_shot_scores_a_label_by_its_best_hypothesis() -> None:
+    payload = {"mode": "zero-shot", "inputs": [PREMISE], "hypotheses": CLAIM_HYPOTHESES}
+    with build_client() as client:
+        row = client.post("/classify", json=payload).json()["results"][0]
+    # The winning phrasing scores high; the label whose only phrasing matches
+    # nothing stays at the fake's indecision point (0.5, both classes tied).
+    # Averaging the two `phishing` phrasings would erase the signal instead.
+    assert row["scores"]["phishing"] > 0.9
+    assert row["scores"]["account notice"] == pytest.approx(0.5)
+
+
+def test_zero_shot_without_hypotheses_keeps_the_original_shape() -> None:
+    """The template path must not grow fields it did not have."""
+    with build_client() as client:
+        body = client.post("/classify", json=ZERO_SHOT).json()
+    assert "hypotheses" not in body
+    assert body["hypothesis_template"] == "This text is about {}."
+    assert "best_hypothesis" not in body["results"][0]
+
+
+def test_zero_shot_rejects_hypotheses_and_a_template_together() -> None:
+    payload = {
+        "mode": "zero-shot",
+        "inputs": [PREMISE],
+        "hypotheses": CLAIM_HYPOTHESES,
+        "hypothesis_template": "This email is about {}.",
+    }
+    with build_client() as client:
+        response = client.post("/classify", json=payload)
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "conflicting_hypothesis_spec"
+
+
+def test_zero_shot_rejects_labels_that_do_not_match_the_hypotheses() -> None:
+    payload = {
+        "mode": "zero-shot",
+        "inputs": [PREMISE],
+        "labels": ["phishing", "invoice"],
+        "hypotheses": CLAIM_HYPOTHESES,
+    }
+    with build_client() as client:
+        response = client.post("/classify", json=payload)
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["error"] == "hypotheses_label_mismatch"
+    assert detail["hypotheses"] == ["phishing", "account notice"]
+
+
+@pytest.mark.parametrize(
+    ("texts", "error"),
+    [
+        ([], "empty_hypotheses"),
+        (["  "], "empty_hypothesis"),
+        (["same claim", "same claim"], "duplicate_hypotheses"),
+    ],
+)
+def test_zero_shot_validates_each_hypothesis_list(texts: list[str], error: str) -> None:
+    payload = {
+        "mode": "zero-shot",
+        "inputs": [PREMISE],
+        "hypotheses": {"phishing": texts},
+    }
+    with build_client() as client:
+        response = client.post("/classify", json=payload)
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == error
+
+
+def test_zero_shot_caps_hypotheses_per_label() -> None:
+    payload = {
+        "mode": "zero-shot",
+        "inputs": [PREMISE],
+        "hypotheses": {"phishing": [f"claim number {i}" for i in range(9)]},
+    }
+    with build_client() as client:
+        response = client.post("/classify", json=payload)
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "too_many_hypotheses"
+
+
+def test_zero_shot_rejects_labels_that_collide_after_trimming() -> None:
+    payload = {
+        "mode": "zero-shot",
+        "inputs": [PREMISE],
+        "hypotheses": {"phishing": ["a claim"], " phishing": ["another claim"]},
+    }
+    with build_client() as client:
+        response = client.post("/classify", json=payload)
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "duplicate_labels"
+
+
+def test_zero_shot_pair_budget_counts_every_hypothesis() -> None:
+    """Each phrasing is its own forward pass, so the budget must expand."""
+    payload = {
+        "mode": "zero-shot",
+        "inputs": [f"document {i}" for i in range(10)],
+        "hypotheses": {
+            f"label{i}": [f"claim {i}.{n}" for n in range(5)] for i in range(6)
+        },
+    }
+    with build_client() as client:
+        response = client.post("/classify", json=payload)
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["error"] == "too_many_pairs"
+    assert detail["got"] == 10 * 6 * 5

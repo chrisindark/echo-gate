@@ -295,6 +295,145 @@ HANDLERS = {
 }
 
 
+# The mitigation for zero-shot's real weakness. A topical label set asks "is this
+# text about phishing?", and a phishing mail answers "no, it's about an account
+# notice" — measured: `account notice` 0.983, `phishing` 0.016 on the text below.
+# Claim-shaped hypotheses ask what the message *asserts*, and mutually exclusive
+# labels keep "account notice" from meaning "any notice-shaped message".
+INTENT_HYPOTHESES = {
+    "phishing": [
+        "This message claims the account is suspended and asks the reader to "
+        "verify their identity.",
+        "This message pressures the reader to click a link urgently.",
+        "This message asks the reader to confirm their password on a link.",
+    ],
+    "account notice": [
+        "This message says a routine account statement is available.",
+        "This message reports a routine account status change.",
+    ],
+    "invoice": [
+        # General phrasing plus a specific one: the general line catches a bare
+        # "find attached the invoice" (0.998), which the specific line alone
+        # scores 0.113 because the text never mentions a due date. `max` picks
+        # whichever level of detail the text supports.
+        "This message mentions an invoice.",
+        "This message mentions an invoice with payment due in 30 days.",
+        "This message says payment is due.",
+    ],
+    "password change": [
+        "This message says a password was reset and offers a support contact.",
+        "This message mentions an unusual sign-in attempt.",
+    ],
+    "newsletter": [
+        "This message offers a webinar and new features.",
+        "This message invites the reader to read on for details.",
+    ],
+}
+
+INTENT_CASES = [
+    {
+        "id": "intent-phishing",
+        "text": (
+            "We are writing to inform you that your account has been suspended due "
+            "to unusual activity. Please verify your identity at this link within "
+            "24 hours."
+        ),
+        "expect_label": "phishing",
+        # The margin, not the top score, is the assertion: the text is literally
+        # an account notice, so a small margin would mean the model is back to
+        # reading topic rather than intent.
+        "expect_margin": 0.5,
+        "reject_above": {"account notice": 0.2},
+    },
+    {
+        "id": "intent-legit-statement",
+        "text": "Your March account statement is now available in the customer portal.",
+        "expect_label": "account notice",
+        "expect_margin": 0.5,
+        # Specificity: the phishing hypotheses must not fire on a routine notice.
+        "reject_above": {"phishing": 0.1},
+    },
+    {
+        "id": "intent-password-reset",
+        "text": (
+            "Your password was reset successfully. If this was not you, contact "
+            "support immediately."
+        ),
+        "expect_label": "password change",
+        "expect_margin": 0.5,
+        "reject_above": {"phishing": 0.2},
+    },
+    {
+        # Pins the "general + specific phrasing" rule: this text satisfies the
+        # label but none of its preconditions, so a label set with only detailed
+        # hypotheses drops it to 0.113 and can lose to a topical neighbour.
+        "id": "intent-invoice-no-due-date",
+        "text": "Please find attached the invoice for last month.",
+        "expect_label": "invoice",
+        "expect_margin": 0.5,
+    },
+]
+
+
+def check_zero_shot_intent() -> tuple[list[str] | None, str]:
+    """Claim-shaped hypotheses, or `None` when the engine predates the field.
+
+    A build that ignores `hypotheses` answers `missing_labels`, so an older engine
+    skips this group rather than failing it: the guard is about model behaviour,
+    not about forcing every deployment to upgrade in lockstep.
+    """
+    failures: list[str] = []
+    role = "unknown"
+    for case in INTENT_CASES:
+        status, body = request_json(
+            "/classify",
+            {
+                "mode": "zero-shot",
+                "inputs": [case["text"]],
+                "hypotheses": INTENT_HYPOTHESES,
+            },
+        )
+        if status in (400, 404, 405, 422, 501):
+            return None, "engine does not accept `hypotheses`"
+        if status != 200:
+            return [f"{case['id']}: HTTP {status}: {json.dumps(body)[:300]}"], role
+
+        role = str(body.get("role") or "unknown")
+        rows = body.get("results") or []
+        if len(rows) != 1:
+            failures.append(f"{case['id']}: expected 1 row, got {len(rows)}")
+            continue
+        row = rows[0]
+        ranked = row.get("ranked") or []
+        if len(ranked) < 2:
+            failures.append(f"{case['id']}: need at least 2 ranked labels")
+            continue
+
+        observed = [(item["label"], round(item["score"], 3)) for item in ranked]
+        if row.get("label") != case["expect_label"]:
+            failures.append(
+                f"{case['id']}: top label {row.get('label')!r} != expected "
+                f"{case['expect_label']!r} — {observed}"
+            )
+        margin = ranked[0]["score"] - ranked[1]["score"]
+        if margin < case["expect_margin"]:
+            failures.append(
+                f"{case['id']}: margin {margin:.3f} < {case['expect_margin']} "
+                f"({observed}) — labels are no longer separable, check that the "
+                "hypotheses still describe behaviour and stay mutually exclusive"
+            )
+        for label, ceiling in (case.get("reject_above") or {}).items():
+            got = (row.get("scores") or {}).get(label, 0.0)
+            if got > ceiling:
+                failures.append(
+                    f"{case['id']}: {label!r} scored {got:.3f} > {ceiling} "
+                    "— false positive, the hypothesis is too loose"
+                )
+        if not row.get("best_hypothesis"):
+            failures.append(f"{case['id']}: no `best_hypothesis` in the response")
+    return failures, role
+
+
 def main() -> int:
     health = urllib.request.urlopen(f"{BASE_URL}/health", timeout=10)
     if health.status != 200:
@@ -341,6 +480,19 @@ def main() -> int:
     else:
         total += 1
         print(f"ok    zero-shot (role={zero_shot_role})")
+
+    intent_failures, intent_role = check_zero_shot_intent()
+    if intent_failures is None:
+        print(f"skip  zero-shot-intent ({intent_role})")
+    else:
+        total += 1
+        if intent_failures:
+            failed += 1
+            print(f"FAIL  zero-shot-intent (role={intent_role})")
+            for failure in intent_failures:
+                print(f"        {failure}")
+        else:
+            print(f"ok    zero-shot-intent (role={intent_role})")
 
     print(f"\n{total - failed}/{total} passed against {BASE_URL}")
     return 1 if failed else 0

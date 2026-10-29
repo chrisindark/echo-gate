@@ -300,25 +300,143 @@ choose; the response always states which model answered.
   `mode: "pairs"`.
 - `hypothesis_template` must contain `{}`; the server substitutes each label into
   it. The default measured best of the phrasings tried on the shipped model
-  (`This text is about {}.`).
+  (`This text is about {}.`). It is the right choice for *topic* labels only;
+  read "Designing hypotheses" below before using it for intent.
 - Limits: `labels` ≤ 32, `inputs` ≤ 64, and `inputs × labels` ≤ 256 (one forward
   pass per pair). Violations are `400` with `too_many_inputs`, `too_many_labels`,
   or `too_many_pairs`.
 - Errors: `missing_inputs`, `missing_labels`, `empty_label`, `duplicate_labels`,
   `bad_hypothesis_template`, `no_entailment_label` (the role has no `entailment`
   class, so there is nothing to score).
-- **Quality is a model question, not a contract question.** The shipped
-  `zero-shot` model separates *topics* well (invoice → billing 0.97, password
-  reset 0.998) and *intent* not at all (a phishing email ranks "account notice"
-  at 0.97 and "phishing" at 0.001, because that is a judgement about the sender
-  rather than something the text entails). Calibrate a threshold per label set,
-  treat a low top score as "unknown" rather than forcing a choice, and prefer
-  short noun-phrase labels. Changing the label set or the template changes every
-  score: store both next to the classification you persist.
 - Optional for third-party engines: Infinity serves only `mode: "pairs"`. A
   consumer must treat a `4xx` mentioning the mode (or `501 mode_not_supported`)
   as "unsupported here" and fall back to its generative path, exactly as it does
   for a `503`.
+
+#### `hypotheses`: verbatim assertions instead of a template
+
+`hypotheses` maps each label to one or more sentences that the text must entail
+for that label to apply, and scores the label by the **best** of them:
+
+```json
+{
+  "mode": "zero-shot",
+  "inputs": ["Your account has been suspended. Please verify your identity at this link within 24 hours."],
+  "hypotheses": {
+    "phishing": [
+      "This message claims the account is suspended and asks the reader to verify their identity.",
+      "This message pressures the reader to click a link urgently."
+    ],
+    "account notice": ["This message reports a routine account status change."]
+  }
+}
+```
+
+```json
+{
+  "mode": "zero-shot",
+  "role": "zero-shot",
+  "model": "MoritzLaurer/ModernBERT-base-zeroshot-v2.0",
+  "labels": ["phishing", "account notice"],
+  "entailment_label": "entailment",
+  "hypothesis_template": null,
+  "hypotheses": {"phishing": ["…", "…"], "account notice": ["…"]},
+  "results": [
+    {
+      "index": 0,
+      "label": "phishing",
+      "score": 0.9861,
+      "scores": {"phishing": 0.9861, "account notice": 0.0113},
+      "scores_normalized": {"phishing": 0.9999, "account notice": 0.0001},
+      "ranked": [
+        {"label": "phishing", "score": 0.9861, "score_normalized": 0.9999},
+        {"label": "account notice", "score": 0.0113, "score_normalized": 0.0001}
+      ],
+      "best_hypothesis": {
+        "phishing": "This message claims the account is suspended and asks the reader to verify their identity.",
+        "account notice": "This message reports a routine account status change."
+      }
+    }
+  ]
+}
+```
+
+- `labels` may be omitted: the keys of `hypotheses` define the label set (order
+  preserved). If both are sent they must match exactly
+  (`400 hypotheses_label_mismatch`).
+- `hypothesis_template` must stay at its default when `hypotheses` is used
+  (`400 conflicting_hypothesis_spec`); the response echoes it as `null`, since no
+  template was applied.
+- Each label scores as `max` over its hypotheses. `mean` is deliberately not
+  offered: extra phrasings are there to catch what one phrasing misses, and
+  averaging lets a phrasing that matches nothing drag a real match down.
+- `best_hypothesis` names the winning phrasing per label. It distinguishes "this
+  label is wrong" from "this phrasing was never entailed" without a second
+  request, which is what makes a label set tunable in the field.
+- Limits: ≤ 8 hypotheses per label (`400 too_many_hypotheses`), and the pair
+  budget counts the expansion — `inputs × Σ hypotheses ≤ 256`. Other validation
+  errors: `empty_hypotheses`, `empty_hypothesis`, `duplicate_hypotheses`.
+- Not every engine has it: a build that predates the field ignores it and answers
+  `400 missing_labels`. Treat that as "unsupported here" and fall back (the same
+  rule as zero-shot mode itself), rather than retrying.
+- Cost: 11 hypotheses over 5 labels, one input, measures **64 ms warm** on
+  M4/MPS against 30 ms for 5 noun labels — the pair budget (256) is the real
+  ceiling, not latency. Composition matters more than count: two phrasings (one
+  general, one specific) beat five variations of the same sentence.
+
+#### Designing hypotheses (the accuracy knob)
+
+Prompting is not cosmetic here; it decides whether the model looks at topic or at
+intent. Measured on `MoritzLaurer/ModernBERT-base-zeroshot-v2.0` (M4/MPS) over
+six texts — phishing, routine statement, invoice, password reset, newsletter,
+real security alert — with the same five labels and the same model throughout:
+
+| label + hypothesis style | phishing mail | legit statement | top-1 |
+|---|---|---|---|
+| noun labels via template (`This text is about {}.`) | account notice 0.983 (miss; phishing 0.016) | account notice 0.923 | 5/6 |
+| abstract judgements (`This message is an attempt to steal…`) | newsletter 0.009 (miss; everything ≈ 0) | newsletter 0.001 (miss) | 4/6 |
+| behaviour claims, no qualifier | account notice 0.989 (tie with phishing 0.986) | account notice 0.996 | 5/6 |
+| behaviour claims + exclusivity qualifier | **phishing 0.986** (+0.975) | account notice 0.980 (+0.978) | **6/6**, every margin ≥ 0.93 |
+
+The middle rows are the interesting failures: abstract judgements are not
+entailed by anything (every score collapses to ~0), and behaviour claims alone
+make *two* labels true at once, because a phishing mail really is
+notice-shaped. Three rules follow, and all are about the label set rather than
+the model:
+
+1. **Phrase the behaviour, not the verdict.** "This message claims the account is
+   suspended and asks the reader to verify their identity" is entailed by the
+   text; "This message is a phishing attempt" is a judgement about a sender the
+   text never mentions. Prefer the wording a literal reader could check.
+2. **Keep labels mutually exclusive.** Give the innocent class the qualifier the
+   malicious one fails — "a *routine* account status change", not "an account
+   notice". If two labels can both be true of one text, the winner is decided by
+   noise.
+3. **Pair one general phrasing with one specific one.** A concrete hypothesis
+   asserts preconditions, which makes it *narrower* than a noun label: on
+   `Please find attached the invoice for last month.` (no amount, no due date),
+   `This message mentions an invoice with payment due in 30 days.` scores 0.113
+   while the noun label scores 0.885 — the sender has not been paid yet, so
+   nothing fires. Adding `This message mentions an invoice.` to the same label
+   takes it to 0.998 and leaves the fully-specified text at 0.998, because `max`
+   picks whichever level of detail the text actually supports. Read
+   `best_hypothesis` when a label misfires: it says which level was needed.
+
+Three habits make it survivable in production:
+
+- **Persist the hypothesis set with the label.** Scores are only comparable within
+  one label set and one phrasing; a reworded hypothesis silently rescales them.
+  Store the labels, the hypotheses (or template), and the model id next to every
+  classification you write.
+- **Abstain.** Score thresholds are per label set and are not portable: the
+  abstract style above produced tops of 0.009–0.028, which is the model saying
+  "none of these". Treat a top score under ~0.5, or a margin over the runner-up
+  under ~0.2, as `unknown` and route to a generative path rather than forcing the
+  argmax.
+- **Stop using zero-shot once the label set is stable.** It exists to bootstrap
+  without labels. With a few hundred labelled examples, a logistic head over the
+  `embed` role's vectors, or the LLM classifier the product already has, will beat
+  it. Zero-shot's advantage is that it needs no data, not that it is accurate.
 
 ## Consumer obligations
 

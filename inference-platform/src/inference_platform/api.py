@@ -17,9 +17,15 @@ from fastapi import FastAPI, HTTPException
 
 from inference_platform.errors import api_error
 from inference_platform.roles import Registry, _Role
-from inference_platform.schemas import ClassifyRequest, EmbeddingsRequest, RerankRequest
+from inference_platform.schemas import (
+    DEFAULT_HYPOTHESIS_TEMPLATE,
+    ClassifyRequest,
+    EmbeddingsRequest,
+    RerankRequest,
+)
 from inference_platform.settings import (
     CONTRACT_VERSION,
+    MAX_HYPOTHESES_PER_LABEL,
     MAX_LABELS,
     MAX_PAIRS,
     MAX_ZERO_SHOT_INPUTS,
@@ -304,15 +310,81 @@ def create_app(
             "results": results,
         }
 
-    async def _classify_zero_shot(role: _Role, request: ClassifyRequest) -> Any:
-        inputs = list(request.inputs or [])
-        labels = [label.strip() for label in (request.labels or [])]
+    def _zero_shot_plan(
+        request: ClassifyRequest,
+    ) -> tuple[list[str], dict[str, list[str]]]:
+        """Validate the request, then expand it to label -> hypotheses.
+
+        Two spellings of one idea: a template that interpolates the label, or
+        verbatim assertions. Both end up as `plan`, so the scoring code below has
+        one shape to handle and the max() over phrasings costs nothing when a
+        label has exactly one.
+        """
         template = request.hypothesis_template
 
-        if not inputs:
-            raise api_error(
-                400, "missing_inputs", message='mode="zero-shot" requires `inputs`'
+        if request.hypotheses is not None:
+            # Verbatim hypotheses: the caller decided what each label means, so
+            # the template is not applied. Rejecting the combination beats
+            # silently honouring one of the two spellings.
+            if template != DEFAULT_HYPOTHESIS_TEMPLATE:
+                raise api_error(
+                    400,
+                    "conflicting_hypothesis_spec",
+                    message=(
+                        "send either `hypotheses` or `hypothesis_template`, not both"
+                    ),
+                    template=template,
+                )
+            plan = {
+                label.strip(): [text.strip() for text in texts]
+                for label, texts in request.hypotheses.items()
+            }
+            if len(plan) != len(request.hypotheses):
+                # "phishing" and " phishing" are the same label after trimming;
+                # collapsing them silently would drop one score.
+                raise api_error(
+                    400, "duplicate_labels", labels=list(request.hypotheses)
+                )
+            labels = (
+                [label.strip() for label in request.labels]
+                if request.labels is not None
+                else list(plan)
             )
+            if set(labels) != set(plan):
+                # Scoring a label with no hypothesis would return a score that
+                # cannot exist, so this is an error rather than a zero.
+                raise api_error(
+                    400,
+                    "hypotheses_label_mismatch",
+                    labels=labels,
+                    hypotheses=list(plan),
+                    message="`labels` must match the keys of `hypotheses` exactly",
+                )
+            for label in labels:
+                texts = plan[label]
+                if not label:
+                    raise api_error(
+                        400, "empty_label", message="labels must not be blank"
+                    )
+                if not texts:
+                    raise api_error(400, "empty_hypotheses", label=label)
+                if any(not text for text in texts):
+                    raise api_error(400, "empty_hypothesis", label=label)
+                if len(set(texts)) != len(texts):
+                    raise api_error(
+                        400, "duplicate_hypotheses", label=label, texts=texts
+                    )
+                if len(texts) > MAX_HYPOTHESES_PER_LABEL:
+                    raise api_error(
+                        400,
+                        "too_many_hypotheses",
+                        label=label,
+                        limit=MAX_HYPOTHESES_PER_LABEL,
+                        got=len(texts),
+                    )
+            return labels, plan
+
+        labels = [label.strip() for label in (request.labels or [])]
         if not labels:
             raise api_error(
                 400, "missing_labels", message='mode="zero-shot" requires `labels`'
@@ -330,20 +402,35 @@ def create_app(
                 message="`hypothesis_template` must contain a `{}` placeholder",
                 template=template,
             )
+        return labels, {label: [template.format(label)] for label in labels}
+
+    async def _classify_zero_shot(role: _Role, request: ClassifyRequest) -> Any:
+        inputs = list(request.inputs or [])
+
+        if not inputs:
+            raise api_error(
+                400, "missing_inputs", message='mode="zero-shot" requires `inputs`'
+            )
+
+        labels, plan = _zero_shot_plan(request)
+
+        if len(labels) > MAX_LABELS:
+            raise api_error(400, "too_many_labels", limit=MAX_LABELS, got=len(labels))
         if len(inputs) > MAX_ZERO_SHOT_INPUTS:
             raise api_error(
                 400, "too_many_inputs", limit=MAX_ZERO_SHOT_INPUTS, got=len(inputs)
             )
-        if len(labels) > MAX_LABELS:
-            raise api_error(400, "too_many_labels", limit=MAX_LABELS, got=len(labels))
-        budget = len(inputs) * len(labels)
+        # Every phrasing is its own forward pass, so the budget counts them.
+        expanded = [(label, text) for label in labels for text in plan[label]]
+        budget = len(inputs) * len(expanded)
         if budget > MAX_PAIRS:
             raise api_error(
                 400,
                 "too_many_pairs",
                 limit=MAX_PAIRS,
                 got=budget,
-                message="inputs * labels must stay within the pair budget",
+                message="inputs * (hypotheses summed over labels) must stay within "
+                "the pair budget",
             )
 
         entailment_index = next(
@@ -363,19 +450,24 @@ def create_app(
                 message="zero-shot scoring needs an `entailment` class in the NLI role",
             )
 
-        # One forward pass per (input, label). The whole grid goes in one batched
-        # call: per-pair requests would pay the model's fixed overhead N times.
-        pairs = [(text, template.format(label)) for text in inputs for label in labels]
+        # One forward pass per (input, hypothesis). The whole grid goes in one
+        # batched call: per-pair requests would pay the model's fixed overhead N
+        # times.
+        pairs = [(text, hypothesis) for text in inputs for _, hypothesis in expanded]
         scores = await asyncio.to_thread(role.predict, pairs, request.batch_size)
         rows = scores.tolist() if scores.ndim > 1 else [[s] for s in scores.tolist()]
 
         results = []
         for index in range(len(inputs)):
-            window = rows[index * len(labels) : (index + 1) * len(labels)]
-            entailment = []
-            for row in window:
+            window = rows[index * len(expanded) : (index + 1) * len(expanded)]
+            best: dict[str, tuple[float, str]] = {}
+            for (label, hypothesis), row in zip(expanded, window, strict=True):
                 logits = [float(v) for v in row[: len(role.labels)]]
-                entailment.append(_softmax(logits)[entailment_index])
+                score = _softmax(logits)[entailment_index]
+                if label not in best or score > best[label][0]:
+                    best[label] = (score, hypothesis)
+            entailment = [best[label][0] for label in labels]
+
             # Per-label entailment probabilities are independent: three labels can
             # all score 0.8, because each is a separate NLI decision. The
             # normalized copy is a softmax across labels for "pick exactly one"
@@ -384,25 +476,28 @@ def create_app(
             order = sorted(
                 range(len(labels)), key=lambda i: entailment[i], reverse=True
             )
-            results.append(
-                {
-                    "index": index,
-                    "label": labels[order[0]],
-                    "score": entailment[order[0]],
-                    "scores": dict(zip(labels, entailment, strict=False)),
-                    "scores_normalized": dict(zip(labels, normalized, strict=False)),
-                    "ranked": [
-                        {
-                            "label": labels[i],
-                            "score": entailment[i],
-                            "score_normalized": normalized[i],
-                        }
-                        for i in order
-                    ],
-                }
-            )
+            result = {
+                "index": index,
+                "label": labels[order[0]],
+                "score": entailment[order[0]],
+                "scores": dict(zip(labels, entailment, strict=False)),
+                "scores_normalized": dict(zip(labels, normalized, strict=False)),
+                "ranked": [
+                    {
+                        "label": labels[i],
+                        "score": entailment[i],
+                        "score_normalized": normalized[i],
+                    }
+                    for i in order
+                ],
+            }
+            if request.hypotheses is not None:
+                # Which phrasing won, per label: the only way to tell "this label
+                # is wrong" from "this phrasing was never entailed".
+                result["best_hypothesis"] = {label: best[label][1] for label in labels}
+            results.append(result)
 
-        return {
+        body = {
             "mode": "zero-shot",
             # Which role answered, so a consumer can tell the dedicated zero-shot
             # model from the `nli` fallback without reading the lock file.
@@ -410,9 +505,16 @@ def create_app(
             "model": role.model_id,
             "labels": labels,
             "entailment_label": role.labels[entailment_index],
-            "hypothesis_template": template,
+            # No template was applied when the caller spelled the hypotheses out,
+            # so echoing the default would misdescribe the request.
+            "hypothesis_template": (
+                None if request.hypotheses is not None else request.hypothesis_template
+            ),
             "results": results,
         }
+        if request.hypotheses is not None:
+            body["hypotheses"] = plan
+        return body
 
     return app
 

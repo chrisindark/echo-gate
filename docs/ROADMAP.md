@@ -438,9 +438,13 @@ comparison and no data-driven threshold calibration. Remaining work:
 > re-indexing); doc-nexus and agent-forge are the consumers for the served role.
 > It also gained zero-shot classification (`/classify` with `mode: "zero-shot"`,
 > labels as NLI hypotheses) and a real deployment path: CPU-only image, compose
-> file, and a Helm chart. Measured limitation: the shipped NLI checkpoint ranks
-> topics well and intents poorly, so zero-shot is a calibrated ranking, not a
-> drop-in intent classifier.
+> file, and a Helm chart. Measured limitation: with *noun* labels the shipped NLI
+> checkpoint ranks topics well and intents poorly (a phishing mail is "account
+> notice" at 0.983), so zero-shot via `hypothesis_template` is a calibrated
+> ranking, not a drop-in intent classifier. Sending `hypotheses` instead —
+> behaviour-shaped claims with mutually exclusive labels — moves the same model to
+> 6/6 with ≥0.93 margins on the intent set; see the contract's "Designing
+> hypotheses".
 
 - [x] **High-performance model serving**: embeddings, reranking, relevance, and
   NLI are served by `inference-platform/` over HTTP; `CrossEncoderService` and
@@ -620,7 +624,7 @@ M4/MPS stays at 10-30 ms per request.
 | `rerank` | `Alibaba-NLP/gte-reranker-modernbert-base` (598 MB) | half the size of `bge-reranker-base` (1.08 GB) and the only candidate that separates short query↔prompt pairs on the *raw-logit* scale the confidence gate uses (0.80 relevant / 0.17 unrelated, vs 0.24 / 0.00) | `Qwen/Qwen3-Reranker-0.6B` (best multilingual, causal-LM head) or drop-in `jinaai/jina-reranker-v2-base-multilingual`, `BAAI/bge-reranker-v2-m3` |
 | `relevance` | `cross-encoder/ms-marco-MiniLM-L-6-v2` (91 MB) | already at the small-but-capable point for the 1..5 relevance scale | `gte-reranker-modernbert-base`, or `ms-marco-MiniLM-L12-v2` for a cheap step up |
 | `nli` | `cross-encoder/nli-MiniLM2-L6-H768` (316 MB) | same verdicts as `nli-deberta-v3-small` at 552 MB, 2x faster | `tasksource/ModernBERT-base-nli` — its label order differs, so the gateway's positional `[contradiction, entailment, neutral]` indexing must become label-keyed first |
-| `zero-shot` | `MoritzLaurer/ModernBERT-base-zeroshot-v2.0` (289 MB) | binary entailment: 0.974 invoice→billing, 0.998 password reset (the 3-way `nli` model scored 0.956 / 0.079) | `MoritzLaurer/ModernBERT-large-zeroshot-v2.0` (792 MB) |
+| `zero-shot` | `MoritzLaurer/ModernBERT-base-zeroshot-v2.0` (289 MB) | binary entailment: 0.974 invoice→billing, 0.998 password reset (the 3-way `nli` model scored 0.956 / 0.079); intent labels need claim-shaped `hypotheses`, not noun labels (6/6 vs 5/6, measured) | `MoritzLaurer/ModernBERT-large-zeroshot-v2.0` (792 MB) |
 | `sparse` | `Qdrant/bm25` (~5 MB) | tokenizer identity is the contract; no reason to move | same |
 
 ### Before a cloud release
