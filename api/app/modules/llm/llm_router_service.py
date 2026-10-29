@@ -97,6 +97,11 @@ from app.modules.llm_usage.llm_usage_schema import LlmUsageLogCreate
 from app.modules.llm_usage.llm_usage_service import LlmUsageService
 from app.modules.qdrant.llm_cache_collection_service import LlmCacheCollectionService
 from app.modules.qdrant.qdrant_schema import CacheScope
+from app.modules.qdrant.retention_policy import (
+    calculate_ttl_seconds,
+    compute_retention_value,
+    estimate_provider_cost,
+)
 from app.modules.redis.redis_service import RedisService
 from app.modules.reranking.reranker_service import RerankerService
 from app.modules.shadow_cache.shadow_cache_schema import (
@@ -186,6 +191,24 @@ class LlmRouterService:
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
         return task
+
+    def _record_cache_hit(self, response: ChatCompletionResponse | None) -> None:
+        """Bump the served entry's hit count and retention score, off the path.
+
+        Only the serving path calls this — the shadow evaluator's lookups are
+        hypothetical and must not make entries look popular.
+        """
+        if not response or not self.llm_cache_service:
+            return
+        cache_info = response.cache_info or {}
+        point_id = cache_info.get("point_id")
+        if not cache_info.get("cache_hit") or not point_id:
+            return
+        if not config.CACHE_RETENTION_ENABLED:
+            return
+        self._create_background_task(
+            asyncio.to_thread(self.llm_cache_service.record_hit, point_id)
+        )
 
     async def shutdown(self) -> None:
         """
@@ -1546,13 +1569,44 @@ class LlmRouterService:
             if SCOPE_HIERARCHY[actual_scope] > SCOPE_HIERARCHY[max_scope]:
                 actual_scope = max_scope
 
-            ttl = self.intent_classifier_service.calculate_ttl(intent, time_sensitivity)
+            base_ttl = self.intent_classifier_service.calculate_ttl(
+                intent, time_sensitivity
+            )
             cacheable = True
-            if ttl is not None:
-                expires_at = now + ttl
-            else:
+            ttl = base_ttl
+            if base_ttl is None:
                 expires_at = now + CACHE_NEGATIVE_TTL_OFFSET
                 cacheable = False
+
+            # Value-aware retention (vCache): a slow, expensive answer is worth
+            # keeping longer than a cheap one, and the score is what the
+            # eviction sweep orders by.
+            usage = response.usage
+            prompt_tokens = (usage.prompt_tokens or 0) if usage else 0
+            completion_tokens = (usage.completion_tokens or 0) if usage else 0
+            token_count = prompt_tokens + completion_tokens
+            provider_cost = estimate_provider_cost(
+                effective_service_name,
+                effective_model,
+                prompt_tokens,
+                completion_tokens,
+            )
+            provider_ms = (
+                (response.cache_info or {}).get("latency_breakdown") or {}
+            ).get("provider_ms")
+            latency_ms = int(round(provider_ms)) if provider_ms else 0
+            if base_ttl is not None:
+                if config.CACHE_RETENTION_ENABLED:
+                    ttl = calculate_ttl_seconds(
+                        base_ttl,
+                        provider_cost,
+                        latency_ms,
+                        max_ttl_seconds=config.CACHE_RETENTION_MAX_TTL_SECONDS,
+                    )
+                expires_at = now + ttl
+            retention_value = compute_retention_value(
+                provider_cost, latency_ms, token_count
+            )
 
             metadata = {
                 "prompt_version": PROMPT_VERSION,
@@ -1610,6 +1664,10 @@ class LlmRouterService:
                 cache_key_version=cache_key_version,
                 created_at=created_at,
                 expires_at=expires_at,
+                provider_cost=provider_cost,
+                latency_ms=latency_ms,
+                token_count=token_count,
+                retention_value=retention_value,
                 metadata=metadata,
             )
             if point_id is not None:
@@ -2597,6 +2655,7 @@ class LlmRouterService:
                     (t_redis_end - t_redis_start) * 1000, 2
                 )
                 if response:
+                    self._record_cache_hit(response)
                     return response
 
                 # 2. Try Exact Match in Qdrant
@@ -2619,6 +2678,7 @@ class LlmRouterService:
                             save_to_redis=use_redis_exact_matching,
                             point_id=point_id,
                         )
+                    self._record_cache_hit(response)
                     return response
 
                 # 3. Try Semantic Match if Exact misses
@@ -2628,6 +2688,7 @@ class LlmRouterService:
 
                 if semantic_result.get("response"):
                     response = semantic_result["response"]
+                    self._record_cache_hit(response)
                     return response
 
                 # Extract intent and other metadata if intent classification has been called already
@@ -2692,6 +2753,9 @@ class LlmRouterService:
                     "core_subject": core_subject,
                     "subject_modifier": subject_modifier,
                     "action_modifier": action_modifier,
+                    # Read by the cache write path for value-aware retention; the
+                    # final breakdown is attached once the request finishes.
+                    "latency_breakdown": {"provider_ms": breakdown.get("provider_ms")},
                 }
                 if miss_cache_info:
                     cache_info.update(miss_cache_info)
@@ -2940,6 +3004,7 @@ class LlmRouterService:
                     (t_redis_end - t_redis_start) * 1000, 2
                 )
                 if response:
+                    self._record_cache_hit(response)
                     for chunk in response_to_stream_chunks(response):
                         yield chunk
                     return
@@ -2964,6 +3029,7 @@ class LlmRouterService:
                             save_to_redis=use_redis_exact_matching,
                             point_id=point_id,
                         )
+                    self._record_cache_hit(response)
                     for chunk in response_to_stream_chunks(response):
                         yield chunk
                     return
@@ -2975,6 +3041,7 @@ class LlmRouterService:
 
                 if semantic_result.get("response"):
                     response = semantic_result["response"]
+                    self._record_cache_hit(response)
                     for chunk in response_to_stream_chunks(response):
                         yield chunk
                     return
@@ -3052,6 +3119,9 @@ class LlmRouterService:
                     "core_subject": core_subject,
                     "subject_modifier": subject_modifier,
                     "action_modifier": action_modifier,
+                    # Read by the cache write path for value-aware retention; the
+                    # final breakdown is attached once the request finishes.
+                    "latency_breakdown": {"provider_ms": breakdown.get("provider_ms")},
                 }
                 if miss_cache_info:
                     cache_info.update(miss_cache_info)

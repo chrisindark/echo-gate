@@ -104,7 +104,7 @@ flowchart TD
 
 ### Step 2: vCache Economic Value Retention & Eviction
 
-- [ ] **2.1 Schema & Metadata Enrichment**:
+- [x] **2.1 Schema & Metadata Enrichment**:
   - File: `api/app/modules/qdrant/qdrant_schema.py`
   - File: `api/app/modules/qdrant/llm_cache_collection_service.py`
   - Extend Qdrant payload dictionary to store economic indicators:
@@ -114,20 +114,35 @@ flowchart TD
     - `retention_value`: float (initial computed score).
     - `hit_count`: int (incremented on each cache hit).
 
-- [ ] **2.2 Dynamic TTL Calculation**:
+- [x] **2.2 Dynamic TTL Calculation**:
   - Formula:
     $$TTL_{hours} = TTL_{base} \times \left(1 + \log_{10}(1 + \text{cost} \times 100)\right) \times \left(1 + \frac{\text{latency\_ms}}{1000}\right)$$
   - High-cost frontier outputs (e.g. Claude 3.7 Sonnet / o1) scale up to 14–30 days.
   - Cheap greetings / flash outputs default to 2–6 hours.
 
-- [ ] **2.3 Value-Weighted Eviction Celery Task**:
+- [x] **2.3 Value-Weighted Eviction Celery Task**:
   - File: `api/app/modules/qdrant/tasks.py`
   - Replace naive `expires_at < now` hard cutoff with value-aware priority cleanup.
   - When storage capacity or vector count threshold is breached, query Qdrant points ordered by lowest `retention_value` and evict low-value entries first.
 
-- [ ] **2.4 Tests**:
+- [x] **2.4 Tests**:
   - Unit tests verifying TTL scaling curves for different models and latencies.
   - Verification that high-cost entries survive expiration while low-cost entries are evicted.
+
+Implementation notes: the curves live in
+`api/app/modules/qdrant/retention_policy.py` (`estimate_provider_cost`,
+`calculate_ttl_seconds`, `compute_retention_value`) so they are I/O-free and
+directly testable. `QdrantPayload` gained `provider_cost`, `latency_ms`,
+`token_count`, `retention_value`, and `hit_count` (indexed for filters and for
+`order_by`); `record_hit` is the background hit counter/score refresh. The sweep
+in `delete_expired` is now three passes: unprotected expired, grace-expired, and
+capacity overflow ordered by lowest `retention_value`. Controls are
+`CACHE_RETENTION_ENABLED`, `CACHE_RETENTION_MAX_TTL_SECONDS`,
+`CACHE_RETENTION_PROTECT_THRESHOLD`, `CACHE_RETENTION_GRACE_PERIOD_SECONDS`, and
+`CACHE_RETENTION_MAX_POINTS` (documented in `docs/CONFIGURATION.md`);
+`CACHE_RETENTION_ENABLED=false` restores the flat TTL sweep. Tests:
+`tests/test_retention_policy.py` (14 cases, including a fake Qdrant that applies
+the eviction filters).
 
 ---
 

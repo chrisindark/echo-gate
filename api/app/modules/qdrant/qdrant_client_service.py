@@ -144,6 +144,54 @@ class QdrantClientService:
             **kwargs,
         )
 
+    def retrieve(
+        self,
+        collection_name: str,
+        ids: list[str | int],
+        with_payload: bool = True,
+        with_vectors: bool = False,
+        **kwargs: Any,
+    ) -> list[models.Record]:
+        """Fetch specific points by id."""
+        return self.client.retrieve(
+            collection_name=collection_name,
+            ids=ids,
+            with_payload=with_payload,
+            with_vectors=with_vectors,
+            **kwargs,
+        )
+
+    def set_payload(
+        self,
+        collection_name: str,
+        payload: dict[str, Any],
+        points: list[str | int],
+        **kwargs: Any,
+    ) -> Any:
+        """Overwrite payload keys on specific points."""
+        return self.client.set_payload(
+            collection_name=collection_name,
+            payload=payload,
+            points=points,
+            **kwargs,
+        )
+
+    def count(
+        self,
+        collection_name: str,
+        count_filter: models.Filter | None = None,
+        exact: bool = True,
+        **kwargs: Any,
+    ) -> int:
+        """Count points in a collection, optionally filtered."""
+        result = self.client.count(
+            collection_name=collection_name,
+            count_filter=count_filter,
+            exact=exact,
+            **kwargs,
+        )
+        return int(result.count)
+
     def upsert(
         self,
         collection_name: str,

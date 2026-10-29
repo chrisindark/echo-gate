@@ -201,6 +201,29 @@ class Config:
             os.getenv("DEFAULT_CACHE_TTL_SECONDS", str(1 * 24 * 60 * 60))
         )
 
+        # Value-aware cache retention (vCache-style).
+        #
+        # Entry TTLs are still intent-driven, but generation cost and latency
+        # stretch them (and the eviction sweep protects the valuable ones)
+        # instead of every entry dying on the same flat clock.
+        self.CACHE_RETENTION_ENABLED = (
+            os.getenv("CACHE_RETENTION_ENABLED", "true").lower() == "true"
+        )
+        self.CACHE_RETENTION_MAX_TTL_SECONDS = int(
+            os.getenv("CACHE_RETENTION_MAX_TTL_SECONDS", str(30 * 24 * 60 * 60))
+        )
+        self.CACHE_RETENTION_PROTECT_THRESHOLD = float(
+            os.getenv("CACHE_RETENTION_PROTECT_THRESHOLD", "5.0")
+        )
+        self.CACHE_RETENTION_GRACE_PERIOD_SECONDS = int(
+            os.getenv("CACHE_RETENTION_GRACE_PERIOD_SECONDS", str(3 * 24 * 60 * 60))
+        )
+        # 0 disables capacity-based eviction; any positive value caps the
+        # collection by deleting the lowest-retention-value points first.
+        self.CACHE_RETENTION_MAX_POINTS = int(
+            os.getenv("CACHE_RETENTION_MAX_POINTS", "0")
+        )
+
         # Cache mode gate: `disabled` (no cache), `shadow` (serve every request
         # from the provider while the full cache pipeline runs out of band), or
         # `active` (serve from cache; the three USE_* flags above still decide
