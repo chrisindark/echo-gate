@@ -385,11 +385,9 @@ class Config:
         self.RERANKER_SCORING_MODE = (
             os.getenv("RERANKER_SCORING_MODE", "multiplicative").strip().lower()
         )
-        self.INTENT_CLASSIFIER_SERVICE = os.getenv(
-            "INTENT_CLASSIFIER_SERVICE", "ollama"
-        )
+        self.INTENT_CLASSIFIER_SERVICE = os.getenv("INTENT_CLASSIFIER_SERVICE", "groq")
         self.INTENT_CLASSIFIER_MODEL = os.getenv(
-            "INTENT_CLASSIFIER_MODEL", "qwen2.5-coder:3b"
+            "INTENT_CLASSIFIER_MODEL", "openai/gpt-oss-20b"
         )
         self.INTENT_CLASSIFIER_TEMPERATURE = float(
             os.getenv("INTENT_CLASSIFIER_TEMPERATURE", "0.0")
