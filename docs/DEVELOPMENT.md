@@ -158,6 +158,62 @@ enable/policy statements to the migration — mirror the existing `_TENANT_POLIC
 `alembic/versions/3f9c1a7b2d40_baseline_postgres_rls.py`. For a schema change that
 alters the API, also regenerate the OpenAPI snapshot (above).
 
+## Embedding model upgrades
+
+Dense vectors from different models are not comparable, so a model swap is a
+new collection plus a switchover, never an in-place rewrite. The gateway filters
+Qdrant on `embedding_model` / `embedding_version`, so old points are quarantined
+rather than mixed: a warm cache simply goes cold until the corpus is migrated.
+
+1. **Serve the new model.** Point `inference-platform/models.lock.yaml` at the
+   new checkpoint, restart the engine, then set `EMBEDDING_MODEL_NAME` (and
+   `EMBEDDING_VERSION`, `SPARSE_EMBEDDING_VERSION` if the tokenizer changed) to
+   match. `InferenceClient.verify()` refuses to boot on a mismatch; that is the
+   guard working, not a bug. A dimension change also requires a new collection
+   (`dim` is fixed at creation).
+2. **Plan the migration** (reads the source, writes nothing):
+
+   ```bash
+   poetry run python -m app.scripts.migrate_embeddings --dry-run
+   ```
+
+   `--source` defaults to `QDRANT_COLLECTION_NAME`; `--target` defaults to
+   `<source>_v2`.
+3. **Seed the expensive entries first** (optional, for a large corpus).
+   Retention metadata travels with the point, so the entries whose answers cost
+   the most are the ones worth warming first:
+
+   ```bash
+   poetry run python -m app.scripts.migrate_embeddings --write \
+       --min-retention-value 5 --limit 5000
+   ```
+
+   Points written before value-aware retention existed have no
+   `retention_value` and are skipped by this filter; migrate them in the full
+   run.
+4. **Migrate the rest**:
+
+   ```bash
+   poetry run python -m app.scripts.migrate_embeddings --write
+   ```
+
+   Points are scrolled in `--batch-size` batches (default 128), dense vectors
+   are re-embedded by the inference engine one batch per field, and sparse BM25
+   vectors are copied verbatim (the tokenizer did not change). The target is
+   created through `LlmCacheCollectionService`, so its vectors, quantization,
+   and payload indexes match what the gateway writes at request time. The
+   re-run is idempotent: points keep their ids, and an interrupted run can be
+   restarted with `--limit`/`--min-retention-value` to fill in the remainder.
+5. **Switch over without downtime**: set `QDRANT_COLLECTION_NAME=<target>` and
+   restart the gateway (or roll the deployment). Between the migration and the
+   restart the old collection keeps serving; after it, the new one does.
+6. **Drop the old collection** once the cache is warm and trace errors are
+   flat — `python -m app.scripts.wipe_qdrant` drops the default name, so drop a
+   renamed collection through the Qdrant API/console.
+
+The migration never touches Redis: exact-cache entries hold responses, not
+vectors, so they stay valid across the swap (and expire on their own schedule).
+
 ## Utility scripts
 
 | Script | Purpose |
@@ -165,7 +221,7 @@ alters the API, also regenerate the OpenAPI snapshot (above).
 | `api/app/scripts/create_admin_key.py` | **The only way to mint an admin API key.** Subcommands `create --name --scopes [--expires-in-days]`, `list`, `revoke --id`. Prints the plaintext (`ega_...`) once. Run with `PYTHON_ENV=local`. |
 | `api/app/scripts/run_tests.py` | Sends the `TEST_DATASET` prompts to the gateway and writes `run_test_results.csv`. Env: `ECHO_GATE_URL`. |
 | `api/app/scripts/seed_prompts.py` | Seeds prompts and checks cache-threshold behavior; writes `send_prompt_results.csv`. Env: `ECHO_GATE_URL`, `ECHO_GATE_RESULTS_CSV`. |
-| `api/app/scripts/migrate_embeddings.py` | Re-embeds points between collections (`embeddings_multivector` → `..._v2`). Hardcodes `QDRANT_URL` and `EMBEDDING_DIM` — edit before use. |
+| `api/app/scripts/migrate_embeddings.py` | Re-embeds points between collections (`QDRANT_COLLECTION_NAME` → `<source>_v2`) through the inference engine. Flags: `--source`, `--target`, `--write`, `--dry-run`, `--batch-size`, `--limit`, `--min-retention-value`. See [Embedding model upgrades](#embedding-model-upgrades). |
 | `api/app/scripts/test_dataset.py` | The labelled prompt dataset (canonical id + `expected_match`) used by the runners. |
 | `api/app/scripts/calibrate_reranker.py` | Replays `TEST_DATASET` through `RerankerService` offline (no Redis/Qdrant/API) and sweeps acceptance thresholds, writing `reranker_calibration.{csv,json}` with precision/recall/F1 and a recommended threshold. Flags: `--limit`, `--max-candidates`, `--scoring-mode`, `--score-source`. |
 | `api/app/scripts/inspect_semantic_cache.py` | Read-only report over `gateway_requests.score_breakdown` (offline sweeps cannot exercise the intent/metadata factors). Flags near-boundary rejections: candidates whose `base_score` cleared the intent's high threshold but whose bounded factors dropped the final score below it, with per-field `metadata_comparisons`. Flags: `--limit`, `--boundary-margin`, `--json`. Run with `PYTHON_ENV=local` so the DB URL is loaded. |

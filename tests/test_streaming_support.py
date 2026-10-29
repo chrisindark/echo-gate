@@ -1104,6 +1104,175 @@ class TestLlmRouterServiceStreamingPhase3(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(chunks[1].choices[0].delta.content, "Hello from fallback")
 
 
+class TestInstantCacheDelivery(unittest.IsolatedAsyncioTestCase):
+    """`X-Cache-Prefer: instant` lookups (step 4 of the Phase 3 plan)."""
+
+    def setUp(self):
+        self._saved_cache_mode = config.CACHE_MODE
+        config.CACHE_MODE = "active"
+        self.router = LlmRouterService(
+            llm_provider_service=MagicMock(spec=LlmProviderService),
+            embedding_service=MagicMock(),
+            llm_cache_service=MagicMock(),
+            redis_service=MagicMock(),
+            reranker_service=MagicMock(),
+            intent_classifier_service=MagicMock(),
+            entity_extractor_service=MagicMock(),
+            llm_usage_service=MagicMock(),
+        )
+        self.router._background_save_cache = AsyncMock()
+        self.background_tasks = []
+        orig_create = self.router._create_background_task
+
+        def record_bg(coro):
+            task = orig_create(coro)
+            self.background_tasks.append(task)
+            return task
+
+        self.router._create_background_task = MagicMock(side_effect=record_bg)
+        self.request = ChatCompletionRequest(
+            service_name="openai",
+            model="gpt-4o-mini",
+            messages=[ChatMessage(role="user", content="Instant cache test")],
+            stream=True,
+        )
+
+    async def asyncTearDown(self):
+        config.CACHE_MODE = self._saved_cache_mode
+        if self.background_tasks:
+            import asyncio
+
+            await asyncio.gather(*self.background_tasks, return_exceptions=True)
+
+    @staticmethod
+    def _cached_response(source: str) -> ChatCompletionResponse:
+        return ChatCompletionResponse(
+            id="chatcmpl-instant",
+            created=1700000000,
+            model="gpt-4o-mini",
+            choices=[
+                Choice(
+                    index=0,
+                    message=ChatMessage(role="assistant", content="Instant reply"),
+                    finish_reason="stop",
+                )
+            ],
+            cache_info={
+                "source": source,
+                "cache_hit": True,
+                "point_id": "pt-instant",
+            },
+        )
+
+    async def test_redis_hit_is_returned_without_touching_the_provider(self):
+        cached = self._cached_response("redis")
+        self.router._get_redis_exact_match = AsyncMock(return_value=cached)
+        self.router._get_qdrant_exact_match = AsyncMock()
+        self.router.evaluate_semantic_cache = AsyncMock()
+
+        response = await self.router.get_instant_cache_hit(self.request)
+
+        self.assertIs(response, cached)
+        self.assertEqual(
+            response.cache_info["exact_hash"],
+            self.router._generate_cache_key(self.request),
+        )
+        self.assertIn("redis_exact_ms", response.cache_info["latency_breakdown"])
+        self.router._get_qdrant_exact_match.assert_not_called()
+        self.router.evaluate_semantic_cache.assert_not_called()
+
+    async def test_qdrant_exact_hit_is_backfilled_into_redis(self):
+        self.router._get_redis_exact_match = AsyncMock(return_value=None)
+        cached = self._cached_response("qdrant_exact_path")
+        self.router._get_qdrant_exact_match = AsyncMock(
+            return_value=(cached, "pt-instant", 900)
+        )
+        self.router._save_to_redis_cache = AsyncMock()
+
+        with patch.object(config, "USE_REDIS_EXACT_MATCHING", "true"):
+            response = await self.router.get_instant_cache_hit(self.request)
+
+        self.assertIs(response, cached)
+        self.router._save_to_redis_cache.assert_awaited_once()
+        self.assertEqual(self.router._save_to_redis_cache.await_args.kwargs["ttl"], 900)
+
+    async def test_semantic_hit_is_returned(self):
+        self.router._get_redis_exact_match = AsyncMock(return_value=None)
+        self.router._get_qdrant_exact_match = AsyncMock(return_value=(None, None, None))
+        cached = self._cached_response("qdrant_semantic_path")
+        self.router.evaluate_semantic_cache = AsyncMock(
+            return_value={"response": cached, "latency_breakdown": {"rerank_ms": 12.0}}
+        )
+
+        response = await self.router.get_instant_cache_hit(self.request)
+
+        self.assertIs(response, cached)
+        self.assertEqual(response.cache_info["latency_breakdown"]["rerank_ms"], 12.0)
+        self.assertIn("cache_lookup_total_ms", response.cache_info["latency_breakdown"])
+
+    async def test_miss_returns_none_so_the_caller_streams(self):
+        self.router._get_redis_exact_match = AsyncMock(return_value=None)
+        self.router._get_qdrant_exact_match = AsyncMock(return_value=(None, None, None))
+        self.router.evaluate_semantic_cache = AsyncMock(
+            return_value={"response": None, "latency_breakdown": {}}
+        )
+
+        self.assertIsNone(await self.router.get_instant_cache_hit(self.request))
+
+    async def test_shadow_mode_never_serves_an_instant_hit(self):
+        config.CACHE_MODE = "shadow"
+        self.router._get_redis_exact_match = AsyncMock(
+            return_value=self._cached_response("redis")
+        )
+
+        self.assertIsNone(await self.router.get_instant_cache_hit(self.request))
+        self.router._get_redis_exact_match.assert_not_called()
+
+    async def test_skip_cache_lookup_streams_without_repeating_the_lookups(self):
+        self.router._get_redis_exact_match = AsyncMock()
+        self.router._get_qdrant_exact_match = AsyncMock()
+        self.router.evaluate_semantic_cache = AsyncMock()
+
+        async def fake_provider_stream(*args, **kwargs):
+            yield ChatCompletionChunk(
+                id="c-provider",
+                created=1700000000,
+                model="gpt-4o-mini",
+                choices=[ChunkChoice(index=0, delta=ChunkDelta(role="assistant"))],
+            )
+            yield ChatCompletionChunk(
+                id="c-provider",
+                created=1700000000,
+                model="gpt-4o-mini",
+                choices=[
+                    ChunkChoice(index=0, delta=ChunkDelta(content="Provider token"))
+                ],
+            )
+            yield ChatCompletionChunk(
+                id="c-provider",
+                created=1700000000,
+                model="gpt-4o-mini",
+                choices=[
+                    ChunkChoice(index=0, delta=ChunkDelta(), finish_reason="stop")
+                ],
+            )
+
+        self.router.llm_provider_service.generate_stream = MagicMock(
+            side_effect=fake_provider_stream
+        )
+
+        chunks = []
+        async for chunk in self.router.generate_stream(
+            self.request, skip_cache_lookup=True
+        ):
+            chunks.append(chunk)
+
+        self.assertEqual(chunks[1].choices[0].delta.content, "Provider token")
+        self.router._get_redis_exact_match.assert_not_called()
+        self.router._get_qdrant_exact_match.assert_not_called()
+        self.router.evaluate_semantic_cache.assert_not_called()
+
+
 class TestChatControllerStreamingPhase4(unittest.TestCase):
     def setUp(self):
         self.mock_router = MagicMock(spec=LlmRouterService)
@@ -1219,6 +1388,117 @@ class TestChatControllerStreamingPhase4(unittest.TestCase):
             if "content" in c["choices"][0]["delta"]
         ]
         self.assertEqual("".join(text_parts), "Streaming chunk 1 Streaming chunk 2")
+
+    def test_controller_instant_cache_hit_returns_one_json_body(self):
+        cached = ChatCompletionResponse(
+            id="chatcmpl-instant-1",
+            created=1700000000,
+            model="gpt-4o-mini",
+            choices=[
+                Choice(
+                    index=0,
+                    message=ChatMessage(role="assistant", content="Instant JSON reply"),
+                    finish_reason="stop",
+                )
+            ],
+            cache_info={"source": "redis", "cache_hit": True},
+        )
+        self.mock_router.get_instant_cache_hit = AsyncMock(return_value=cached)
+
+        payload = {
+            "service_name": "openai",
+            "model": "gpt-4o-mini",
+            "messages": [{"role": "user", "content": "Instant please"}],
+            "stream": True,
+        }
+
+        resp = self.client.post(
+            "/api/v1/chat/completions",
+            json=payload,
+            headers={"X-Cache-Prefer": "instant"},
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.headers["content-type"].startswith("application/json"))
+        self.assertEqual(resp.headers["x-cache"], "HIT")
+        data = resp.json()
+        self.assertEqual(data["object"], "chat.completion")
+        self.assertEqual(data["choices"][0]["message"]["content"], "Instant JSON reply")
+        self.mock_router.generate_stream.assert_not_called()
+
+    def test_controller_instant_miss_streams_and_skips_repeat_lookups(self):
+        self.mock_router.get_instant_cache_hit = AsyncMock(return_value=None)
+
+        async def fake_stream(*args, **kwargs):
+            yield ChatCompletionChunk(
+                id="c-stream-2",
+                created=1700000000,
+                model="gpt-4o-mini",
+                choices=[ChunkChoice(index=0, delta=ChunkDelta(role="assistant"))],
+            )
+            yield ChatCompletionChunk(
+                id="c-stream-2",
+                created=1700000000,
+                model="gpt-4o-mini",
+                choices=[
+                    ChunkChoice(
+                        index=0, delta=ChunkDelta(content="Streamed after miss")
+                    )
+                ],
+            )
+
+        self.mock_router.generate_stream = MagicMock(side_effect=fake_stream)
+
+        payload = {
+            "service_name": "openai",
+            "model": "gpt-4o-mini",
+            "messages": [{"role": "user", "content": "Instant miss"}],
+            "stream": True,
+        }
+
+        resp = self.client.post(
+            "/api/v1/chat/completions",
+            json=payload,
+            headers={"X-Cache-Prefer": "instant"},
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.headers["content-type"].startswith("text/event-stream"))
+        self.assertIn("Streamed after miss", resp.text)
+        self.mock_router.get_instant_cache_hit.assert_awaited_once()
+        self.assertTrue(
+            self.mock_router.generate_stream.call_args.kwargs["skip_cache_lookup"]
+        )
+
+    def test_controller_without_the_header_keeps_sse_replay(self):
+        async def fake_stream(*args, **kwargs):
+            yield ChatCompletionChunk(
+                id="c-stream-3",
+                created=1700000000,
+                model="gpt-4o-mini",
+                choices=[
+                    ChunkChoice(index=0, delta=ChunkDelta(content="Replayed hit"))
+                ],
+            )
+
+        self.mock_router.generate_stream = MagicMock(side_effect=fake_stream)
+
+        payload = {
+            "service_name": "openai",
+            "model": "gpt-4o-mini",
+            "messages": [{"role": "user", "content": "Normal stream"}],
+            "stream": True,
+        }
+
+        resp = self.client.post("/api/v1/chat/completions", json=payload)
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.headers["content-type"].startswith("text/event-stream"))
+        self.assertIn("Replayed hit", resp.text)
+        self.mock_router.get_instant_cache_hit.assert_not_called()
+        self.assertFalse(
+            self.mock_router.generate_stream.call_args.kwargs["skip_cache_lookup"]
+        )
 
     def test_controller_pre_stream_error_returns_http_status(self):
         async def fail_pre_stream(*args, **kwargs):

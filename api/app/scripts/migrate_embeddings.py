@@ -17,13 +17,22 @@ corpus survives the swap instead of being thrown away:
     poetry run python -m app.scripts.migrate_embeddings \
         --target embeddings_multivector_v2 --write
 
-    # swap collections afterwards
-    #   QDRANT_COLLECTION_NAME=embeddings_multivector_v2 (or the service default)
+    # swap collections afterwards by pointing the gateway at the target
+    #   QDRANT_COLLECTION_NAME=embeddings_multivector_v2  (then restart)
+
+For a large corpus, seed the expensive entries first and fill the rest later:
+
+time-consuming answers are the ones a cold cache misses most:
+
+    poetry run python -m app.scripts.migrate_embeddings --write \
+        --min-retention-value 5 --limit 5000
 
 Sparse BM25 vectors are copied from the source untouched: BM25 is coupled to the
 tokenizer, not to the dense model, so a dense swap does not invalidate them. The
 target is created through `LlmCacheCollectionService` so its schema cannot drift
-from what the gateway writes at request time.
+from what the gateway writes at request time. Payloads (scope, tenant, entities,
+intent, retention metadata) travel with the point, so migration does not reset
+value-weighted retention.
 """
 
 from __future__ import annotations
@@ -60,13 +69,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--source",
-        default="embeddings_multivector",
-        help="collection to read (default: embeddings_multivector)",
+        default=config.QDRANT_COLLECTION_NAME,
+        help="collection to read (default: QDRANT_COLLECTION_NAME)",
     )
     parser.add_argument(
         "--target",
-        default="embeddings_multivector_v2",
-        help="collection to create and fill (default: embeddings_multivector_v2)",
+        default=None,
+        help="collection to create and fill (default: <source>_v2)",
     )
     parser.add_argument(
         "--write",
@@ -74,10 +83,31 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="actually create and fill the target; without it the run is a plan",
     )
     parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="plan only, even if --write is also passed",
+    )
+    parser.add_argument(
         "--batch-size",
         type=int,
         default=128,
         help="points per scroll/embed/upsert batch (default: 128)",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=0,
+        help="migrate at most N points (default: 0 = all)",
+    )
+    parser.add_argument(
+        "--min-retention-value",
+        type=float,
+        default=None,
+        help=(
+            "only migrate points whose retention_value is at least this; seeds "
+            "the expensive entries first (points predating retention scoring "
+            "have no value and are skipped)"
+        ),
     )
     return parser.parse_args(argv)
 
@@ -110,17 +140,39 @@ def build_point(
             if name in source_vectors:
                 point_vectors[name] = source_vectors[name]
 
-    return models.PointStruct(
-        id=source_point.id, vector=point_vectors, payload=payload
+    return models.PointStruct(id=source_point.id, vector=point_vectors, payload=payload)
+
+
+def build_scroll_filter(min_retention_value: float | None) -> models.Filter | None:
+    """Filter the source down to high-value entries, or ``None`` for everything."""
+    if min_retention_value is None:
+        return None
+    return models.Filter(
+        must=[
+            models.FieldCondition(
+                key="retention_value",
+                range=models.Range(gte=min_retention_value),
+            )
+        ]
     )
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    if args.target is None:
+        args.target = f"{args.source}_v2"
 
     if args.source == args.target:
         logger.error("--source and --target must differ; re-embedding in place would")
         logger.error("overwrite the vectors it is still reading. Use a new collection.")
+        return 2
+
+    if args.batch_size < 1:
+        logger.error("--batch-size must be at least 1")
+        return 2
+
+    if args.limit < 0:
+        logger.error("--limit must not be negative (0 means all points)")
         return 2
 
     client_service = QdrantClientService()
@@ -154,15 +206,28 @@ def main(argv: list[str] | None = None) -> int:
     # because `verify()` refuses to boot when the two disagree.
     embedding_model = config.INFERENCE_EMBED_MODEL or config.EMBEDDING_MODEL_NAME
     embedding_version = config.EMBEDDING_VERSION
-    source_count = client_service.client.count(args.source, exact=True).count
 
-    logger.info("source:      %s (%d points)", args.source, source_count)
+    scroll_filter = build_scroll_filter(args.min_retention_value)
+    source_count = client_service.count(
+        collection_name=args.source, count_filter=scroll_filter, exact=True
+    )
+
+    logger.info("source:      %s (%d point(s) selected)", args.source, source_count)
     logger.info("target:      %s", args.target)
-    logger.info("dense model: %s (dim=%d, version=%s)", embedding_model, dim, embedding_version)
+    logger.info(
+        "dense model: %s (dim=%d, version=%s)", embedding_model, dim, embedding_version
+    )
     logger.info("sparse:      copied unchanged (%s)", ", ".join(SPARSE_VECTORS))
+    if args.min_retention_value is not None:
+        logger.info("filter:      retention_value >= %s", args.min_retention_value)
+    if args.limit:
+        logger.info("limit:       %d point(s)", args.limit)
 
-    if not args.write:
-        logger.info("plan only; re-run with --write to create and fill the target")
+    if args.dry_run or not args.write:
+        logger.info(
+            "plan only (%s); re-run with --write to create and fill the target",
+            "--dry-run" if args.dry_run else "no --write",
+        )
         return 0
 
     # Creates the collection with the gateway's schema (named dense vectors,
@@ -176,9 +241,17 @@ def main(argv: list[str] | None = None) -> int:
     processed = 0
     offset = None
     while True:
+        batch_limit = args.batch_size
+        if args.limit:
+            remaining = args.limit - processed
+            if remaining <= 0:
+                break
+            batch_limit = min(batch_limit, remaining)
+
         points, offset = client_service.scroll(
             collection_name=args.source,
-            limit=args.batch_size,
+            scroll_filter=scroll_filter,
+            limit=batch_limit,
             offset=offset,
             with_payload=True,
             with_vectors=True,
@@ -205,7 +278,7 @@ def main(argv: list[str] | None = None) -> int:
         for point in points:
             payload = point.payload or {}
             vectors: dict[str, list[float]] = {}
-            for field, vector_name in DENSE_FIELDS.items():
+            for field, _vector_name in DENSE_FIELDS.items():
                 if field not in embedded:
                     continue
                 if not _text(payload, field):
@@ -227,9 +300,10 @@ def main(argv: list[str] | None = None) -> int:
             break
 
     logger.info(
-        "done: %d points in %s. Point the gateway at it (QDRANT collection name) "
-        "before dropping %s.",
+        "done: %d point(s) in %s. Set QDRANT_COLLECTION_NAME=%s and restart the "
+        "gateway before dropping %s.",
         processed,
+        args.target,
         args.target,
         args.source,
     )

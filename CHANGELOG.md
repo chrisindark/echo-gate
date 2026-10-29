@@ -12,6 +12,17 @@ changes' entry with a `[BREAKING]` marker.
 
 ### Added
 
+- **Instant cache delivery for streams**: `X-Cache-Prefer: instant` on a
+  `stream: true` request returns a cache hit as one `ChatCompletionResponse`
+  JSON body with `X-Cache: HIT`, instead of replaying synthesized SSE chunks.
+  A miss still streams from the provider, with the already-failed lookups
+  skipped. Hit counting, audit sampling, and usage/trace logging run as on the
+  normal serving path.
+- **Embedding migration flags**: `migrate_embeddings.py` accepts `--dry-run`,
+  `--limit`, and `--min-retention-value` (seed expensive entries first), and
+  `--source`/`--target` default from the new `QDRANT_COLLECTION_NAME` setting so
+  a model swap is a config change plus restart. The coexistence runbook is in
+  `docs/DEVELOPMENT.md`.
 - **Pre-flight cost estimate endpoint**: `POST /api/v1/chat/estimate` counts
   prompt tokens with `tiktoken` (+4 per message, +3 reply priming, tool
   declarations included) and returns a cheapest-first cost matrix across every

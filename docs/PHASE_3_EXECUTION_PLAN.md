@@ -184,25 +184,36 @@ reply-priming framing, counts serialized `tools`, prices every enabled
 
 ### Step 4: Streaming Cache Hit Optimization (`X-Cache-Prefer: instant`)
 
-- [ ] **4.1 Request Header Parsing**:
+- [x] **4.1 Request Header Parsing**:
   - File: `api/app/modules/chat/chat_controller.py`
   - Read `X-Cache-Prefer` header. Check if value is `instant`.
 
-- [ ] **4.2 Instant Response Delivery on Cache Hit**:
+- [x] **4.2 Instant Response Delivery on Cache Hit**:
   - File: `api/app/modules/llm/llm_router_service.py`
   - When `is_cache_hit` is true and `request.stream` is true:
     - If `X-Cache-Prefer: instant` is set: immediately return a single `ChatCompletionResponse` JSON body with `X-Cache: HIT`, skipping `response_to_stream_chunks`.
     - If header is absent: preserve existing SSE chunk replay behavior for UI clients needing typewriter effect.
   - On cache miss: proceed with live upstream SSE streaming normally.
 
-- [ ] **4.3 Test Coverage**:
+- [x] **4.3 Test Coverage**:
   - Add tests in `tests/test_streaming_support.py` testing `stream=True` with and without `X-Cache-Prefer: instant`.
+
+Implementation notes: the lookup lives in
+`LlmRouterService.get_instant_cache_hit` rather than in the controller, so it
+reuses the exact serving-path order (Redis → Qdrant exact → semantic), the Redis
+backfill, `record_hit`, audit sampling, and usage/trace logging. On a miss the
+controller streams with `skip_cache_lookup=True`, so the embedding + intent
+classification work that already missed is not paid twice; without that, an
+opt-in instant request would double the cost of every cache miss. Shadow mode
+never serves an instant hit. The step's "single JSON body with `X-Cache: HIT`"
+is set explicitly on the injected response. Tests: 6 router-level and 3
+controller-level cases in `tests/test_streaming_support.py`.
 
 ---
 
 ### Step 5: Zero-Downtime Embedding Upgrade Pipeline
 
-- [ ] **5.1 Migration Script Modernization**:
+- [x] **5.1 Migration Script Modernization**:
   - File: `api/app/scripts/migrate_embeddings.py`
   - Refactor to batch-call the remote inference container rather than local models.
   - Read points from `SOURCE_COLLECTION` in scroll batches (e.g. 100 points).
@@ -210,11 +221,30 @@ reply-priming framing, counts serialized `tools`, prices every enabled
   - Call inference container `/embeddings` in parallel.
   - Upsert into `TARGET_COLLECTION` with updated `embedding_version`.
 
-- [ ] **5.2 Migration CLI Options**:
+- [x] **5.2 Migration CLI Options**:
   - Add flags: `--batch-size`, `--dry-run`, `--limit`, `--min-retention-value` (to migrate high-value entries first).
 
-- [ ] **5.3 Documentation & Runbook**:
+Implementation notes: `--source` now defaults to `QDRANT_COLLECTION_NAME` and
+`--target` to `<source>_v2`, so the swap is config-only
+(`QDRANT_COLLECTION_NAME=<target>` + restart) instead of a code edit.
+`--min-retention-value` is a Qdrant filter (`retention_value >= N`), which
+selects the expensive entries for a first seeding pass; it is a filter rather
+than an `order_by` because filter + ordered scroll pagination is not a reliable
+combination to depend on. `--limit` caps the run, `--dry-run` forces plan-only
+even with `--write`, and invalid `--batch-size`/`--limit` values exit 2. Tests:
+`tests/test_migrate_embeddings.py` (8 cases against an in-memory client).
+
+- [x] **5.3 Documentation & Runbook**:
   - Document deployment coexistence procedure in `docs/DEVELOPMENT.md`.
+
+Implementation notes: the runbook is the "Embedding model upgrades" section of
+`docs/DEVELOPMENT.md`: serve the new model, dry run, optional high-value seed,
+full migration, switch `QDRANT_COLLECTION_NAME` + restart, then drop the old
+collection. It also records that sparse vectors are copied verbatim, payloads
+(including retention metadata) travel with the point, and Redis exact entries
+stay valid because they hold responses rather than vectors. A live run still
+requires Qdrant and the inference engine; only the selection/limit logic is
+unit-tested here.
 
 ---
 

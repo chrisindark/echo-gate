@@ -43,6 +43,7 @@ class EchoGateHeaders:
     SESSION_ID = "X-Session-ID"
     CONVERSATION_ID = "X-Conversation-ID"
     CACHE = "X-Cache"
+    CACHE_PREFER = "X-Cache-Prefer"
     RATE_LIMIT_LIMIT_REQUESTS = "X-RateLimit-Limit-Requests"
     RATE_LIMIT_REMAINING_REQUESTS = "X-RateLimit-Remaining-Requests"
     RATE_LIMIT_RESET_REQUESTS = "X-RateLimit-Reset-Requests"
@@ -186,6 +187,10 @@ EMBEDDING_DOCUMENT_PREFIX = ""
 
 # Magic Numbers & Mappings
 CACHE_NEGATIVE_TTL_OFFSET = -1000
+
+# `X-Cache-Prefer: instant` asks for a cache hit as one JSON body instead of SSE
+# playback, so the client can skip the stream parser entirely.
+CACHE_PREFER_INSTANT = "instant"
 
 SCOPE_HIERARCHY = {
     CacheScope.GLOBAL.value: 4,

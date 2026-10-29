@@ -2922,17 +2922,127 @@ class LlmRouterService:
                     )
                 )
 
+    async def get_instant_cache_hit(
+        self,
+        request: ChatCompletionRequest,
+        api_key: str | None = None,
+    ) -> ChatCompletionResponse | None:
+        """Serve an opt-in cache hit as a whole response instead of SSE chunks.
+
+        Used when a `stream: true` request carries `X-Cache-Prefer: instant`: the
+        caller wants JSON rather than a replayed stream. A miss returns ``None``
+        and the caller streams from the provider with ``skip_cache_lookup=True``,
+        so these lookups are not paid for twice. Lookup order, Redis backfill,
+        hit counting, auditing, and usage/trace logging mirror the serving path,
+        because this *is* the serving path for these requests.
+        """
+        if config.CACHE_MODE == "shadow":
+            # Shadow mode never reads the cache, so there is nothing to serve.
+            return None
+
+        start_time = time.perf_counter()
+        breakdown: dict[str, Any] = {}
+        exact_hash = self._generate_cache_key(request)
+        prompt_text, _, _ = self._prepare_prompts(request)
+        service_name = request.service_name or config.DEFAULT_LLM_SERVICE
+        model = request.model
+
+        t_start = time.perf_counter()
+        response = await self._get_redis_exact_match(exact_hash, service_name)
+        breakdown["redis_exact_ms"] = round((time.perf_counter() - t_start) * 1000, 2)
+
+        if response is None:
+            t_start = time.perf_counter()
+            response, point_id, remaining_ttl = await self._get_qdrant_exact_match(
+                exact_hash, request.tenant_id, prompt_text
+            )
+            breakdown["qdrant_exact_ms"] = round(
+                (time.perf_counter() - t_start) * 1000, 2
+            )
+            if response is not None and config.cache_layer_enabled("redis"):
+                await self._save_to_redis_cache(
+                    exact_hash,
+                    response,
+                    "Saving Qdrant exact hit in Redis (instant response)",
+                    ttl=remaining_ttl,
+                    save_to_redis=True,
+                    point_id=point_id,
+                )
+
+        if response is None:
+            t_start = time.perf_counter()
+            semantic_result = await self.evaluate_semantic_cache(request)
+            breakdown.update(semantic_result.get("latency_breakdown") or {})
+            breakdown["cache_lookup_total_ms"] = round(
+                (time.perf_counter() - t_start) * 1000, 2
+            )
+            response = semantic_result.get("response")
+
+        if response is None:
+            logger.info(
+                "X-Cache-Prefer=instant miss for %s; streaming from the provider",
+                exact_hash,
+            )
+            return None
+
+        breakdown["total_ms"] = round((time.perf_counter() - start_time) * 1000, 2)
+        response.cache_info = response.cache_info or {}
+        response.cache_info["exact_hash"] = exact_hash
+        response.cache_info["latency_breakdown"] = breakdown
+
+        self._record_cache_hit(response)
+        self._create_background_task(
+            self._log_usage(
+                request=request,
+                response=response,
+                service_name=service_name,
+                start_time=start_time,
+                exact_hash=exact_hash,
+                api_key=api_key,
+                model=model,
+            )
+        )
+        gateway_log_task = self._create_background_task(
+            self._log_gateway_request(
+                request=request,
+                response=response,
+                service_name=service_name,
+                start_time=start_time,
+                exact_hash=exact_hash,
+                model=model,
+                latency_breakdown=breakdown,
+            )
+        )
+        if self._should_run_cache_audit(response):
+            self._create_background_task(
+                self._background_cache_audit(
+                    request=request,
+                    cached_response=response.model_copy(deep=True),
+                    exact_hash=exact_hash,
+                    service_name=service_name,
+                    model=model,
+                    gateway_log_task=gateway_log_task,
+                    api_key=api_key,
+                )
+            )
+        return response
+
     async def generate_stream(
         self,
         request: ChatCompletionRequest,
         api_key: str | None = None,
         timeout_budget_ms: float | None = None,
+        skip_cache_lookup: bool = False,
     ) -> AsyncIterator[ChatCompletionChunk]:
         """Stream a completion, tagging the first chunk with its degradation state.
 
         The controller reads that tag before the response headers are sent, so a
         streamed answer served by a fallback provider or after a failed cache read
         no longer reports ``none``.
+
+        ``skip_cache_lookup`` is set by the controller after an
+        `X-Cache-Prefer: instant` miss already ran the lookup pipeline, so the
+        stream does not pay for it a second time.
         """
         service_name = request.service_name or config.DEFAULT_LLM_SERVICE
         span_attrs = {
@@ -2947,7 +3057,7 @@ class LlmRouterService:
             with cache_degradation_scope():
                 first = True
                 async for chunk in self._generate_stream_impl(
-                    request, api_key, timeout_budget_ms
+                    request, api_key, timeout_budget_ms, skip_cache_lookup
                 ):
                     if first:
                         first = False
@@ -2964,6 +3074,7 @@ class LlmRouterService:
         request: ChatCompletionRequest,
         api_key: str | None = None,
         timeout_budget_ms: float | None = None,
+        skip_cache_lookup: bool = False,
     ) -> AsyncIterator[ChatCompletionChunk]:
         start_time = time.perf_counter()
         breakdown: dict[str, Any] = {}
@@ -2993,6 +3104,12 @@ class LlmRouterService:
             if shadow_mode:
                 logger.info(
                     "CACHE_MODE=shadow: bypassing serving-time cache lookups for %s",
+                    exact_hash,
+                )
+            elif skip_cache_lookup:
+                logger.info(
+                    "Cache lookups already missed for %s (X-Cache-Prefer=instant); "
+                    "streaming from the provider",
                     exact_hash,
                 )
             else:

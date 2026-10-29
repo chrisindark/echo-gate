@@ -475,16 +475,24 @@ comparison and no data-driven threshold calibration. Remaining work:
   length; `ESTIMATE_DEFAULT_COMPLETION_TOKENS` (256) covers the omitted case.
   Implementation: `app/modules/chat/chat_estimate_service.py`; tests:
   `tests/test_chat_estimate.py`.
-- [ ] **Streaming cache hit optimization**: when a cache hit is detected on a
-  `stream: true` request, offer an opt-in `X-Cache-Prefer: instant` header
-  that returns the full response as a single non-streaming JSON body (with
-  `X-Cache: HIT`), letting the client skip SSE parsing. Callers who need SSE
-  shape for progressive rendering keep the current replay behavior.
-- [ ] **Embedding model upgrade path**: document and verify the end-to-end
-  embedding migration workflow via `app/scripts/migrate_embeddings.py`. The
-  `embedding_version` + `embedding_model` Qdrant filters already prevent
-  cross-version matches; document the deploy-and-coexist strategy and
-  optional background re-embedding of high-value entries.
+- [x] **Streaming cache hit optimization** (`2026-10-29`): `X-Cache-Prefer: instant`
+  on a `stream: true` request returns a cache hit as one
+  `ChatCompletionResponse` JSON body (`X-Cache: HIT`) instead of synthesized
+  SSE chunks. The lookup lives in `LlmRouterService.get_instant_cache_hit` and
+  reuses the serving-path order, hit counting, audit sampling, and
+  usage/trace logging; a miss streams from the provider with
+  `skip_cache_lookup=True` so the failed lookups are not repeated. Callers who
+  want progressive rendering keep the SSE replay behavior by omitting the
+  header.
+- [x] **Embedding model upgrade path** (`2026-10-29`): the workflow is documented
+  in `docs/DEVELOPMENT.md` ("Embedding model upgrades") as serve → dry run →
+  optional high-value seed → full migration → collection switchover → drop old.
+  `app/scripts/migrate_embeddings.py` gained `--dry-run`, `--limit`, and
+  `--min-retention-value` (a `retention_value` filter, so the expensive entries
+  seed first), and the collection name is config-only
+  (`QDRANT_COLLECTION_NAME`), so no code edit is needed to swap. Selection and
+  limit behavior is unit-tested against an in-memory client; a live run still
+  needs Qdrant plus the inference engine.
 
 ---
 

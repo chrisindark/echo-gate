@@ -431,6 +431,23 @@ with no score) are deleted immediately, protected entries get
 Entries past `expires_at` are never served regardless — retention only decides
 when the vector storage is reclaimed.
 
+### Instant cache delivery
+
+A `stream: true` request normally replays a cache hit as synthesized SSE chunks
+(`response_to_stream_chunks`), because most streaming clients render
+progressively and cannot switch delivery shapes mid-request. A caller that only
+wants the answer can opt out with `X-Cache-Prefer: instant`:
+
+- The controller runs `LlmRouterService.get_instant_cache_hit` *before*
+  building a `StreamingResponse`. Redis exact → Qdrant exact (with the usual
+  Redis backfill) → semantic lookup, the same order and gates as the streaming
+  path, and the same hit counting, usage/trace logging, and audit sampling.
+- A hit is returned as one `ChatCompletionResponse` JSON body with
+  `X-Cache: HIT`. A miss returns `None`, and the controller streams from the
+  provider with `skip_cache_lookup=True`, so the lookups that already missed are
+  not repeated (embedding + intent classification are the expensive part).
+- `shadow` mode never serves an instant hit, because it never reads the cache.
+
 ## Multi-tenancy (Postgres RLS)
 
 The app connects as a non-owner role (`DB_APP_ROLE`, default `echo_gate_app`), so

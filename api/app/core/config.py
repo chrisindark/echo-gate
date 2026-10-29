@@ -47,6 +47,12 @@ class Config:
         self.OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
         self.REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
         self.QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
+        # The live cache collection. Kept configurable so an embedding-model swap
+        # can be migrated into a second collection and switched over by restart
+        # (see app/scripts/migrate_embeddings.py), instead of editing code.
+        self.QDRANT_COLLECTION_NAME = os.getenv(
+            "QDRANT_COLLECTION_NAME", "embeddings_multivector"
+        )
         qdrant_key = os.getenv("QDRANT_API_KEY")
         self.QDRANT_API_KEY = (
             qdrant_key.strip() if qdrant_key and qdrant_key.strip() else None
