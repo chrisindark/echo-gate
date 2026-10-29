@@ -351,12 +351,38 @@ choices with per-role reasoning; the gateway's release checklist lives in
   binary entailment model answers the actual question. Measured on the same
   labels: invoice → "billing" 0.956 → 0.974, password reset 0.079 → 0.998.
 
-Honest limits, both pinned by goldens so a swap surfaces them:
+Intent classification is a **question-design** problem, not a model-size problem,
+and `/classify` takes the question directly: send `hypotheses` (label → verbatim
+assertions, scored by best match) instead of noun labels through a template.
+Measured on the same model over six texts:
 
-- Zero-shot separates **topics**, not **intent**. A phishing email ranks "account
-  notice" at 0.971 and "phishing" at 0.001, because that is a judgement about the
-  sender, not something the text entails. Use it for routing, not for abuse
-  detection.
+| label style | phishing mail | top-1 |
+|---|---|---|
+| `This text is about phishing.` (noun) | account notice 0.983, phishing 0.016 | 5/6 |
+| `This message is an attempt to steal…` (abstract) | newsletter 0.009 (everything ~0) | 4/6 |
+| behaviour claim, no qualifier | phishing 0.986 **vs** account notice 0.989 | 5/6 |
+| behaviour claim + exclusivity qualifier | **phishing 0.986** (+0.975) | **6/6** |
+
+Phrase what the text *claims*, and keep the labels mutually exclusive ("a
+*routine* account status change", not "an account notice"). Both are label-set
+rules; `contract/INFERENCE_CONTRACT.md` → "Designing hypotheses" has the full
+recipe, including the abstain threshold. Two more things worth knowing: a
+concrete hypothesis asserts preconditions, so send one *general* phrasing
+alongside the specific ones (`This message mentions an invoice.` rescues a text
+that never states a due date: 0.113 → 0.998), and cost is 64 ms for 11 hypotheses
+over 5 labels versus 30 ms for 5 noun labels (one input, warm, M4/MPS).
+
+Honest limits, all eval-guarded so a swap surfaces them:
+
+- Zero-shot with *noun* labels separates **topics**, not **intent**: a phishing
+  email ranks "account notice" at 0.983 and "phishing" at 0.016, because the
+  message really is notice-shaped. The mitigation is the hypothesis design above,
+  which is eval-guarded (`zero-shot-intent` in `evals/check.py`), not a
+  bigger checkpoint. Still: use it for routing, not as the only abuse signal — it
+  cannot see the sender, the link target, or the headers.
+- Zero-shot is for bootstrapping. Once a label set is stable and has a few hundred
+  labelled examples, a tiny head over the `embed` role's vectors (or the LLM
+  classifier the product already has) will beat it.
 - A *question* used as an NLI premise makes an unrelated answer read as
   contradiction (p≈0.99) instead of neutral. Echo Gate passes a question as the
   premise, so the quirk is the behaviour in production and is asserted in

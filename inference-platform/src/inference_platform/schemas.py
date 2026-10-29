@@ -55,6 +55,16 @@ class ClassifyRequest(BaseModel):
     probability of that pair is the label's score. Used for email/document triage
     where a generative model would be slower, larger, and less predictable.
 
+    ``hypotheses`` refines ``zero-shot``: instead of interpolating the label into
+    one template, the caller supplies the assertion(s) that must be entailed, and
+    each label scores as the *best* of its phrasings. This is the difference
+    between asking "is this text about phishing?" (a topic, which a phishing mail
+    answers with "account notice") and asking whether the text *claims the account
+    is suspended and demands identity verification* (which it does). Labels stay
+    the keys in `scores`, so consumers do not have to remap sentences back to
+    labels themselves. See `contract/INFERENCE_CONTRACT.md`, "Designing
+    hypotheses", for the measured difference.
+
     The two shapes are validated in the handler rather than by Pydantic so that a
     missing field is a structured `400` naming the problem, not a `422` blob.
     """
@@ -71,3 +81,7 @@ class ClassifyRequest(BaseModel):
     inputs: list[str] | None = None
     labels: list[str] | None = None
     hypothesis_template: str = DEFAULT_HYPOTHESIS_TEMPLATE
+    # label -> verbatim hypotheses, scored with max(). When set, `labels` may be
+    # omitted (the keys define the label set) and `hypothesis_template` must stay
+    # at its default: the two ways of spelling a hypothesis are mutually exclusive.
+    hypotheses: dict[str, list[str]] | None = None

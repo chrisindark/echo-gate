@@ -52,8 +52,9 @@ changes' entry with a `[BREAKING]` marker.
   per-label entailment probabilities (`scores`), a softmax across labels
   (`scores_normalized`) for single-choice ranking, and a pre-sorted `ranked` list.
   The label set, the `hypothesis_template`, and the pair budget are validated with
-  structured `400`s. Documented honestly as a *ranking*: the shipped NLI
-  checkpoint separates topics well and intents poorly.
+  structured `400`s. Documented honestly as a *ranking*: with noun labels the
+  shipped NLI checkpoint separates topics well and intents poorly (the
+  `hypotheses` entry below is the fix for that).
 - **A dedicated `zero-shot` role, and a model set sized for the machine it runs
   on.** Zero-shot mode now prefers its own binary entailment checkpoint
   (`ModernBERT-base-zeroshot-v2.0`) and falls back to `nli` on engines that lack
@@ -77,6 +78,19 @@ changes' entry with a `[BREAKING]` marker.
   liveness (so a permanently unloaded role is "unready", not a restart loop),
   optional model-cache PVC with a prefetch init container, and an
   `inference-platform-prefetch` command that fills a cache without serving.
+- **`hypotheses` on `/classify`: verbatim assertions instead of one template.**
+  Zero-shot's real weakness is the *question*, not the checkpoint: with noun
+  labels the shipped model ranks a phishing email "account notice" at 0.983
+  ("phishing" 0.016), because the message genuinely is notice-shaped. Callers can
+  now send `hypotheses` (label → assertions, each scored by entailment, label
+  scored by `max`) so the label stays the key in `scores`, and `best_hypothesis`
+  names the phrasing that won. Measured on the shipped model over six texts:
+  noun labels 5/6, abstract judgements 4/6 (scores collapse to ~0), behaviour
+  claims 5/6 (two labels true at once), behaviour claims with mutually exclusive
+  labels **6/6 with every margin ≥ 0.93**. `evals/check.py` gained a
+  `zero-shot-intent` group pinning that, and the contract documents the recipe
+  and the abstain threshold. Additive: `hypothesis_template` requests are
+  byte-identical, and an engine that predates the field skips the new eval group.
 
 ### Changed
 

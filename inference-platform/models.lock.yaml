@@ -132,9 +132,17 @@ roles:
   # Deliberately binary (`entailment` / `not_entailment`): these checkpoints are
   # trained for exactly that question, and it shows. On the eval cases the 3-way
   # `nli` model scored 0.956 (invoice -> billing) and 0.079 (password reset);
-  # this one scores 0.974 and 0.998. It still cannot separate *intent* — a
-  # phishing email ranks "account notice" first — because that is a judgement
-  # about the sender, not a topic the text entails.
+  # this one scores 0.974 and 0.998.
+  #
+  # Intent is not a property of this model, it is a property of the question:
+  # with noun labels this model ranks a phishing email "account notice" at 0.983
+  # ("phishing" 0.016), because the message *is* an account notice in form. With
+  # claim-shaped hypotheses ("This message claims the account is suspended and
+  # asks the reader to verify their identity.") the same model scores phishing
+  # 0.986 (+0.975 over the next label) and keeps a routine statement at phishing
+  # 0.000 — 6/6 on the eval set. Send `hypotheses` (see
+  # `contract/INFERENCE_CONTRACT.md`, "Designing hypotheses"); a larger model does
+  # not fix topic-shaped labels.
   #
   # Production swap: `MoritzLaurer/ModernBERT-large-zeroshot-v2.0` (792 MB).
   zero-shot:
