@@ -1825,23 +1825,29 @@ class LlmRouterService:
             return
 
         if self.redis_service:
-            logger.info(log_message)
-            response_dump = response.model_dump(exclude={"cache_info"})
+            try:
+                logger.info(log_message)
+                response_dump = response.model_dump(exclude={"cache_info"})
 
-            resolved_point_id = point_id
-            if (
-                not resolved_point_id
-                and hasattr(response, "cache_info")
-                and response.cache_info
-            ):
-                resolved_point_id = response.cache_info.get("point_id")
+                resolved_point_id = point_id
+                if (
+                    not resolved_point_id
+                    and hasattr(response, "cache_info")
+                    and response.cache_info
+                ):
+                    resolved_point_id = response.cache_info.get("point_id")
 
-            payload = {
-                "response": response_dump,
-                "point_id": resolved_point_id,
-            }
-            pass_ttl = None if ttl == -1 else ttl
-            await self.redis_service.set(exact_hash, json.dumps(payload), ttl=pass_ttl)
+                payload = {
+                    "response": response_dump,
+                    "point_id": resolved_point_id,
+                }
+                pass_ttl = None if ttl == -1 else ttl
+                await self.redis_service.set(
+                    exact_hash, json.dumps(payload), ttl=pass_ttl
+                )
+            except Exception:
+                # A cache write failure must never surface to the client.
+                logger.exception(f"Redis cache save error for {exact_hash}")
 
     async def _background_save_cache(
         self,
@@ -1858,12 +1864,15 @@ class LlmRouterService:
         action_modifier: str | None = None,
         embeddings: dict[str, Any] | None = None,
         force: bool = False,
-    ) -> None:
+    ) -> bool:
         """Persist a response to the Qdrant and Redis cache layers.
 
         ``force`` is used by the shadow pipeline, which writes every layer
         regardless of the serving-path flags so the corpus is warm by the time
         the cache is switched on.
+
+        Returns ``True`` when the write completed without raising. Callers on
+        the serving path ignore the result; the admin warmup endpoint counts it.
         """
         try:
             point_id = None
@@ -1900,8 +1909,10 @@ class LlmRouterService:
             logger.info(
                 f"Background cache write completed successfully for {exact_hash} (point_id: {point_id})"
             )
+            return True
         except Exception:
             logger.exception(f"Background cache write failed for {exact_hash}")
+            return False
 
     def _should_run_shadow_evaluation(
         self, response: ChatCompletionResponse | None
