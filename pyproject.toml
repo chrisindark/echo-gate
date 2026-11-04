@@ -32,6 +32,8 @@ opentelemetry-api = "^1.45.1"
 # served by `inference-platform/` over HTTP (INFERENCE_BASE_URL). There is no
 # in-process fallback, so sentence-transformers is not a dependency at all.
 tiktoken = "^0.14.0"
+pytest-cov = "^7.1.0"
+pytest = "^9.2.0"
 
 [build-system]
 requires = ["poetry-core"]
@@ -40,7 +42,47 @@ build-backend = "poetry.core.masonry.api"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 pythonpath = [".", "api"]
-testpaths = ["tests"]
+testpaths = ["tests", "api/app"]
+addopts = "-ra"
+markers = [
+    "unit: fast isolated unit tests",
+    "integration: cross-module integration tests",
+    "contract: API contract/snapshot tests",
+    "e2e: end-to-end tests",
+]
+
+[tool.coverage.run]
+source = ["api/app"]
+branch = true
+omit = [
+    "*/migrations/*",
+    "*/alembic/*",
+    "*/tests/*",
+    "*/scripts/*",
+    "*/__init__.py",
+    "*/venv/*",
+    "*/.venv/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+omit = [
+    "*/migrations/*",
+    "*/alembic/*",
+    "*/tests/*",
+    "*/scripts/*",
+    "*/__init__.py",
+    "*/venv/*",
+    "*/.venv/*",
+]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "def __repr__",
+]
 
 [dependency-groups]
 dev = [

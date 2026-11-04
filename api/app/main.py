@@ -130,6 +130,43 @@ app.include_router(shadow_cache_router)
 app.include_router(api_keys_router)
 app.include_router(llm_quota_router)
 
+# Mount interactive coverage report in local development
+if PYTHON_ENV == "local":
+    from fastapi.responses import HTMLResponse
+    from fastapi.staticfiles import StaticFiles
+
+    class DevCoverageStaticFiles(StaticFiles):
+        async def get_response(self, path: str, scope):
+            htmlcov_dir = Path("htmlcov")
+            htmlcov_dir.mkdir(parents=True, exist_ok=True)
+            if not (htmlcov_dir / "index.html").exists():
+                if Path(".coverage").exists():
+                    try:
+                        import coverage
+
+                        cov = coverage.Coverage()
+                        cov.load()
+                        cov.html_report(directory=str(htmlcov_dir))
+                    except Exception:
+                        pass
+            if not (htmlcov_dir / "index.html").exists():
+                return HTMLResponse(
+                    '<!DOCTYPE html><html><body style="font-family:sans-serif;padding:2rem;">'
+                    "<h2>No Coverage Report Found</h2>"
+                    "<p>Run tests with coverage first: <code>poetry run pytest --cov=api/app</code></p>"
+                    "</body></html>",
+                    status_code=404,
+                )
+            return await super().get_response(path, scope)
+
+    htmlcov_path = Path("htmlcov")
+    htmlcov_path.mkdir(parents=True, exist_ok=True)
+    app.mount(
+        "/coverage",
+        DevCoverageStaticFiles(directory=str(htmlcov_path), html=True, check_dir=False),
+        name="coverage",
+    )
+
 
 def _custom_openapi() -> dict:
     """Attach the two credential schemes and per-path security to the schema.
