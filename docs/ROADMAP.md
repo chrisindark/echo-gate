@@ -114,6 +114,11 @@ Feature-by-feature record of what exists in the codebase today.
   llm_usage) with judge evaluation status fields.
 - [x] **Analytics endpoints** (dashboard aggregates, model breakdown, latency).
 - [x] **Test/debug endpoints**: semantic-search, exact-search, cache-save.
+  Re-scoped *(2026-11-04)*: the reads need an admin key with
+  `cache:read` and take an explicit `?tenant_id=`; `cache-save` needs
+  `cache:write`. Tenant and anonymous keys were previously accepted
+  (two routes had no auth at all), which exposed and let callers write
+  the shared anonymous cache scope.
 
 ### ML components
 
@@ -396,22 +401,34 @@ comparison and no data-driven threshold calibration. Remaining work:
   dataset, not live audit records.
 - [ ] **In-domain dataset export**: export `(query_text, cached_answer, is_equivalent)`
   triples as they accumulate to fine-tune an in-domain cross-encoder reranker.
-- [ ] **Cache warmup / pre-seeding API**: admin-scoped
+- [x] **Cache warmup / pre-seeding API** *(2026-11-04)*: admin-scoped
   `POST /api/v1/admin/cache/warmup` accepting a batch of `(request, response)`
   pairs, written in parallel via the existing `_background_save_cache` logic.
   Useful for seeding new environments from production traces, restoring cache
   after a Qdrant reindex, or preloading high-traffic agent system prompts.
-- [ ] **Cache analytics visualizations**: add a charting library (e.g.
-  Recharts) to `web/` and render cache hit rate over time, routing decision
-  distribution, latency breakdown waterfall, intent distribution, and
-  cumulative cost savings. Data already flows through
-  `GET /api/v1/analytics/dashboard` — this is UI-only work.
-- [ ] **Cache entry inspector / manual eviction UI**: a "Cache Explorer" page
-  in `web/` to search entries by prompt text (semantic or exact), view
-  metadata (scope, intent, TTL, entities, rerank scores), one-click eviction
-  (Qdrant + Redis), and bulk eviction by intent, model, or age. Backend:
-  thin admin endpoint wrapping existing `llm_cache_collection_service`
-  methods.
+  Items carry an admin-only optional `tenant_id` (cache keys are tenant-scoped),
+  fan-out is bounded, and per-item failures are reported instead of raised.
+- [ ] **Cache analytics visualizations** *(2026-11-04, partial)*: Recharts is
+  installed in `web/`. Landed: the `Cache Performance` composition donut
+  (Redis exact / Qdrant exact / semantic / miss) and the `Top Intents` bar
+  chart. Still open: cache hit rate over time, latency-breakdown waterfall,
+  routing-decision distribution as its own chart, and cumulative cost savings.
+  Data already flows through `GET /api/v1/analytics/dashboard` — this is
+  UI-only work.
+- [x] **Cache entry inspector / manual eviction UI** *(2026-11-04, partial)*: a
+  "Cache Explorer" page in `web/` that searches entries by prompt text
+  (`POST /api/v1/admin/cache/search`, semantic, with tenant/model/scope/intent
+  filters), shows metadata (scope, intent, tenant, TTL, hit count, score), and
+  evicts one entry across Qdrant + Redis
+  (`DELETE /api/v1/admin/cache/entry/{point_id}`). Both are admin-scoped thin
+  wrappers over `llm_cache_collection_service`. Still open: exact-hash search
+  mode, fuller payload metadata (entities, rerank scores), and bulk eviction by
+  intent, model, or age.
+- [x] **Diagnostics hardening** *(2026-11-04)*: `/api/v1/qdrant/search` and
+  `/search/rrf` require `cache:read` and run their blocking Qdrant/BM25 calls in
+  `asyncio.to_thread`; `QdrantSearchRequest.threshold` is finally applied
+  (dense result set, and the dense prefetch branches for RRF, whose fused score
+  is a rank score). `mcp-bridge/` sends `X-Admin-Key` for its cache diagnostic.
 
 ---
 

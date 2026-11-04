@@ -28,6 +28,7 @@ from app.modules.gateway_requests.gateway_requests_controller import (
     api_v1_router as gateway_requests_router,
 )
 from app.modules.health import health_router, root_health_router
+from app.modules.llm.cache_admin_controller import api_v1_router as cache_admin_router
 from app.modules.llm_quota.llm_quota_controller import api_v1_router as llm_quota_router
 from app.modules.llm_usage.llm_usage_controller import api_v1_router as llm_usage_router
 from app.modules.qdrant.qdrant_controller import api_v1_router as qdrant_router
@@ -129,6 +130,7 @@ app.include_router(analytics_router)
 app.include_router(shadow_cache_router)
 app.include_router(api_keys_router)
 app.include_router(llm_quota_router)
+app.include_router(cache_admin_router)
 
 # Mount interactive coverage report in local development
 if PYTHON_ENV == "local":
