@@ -166,3 +166,50 @@ class CacheAuditService:
                 equivalence_rate=rate,
                 evicted_count=evicted,
             )
+
+    def export_in_domain_dataset(
+        self,
+        tenant_id: str | None = None,
+        model: str | None = None,
+        intent: str | None = None,
+        include_uncompared: bool = False,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+    ) -> list[dict]:
+        """Export (query_text, cached_answer, is_equivalent) triples for reranker fine-tuning.
+
+        Only exports audits that have both query and cached answer present.
+        By default, only compared audits (is_equivalent not null) are exported.
+        """
+        with self._get_read_session() as s:
+            query = s.query(CacheEvaluation)
+            if tenant_id:
+                query = query.filter(CacheEvaluation.tenant_id == tenant_id)
+            if model:
+                query = query.filter(CacheEvaluation.model == model)
+            if intent:
+                query = query.filter(CacheEvaluation.intent == intent)
+            if start_time:
+                query = query.filter(CacheEvaluation.created_at >= start_time)
+            if end_time:
+                query = query.filter(CacheEvaluation.created_at <= end_time)
+            if not include_uncompared:
+                query = query.filter(CacheEvaluation.is_equivalent.isnot(None))
+            query = query.filter(CacheEvaluation.query_text.isnot(None))
+            query = query.filter(CacheEvaluation.cached_answer.isnot(None))
+
+            rows = query.order_by(CacheEvaluation.created_at.asc()).all()
+            result = []
+            for r in rows:
+                result.append(
+                    {
+                        "query_text": r.query_text,
+                        "cached_answer": r.cached_answer,
+                        "is_equivalent": r.is_equivalent,
+                        "intent": r.intent,
+                        "model": r.model,
+                        "request_id": r.request_id,
+                        "exact_hash": r.exact_hash,
+                    }
+                )
+            return result
