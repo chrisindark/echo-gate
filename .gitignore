@@ -43,5 +43,12 @@ celerybeat-schedule
 celerybeat-schedule-shm
 celerybeat-schedule-wal
 
+# Coverage
+.coverage
+.coverage.*
+htmlcov/
+coverage.json
+coverage.xml
+
 # Interim MCP bridge (local config only; never commit the bridge .env)
 mcp-bridge/.env
