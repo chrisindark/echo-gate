@@ -49,7 +49,7 @@ Feature-by-feature record of what exists in the codebase today.
   `STREAM_MAX_CONTENT_BYTES` guardrail), fallback-switchover before/after the
   first chunk, cache-hit SSE playback from cached completions, background cache
   writes only on clean `finish_reason` completion, and mid-stream error
-  surfaced as an SSE error event. Covered by `tests/test_streaming_support.py`
+  surfaced as an SSE error event. Covered by `tests/integration/test_streaming_support.py`
   (31 tests). (The original `streaming_plan.md` was completed and deleted.)
 - [x] **Provider resilience**: retry with `RETRYABLE_STATUS_CODES`
   (`app/core/retry.py`) and primary→fallback provider switchover, both on the
@@ -150,14 +150,16 @@ Feature-by-feature record of what exists in the codebase today.
   `.dockerignore` keeping secrets and dev tooling out of images.
 - [x] **Alembic migrations** with a non-owner app role + owner-role
   `MIGRATION_DATABASE_URL`; OpenAPI snapshot contract test
-  (`tests/test_openapi_snapshot.py`); ruff + ruff-format + prettier/eslint
+  (`tests/contract/test_openapi_snapshot.py`); ruff + ruff-format + prettier/eslint
   pre-commit hooks.
 - [x] **OSS launch packaging** (`2026-10-21`): AGPL-3.0 `LICENSE`, `NOTICE`,
   README safe-harbor; `CONTRIBUTING.md`, `SECURITY.md`, `SUPPORT.md`,
   `CHANGELOG.md`; GitHub Actions (backend + UI CI, Docker buildx/Trivy,
   release-drafter) and issue templates; general `.env` ignore patterns,
   qdrant one-offs under `app/scripts/`.
-- [x] **Test suite & documentation set**: ~179-test suite (`tests/`);
+- [x] **Test suite & documentation set**: ~512-test suite (495 passing today; 17
+  Postgres-dependent tests skip without a reachable database), co-located under
+  `api/app/modules/*/tests/` plus `tests/{integration,contract}/`;
   documentation set in `docs/` (architecture, API reference, configuration,
   data model, development).
 
@@ -203,7 +205,7 @@ Small diffs, no behavior change. Pre-req for opening the repo publicly.
 
 - [x] **3. Codebase hygiene & documentation cleanup**
   - [x] Mount previously unmounted `conversation/` router in `app/main.py`.
-  - [x] Regenerate OpenAPI snapshot contract (`tests/snapshots/openapi.json`) for conversation routes.
+  - [x] Regenerate OpenAPI snapshot contract (`tests/contract/snapshots/openapi.json`) for conversation routes.
   - [x] README quickstart with real architecture diagram and working setup steps.
   - [x] Working admin key workflow documented in README quickstart.
   - [x] High-resolution UI screenshots captured and embedded into `README.md` (`docs/assets/screenshots/`).
@@ -399,8 +401,10 @@ comparison and no data-driven threshold calibration. Remaining work:
   (`cache:thresholds:{intent}`) rather than online mutation. Note:
   `app/scripts/calibrate_reranker.py` currently sweeps from a static test
   dataset, not live audit records.
-- [ ] **In-domain dataset export**: export `(query_text, cached_answer, is_equivalent)`
-  triples as they accumulate to fine-tune an in-domain cross-encoder reranker.
+- [x] **In-domain dataset export**: export `(query_text, cached_answer, is_equivalent)`
+  triples as they accumulate to fine-tune an in-domain cross-encoder reranker
+  (`CacheAuditService.export_in_domain_dataset` +
+  `python -m app.scripts.export_cache_audit_dataset`, JSONL/JSON/CSV).
 - [x] **Cache warmup / pre-seeding API** *(2026-11-04)*: admin-scoped
   `POST /api/v1/admin/cache/warmup` accepting a batch of `(request, response)`
   pairs, written in parallel via the existing `_background_save_cache` logic.
@@ -484,7 +488,7 @@ once every step landed; what follows is the record.*
   `CACHE_RETENTION_PROTECT_THRESHOLD` first, keeps valuable ones for a grace
   period, and evicts capacity overflow lowest-value first. Curves live in
   `app/modules/qdrant/retention_policy.py`; knobs in `docs/CONFIGURATION.md`;
-  tests in `tests/test_retention_policy.py`.
+  tests in `api/app/modules/qdrant/tests/test_retention_policy.py`.
 - [x] **Response cost estimate endpoint** (`2026-10-29`): `POST /api/v1/chat/estimate`
   returns the prompt token count (`tiktoken`, with a length-estimate fallback
   when the encoding file is unavailable) and a cheapest-first cost matrix
@@ -492,7 +496,7 @@ once every step landed; what follows is the record.*
   without calling any provider. `max_tokens` sets the assumed completion
   length; `ESTIMATE_DEFAULT_COMPLETION_TOKENS` (256) covers the omitted case.
   Implementation: `app/modules/chat/chat_estimate_service.py`; tests:
-  `tests/test_chat_estimate.py`.
+  `api/app/modules/chat/tests/test_chat_estimate.py`.
 - [x] **Streaming cache hit optimization** (`2026-10-29`): `X-Cache-Prefer: instant`
   on a `stream: true` request returns a cache hit as one
   `ChatCompletionResponse` JSON body (`X-Cache: HIT`) instead of synthesized
@@ -621,29 +625,37 @@ support playbook) last.
 
 Work that benefits every phase and can be tackled alongside any milestone.
 
-- [ ] **Prompt-level cost attribution**: add a `prompt_hash` (SHA-256 of
-  system prompt only) to `llm_usage_logs` and an analytics aggregation view.
-  System prompts often identify an application/workflow, giving cost
-  attribution per downstream app without explicit tagging. One column +
-  backfill task + analytics query.
-- [ ] **OpenTelemetry (OTel) trace export**: optional OTel instrumentation
-  emitting spans for each request lifecycle stage (cache lookup, embedding
-  generation, provider call, cache write). Attach `X-Correlation-ID` as the
-  trace ID; export via OTLP to `OTEL_EXPORTER_OTLP_ENDPOINT`. Default
-  disabled, one env var to enable. Especially valuable for Phase 1's
-  degradation contract — operators need distributed traces to diagnose
-  cross-service failures. Dependencies: `opentelemetry-api` +
-  `opentelemetry-sdk`.
-- [ ] **Test coverage expansion**: add focused tests for critical paths that
-  lack dedicated coverage:
-  - Cache write failure isolation (Qdrant/Redis down during write — core
-    invariant: must not affect the response).
-  - Fallback provider switchover (primary fails → fallback succeeds).
-  - Intent classifier timeout / fallback behavior.
-  - Conversation chat with cache hit (response + message persistence).
-  - Concurrent quota enforcement (near-limit simultaneous requests).
-  - Analytics aggregation correctness.
-  All unit-testable with mocks — no infra needed. ~6 new test files.
+- [x] **Prompt-level cost attribution** *(2026-11-04)*: `llm_usage_logs.prompt_hash`
+  (SHA-256 of the *system* prompt only, whitespace-normalized) is written by
+  `LlmRouterService._log_usage` via `app.core.prompt_identity`. That module owns
+  both directions of the prompt encoding, so write-time hashing and the backfill
+  cannot drift. History is filled by
+  `python -m app.scripts.backfill_prompt_hashes [--batch-size N] [--dry-run]`,
+  which recovers the system prompt from stored `input_text` and **skips**
+  unrecoverable rows (no system message, or content containing the segment
+  separator) rather than guessing. The dashboard exposes
+  `GET /api/v1/analytics/dashboard` → `prompt_breakdown` (requests, cost, tokens
+  per hash, most expensive first); NULL hashes form an unattributed bucket.
+  Migration `f6a7b8c9d0e1`. Tests: `analytics/tests/test_prompt_attribution.py`.
+- [x] **OpenTelemetry (OTel) trace export** *(2026-11-04)*: optional OTel
+  instrumentation emitting spans for each request lifecycle stage (cache lookup,
+  embedding generation, provider call, cache write). `X-Correlation-ID` is the
+  trace id. Export is opt-in: `OTEL_ENABLED` default `true`, but with
+  `OTEL_EXPORTER_OTLP_ENDPOINT` unset traces stay in-process as a zero-overhead
+  NoOp. `init_telemetry()` runs in the app lifespan and is fail-open — a bad
+  endpoint logs a warning and leaves tracing NoOp, never blocking startup.
+  Dependencies: `opentelemetry-api`, `opentelemetry-sdk`,
+  `opentelemetry-exporter-otlp`.
+- [x] **Test coverage expansion** *(2026-11-04)*: every listed path now has a
+  dedicated file. Cache write failure isolation:
+  `llm/tests/test_cache_write_failure_isolation.py`; fallback provider
+  switchover: `llm/tests/test_router_resilience.py` (blocking and streaming);
+  intent classifier timeout/degradation:
+  `intent_classifier/tests/test_intent_classifier_degradation.py`; conversation
+  chat with a cache hit:
+  `conversation/tests/test_conversation_cache_hit.py`; concurrent quota
+  enforcement: `llm_quota/tests/test_llm_quota_concurrency.py`; analytics
+  aggregation: `analytics/tests/test_analytics_aggregation.py`.
 
 ## Model selection: laptop defaults vs cloud release
 

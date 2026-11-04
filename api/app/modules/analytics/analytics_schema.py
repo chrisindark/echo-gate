@@ -43,6 +43,21 @@ class EvaluationSummaryResponse(BaseModel):
     evaluated_count: int
 
 
+class PromptBreakdownItem(BaseModel):
+    """Per-system-prompt cost attribution.
+
+    ``prompt_hash`` is the SHA-256 of the system prompt (``None`` for rows
+    written before the column existed and not yet backfilled). Because a system
+    prompt usually identifies one downstream application or workflow, this is
+    the per-application cost view that needs no caller tagging.
+    """
+
+    prompt_hash: str | None = None
+    requests: int
+    total_cost: float
+    total_tokens: int
+
+
 class TopIntentItem(BaseModel):
     intent: str
     count: int
@@ -103,6 +118,7 @@ class AnalyticsDashboardResponse(BaseModel):
     time_series: list[TimeSeriesDataPoint]
     cache_performance: CachePerformanceResponse
     model_breakdown: list[ModelBreakdownItem]
+    prompt_breakdown: list[PromptBreakdownItem] = []
     evaluations: EvaluationSummaryResponse
     top_intents: list[TopIntentItem]
     latency_metrics: LatencyMetricsResponse | None = None

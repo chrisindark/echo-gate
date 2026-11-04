@@ -29,6 +29,14 @@
             "title": "Model Breakdown",
             "type": "array"
           },
+          "prompt_breakdown": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PromptBreakdownItem"
+            },
+            "title": "Prompt Breakdown",
+            "type": "array"
+          },
           "time_series": {
             "items": {
               "$ref": "#/components/schemas/TimeSeriesDataPoint"
@@ -4307,6 +4315,17 @@
             ],
             "title": "Output Text"
           },
+          "prompt_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Hash"
+          },
           "prompt_tokens": {
             "default": 0,
             "title": "Prompt Tokens",
@@ -4511,6 +4530,17 @@
               }
             ],
             "title": "Output Text"
+          },
+          "prompt_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Hash"
           },
           "prompt_tokens": {
             "default": 0,
@@ -4844,6 +4874,41 @@
           "cost_total"
         ],
         "title": "ModelCostEstimate",
+        "type": "object"
+      },
+      "PromptBreakdownItem": {
+        "description": "Per-system-prompt cost attribution.\n\n``prompt_hash`` is the SHA-256 of the system prompt (``None`` for rows\nwritten before the column existed and not yet backfilled). Because a system\nprompt usually identifies one downstream application or workflow, this is\nthe per-application cost view that needs no caller tagging.",
+        "properties": {
+          "prompt_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Hash"
+          },
+          "requests": {
+            "title": "Requests",
+            "type": "integer"
+          },
+          "total_cost": {
+            "title": "Total Cost",
+            "type": "number"
+          },
+          "total_tokens": {
+            "title": "Total Tokens",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "requests",
+          "total_cost",
+          "total_tokens"
+        ],
+        "title": "PromptBreakdownItem",
         "type": "object"
       },
       "QdrantSearchRequest": {

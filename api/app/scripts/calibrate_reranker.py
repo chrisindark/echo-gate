@@ -43,7 +43,7 @@ from app.modules.intent_classifier.entity_extractor_service import (
 )
 from app.modules.reranking.reranker_service import RerankerService
 from app.modules.verifier.instruction_service import InstructionVerifier
-from app.scripts.test_dataset import TEST_DATASET
+from tests.datasets.prompt_dataset import TEST_DATASET
 
 # Mirrors the request shape used by `run_tests.py` so the calibration reflects
 # real gateway traffic.

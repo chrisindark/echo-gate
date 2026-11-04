@@ -19,6 +19,7 @@ from app.modules.analytics.analytics_schema import (
     LatencyPercentiles,
     LatencyTimeSeriesPoint,
     ModelBreakdownItem,
+    PromptBreakdownItem,
     TimeSeriesDataPoint,
     TopIntentItem,
 )
@@ -80,16 +81,21 @@ class AnalyticsService:
             start_time, end_time, tenant_id
         )
 
-        # 4. Time Series
+        # 4. Prompt-level cost attribution (system-prompt hash)
+        prompt_breakdown = self._calculate_prompt_breakdown(
+            start_time, end_time, tenant_id
+        )
+
+        # 5. Time Series
         time_series = self._calculate_time_series(start_time, end_time, tenant_id)
 
-        # 5. Evaluations Summary
+        # 6. Evaluations Summary
         evaluations = self._calculate_evaluations(start_time, end_time, tenant_id)
 
-        # 6. Top Intents
+        # 7. Top Intents
         top_intents = self._calculate_top_intents(start_time, end_time, tenant_id)
 
-        # 7. Latency Metrics
+        # 8. Latency Metrics
         latency_metrics = self._calculate_latency_metrics(
             start_time, end_time, tenant_id, time_range_label
         )
@@ -99,6 +105,7 @@ class AnalyticsService:
             time_series=time_series,
             cache_performance=cache_perf,
             model_breakdown=model_breakdown,
+            prompt_breakdown=prompt_breakdown,
             evaluations=evaluations,
             top_intents=top_intents,
             latency_metrics=latency_metrics,
@@ -208,6 +215,39 @@ class AnalyticsService:
             ModelBreakdownItem(
                 model=row.model or "unknown",
                 provider=row.provider or "unknown",
+                requests=row.requests or 0,
+                total_cost=float(row.total_cost or 0.0),
+                total_tokens=int(row.total_tokens or 0),
+            )
+            for row in results
+        ]
+
+    def _calculate_prompt_breakdown(
+        self, start_time: datetime, end_time: datetime, tenant_id: str | None
+    ) -> list[PromptBreakdownItem]:
+        """Aggregate usage per system prompt, most expensive first."""
+        query = self.db_session_read.query(
+            LlmUsageLog.prompt_hash,
+            func.count(LlmUsageLog.id).label("requests"),
+            func.sum(LlmUsageLog.cost).label("total_cost"),
+            func.sum(LlmUsageLog.total_tokens).label("total_tokens"),
+        ).filter(
+            LlmUsageLog.created_at >= start_time,
+            LlmUsageLog.created_at <= end_time,
+        )
+
+        if tenant_id:
+            query = query.filter(LlmUsageLog.tenant_id == tenant_id)
+
+        results = (
+            query.group_by(LlmUsageLog.prompt_hash)
+            .order_by(func.sum(LlmUsageLog.cost).desc())
+            .all()
+        )
+
+        return [
+            PromptBreakdownItem(
+                prompt_hash=row.prompt_hash,
                 requests=row.requests or 0,
                 total_cost=float(row.total_cost or 0.0),
                 total_tokens=int(row.total_tokens or 0),

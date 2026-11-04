@@ -41,6 +41,11 @@ from app.core.degradation import (
 )
 from app.core.error_classification import classify_provider_error
 from app.core.logger import log_latency
+from app.core.prompt_identity import (
+    PROMPT_MODEL_PREFIX,
+    PROMPT_SEGMENT_SEPARATOR,
+    compute_prompt_hash,
+)
 from app.core.retry import execute_with_retry
 from app.core.telemetry import (
     ECHOGATE_CACHE_HIT,
@@ -839,8 +844,8 @@ class LlmRouterService:
             content_desc = " ".join(parts) if parts else ""
             prompt_parts.append(f"{msg.role}: {content_desc}")
 
-        prompt_text = "|\n".join(prompt_parts)
-        prompt_text = f"model:{request.model}|{prompt_text}"
+        prompt_text = PROMPT_SEGMENT_SEPARATOR.join(prompt_parts)
+        prompt_text = f"{PROMPT_MODEL_PREFIX}{request.model}|{prompt_text}"
 
         system_messages = [
             msg.content
@@ -857,6 +862,68 @@ class LlmRouterService:
         user_prompt = "\n".join(user_messages) if user_messages else ""
 
         return prompt_text, system_prompt, user_prompt
+
+    async def _lookup_serving_cache(
+        self,
+        *,
+        exact_hash: str,
+        service_name: str,
+        request: ChatCompletionRequest,
+        prompt_text: str,
+        breakdown: dict[str, Any],
+    ) -> tuple[ChatCompletionResponse | None, dict | None]:
+        """Shared serving-cache lookup: Redis exact → Qdrant exact → semantic.
+
+        Returns ``(response, semantic_result)``. ``response`` is set on a
+        hit (already ``_record_cache_hit``-counted by the caller when needed)
+        and ``semantic_result`` is set on a full miss so the caller can
+        reuse intent/embeddings/miss info for the provider path and the
+        background cache write. ``breakdown`` is mutated with
+        ``redis_exact_ms`` / ``qdrant_exact_ms`` entries.
+
+        Used by ``_generate_completion_impl`` and ``_generate_stream_impl``
+        so a new cache layer is added in exactly one place. Callers decide
+        whether to early-return the response or stream it.
+        """
+        # 1. Try exact match from Redis first
+        t_redis_start = time.perf_counter()
+        response = await self._get_redis_exact_match(exact_hash, service_name)
+        t_redis_end = time.perf_counter()
+        breakdown["redis_exact_ms"] = round((t_redis_end - t_redis_start) * 1000, 2)
+        if response:
+            return response, None
+
+        # 2. Try Exact Match in Qdrant
+        t_qdrant_exact_start = time.perf_counter()
+        response, point_id, remaining_ttl = await self._get_qdrant_exact_match(
+            exact_hash, request.tenant_id, prompt_text
+        )
+        t_qdrant_exact_end = time.perf_counter()
+        breakdown["qdrant_exact_ms"] = round(
+            (t_qdrant_exact_end - t_qdrant_exact_start) * 1000, 2
+        )
+        if response:
+            use_redis_exact_matching = config.cache_layer_enabled("redis")
+            if use_redis_exact_matching:
+                await self._save_to_redis_cache(
+                    exact_hash,
+                    response,
+                    "Saving Qdrant exact search query matched response in Redis",
+                    ttl=remaining_ttl,
+                    save_to_redis=use_redis_exact_matching,
+                    point_id=point_id,
+                )
+            return response, None
+
+        # 3. Try Semantic Match if Exact misses
+        semantic_result = await self.evaluate_semantic_cache(request)
+        if "latency_breakdown" in semantic_result:
+            breakdown.update(semantic_result["latency_breakdown"])
+
+        if semantic_result.get("response"):
+            return semantic_result["response"], semantic_result
+
+        return None, semantic_result
 
     async def get_exact_match(
         self, request: ChatCompletionRequest
@@ -2345,7 +2412,7 @@ class LlmRouterService:
                 else False
             )
 
-            prompt_text, _, _ = self._prepare_prompts(request)
+            prompt_text, system_prompt, _ = self._prepare_prompts(request)
             input_text = prompt_text
             output_text = (
                 response.choices[0].message.content
@@ -2401,6 +2468,7 @@ class LlmRouterService:
                 caller_service_name=CALLER_SERVICE_NAME,
                 input_text=input_text,
                 output_text=output_text,
+                prompt_hash=compute_prompt_hash(system_prompt),
                 user_id=request.user_id,
                 tenant_id=request.tenant_id,
                 temperature=request.temperature,
@@ -2644,7 +2712,6 @@ class LlmRouterService:
 
         prompt_text, _, _ = self._prepare_prompts(request)
         exact_hash = self._generate_cache_key(request)
-        tenant_id = request.tenant_id
 
         actual_service = service_name
         actual_model = request.model
@@ -2671,51 +2738,19 @@ class LlmRouterService:
                     exact_hash,
                 )
             else:
-                # 1. Try exact match from Redis first
-                t_redis_start = time.perf_counter()
-                response = await self._get_redis_exact_match(exact_hash, service_name)
-                t_redis_end = time.perf_counter()
-                breakdown["redis_exact_ms"] = round(
-                    (t_redis_end - t_redis_start) * 1000, 2
+                response, semantic_result = await self._lookup_serving_cache(
+                    exact_hash=exact_hash,
+                    service_name=service_name,
+                    request=request,
+                    prompt_text=prompt_text,
+                    breakdown=breakdown,
                 )
                 if response:
-                    self._record_cache_hit(response)
-                    return response
-
-                # 2. Try Exact Match in Qdrant
-                t_qdrant_exact_start = time.perf_counter()
-                response, point_id, remaining_ttl = await self._get_qdrant_exact_match(
-                    exact_hash, tenant_id, prompt_text
-                )
-                t_qdrant_exact_end = time.perf_counter()
-                breakdown["qdrant_exact_ms"] = round(
-                    (t_qdrant_exact_end - t_qdrant_exact_start) * 1000, 2
-                )
-                if response:
-                    use_redis_exact_matching = config.cache_layer_enabled("redis")
-                    if use_redis_exact_matching:
-                        await self._save_to_redis_cache(
-                            exact_hash,
-                            response,
-                            "Saving Qdrant exact search query matched response in Redis",
-                            ttl=remaining_ttl,
-                            save_to_redis=use_redis_exact_matching,
-                            point_id=point_id,
-                        )
-                    self._record_cache_hit(response)
-                    return response
-
-                # 3. Try Semantic Match if Exact misses
-                semantic_result = await self.evaluate_semantic_cache(request)
-                if "latency_breakdown" in semantic_result:
-                    breakdown.update(semantic_result["latency_breakdown"])
-
-                if semantic_result.get("response"):
-                    response = semantic_result["response"]
                     self._record_cache_hit(response)
                     return response
 
                 # Extract intent and other metadata if intent classification has been called already
+                assert semantic_result is not None
                 intent = semantic_result.get("intent", None)
                 time_sensitivity = semantic_result.get("time_sensitivity", 0.0)
                 core_operation = semantic_result.get("core_operation", None)
@@ -2971,36 +3006,18 @@ class LlmRouterService:
         service_name = request.service_name or config.DEFAULT_LLM_SERVICE
         model = request.model
 
-        t_start = time.perf_counter()
-        response = await self._get_redis_exact_match(exact_hash, service_name)
-        breakdown["redis_exact_ms"] = round((time.perf_counter() - t_start) * 1000, 2)
-
-        if response is None:
-            t_start = time.perf_counter()
-            response, point_id, remaining_ttl = await self._get_qdrant_exact_match(
-                exact_hash, request.tenant_id, prompt_text
-            )
-            breakdown["qdrant_exact_ms"] = round(
-                (time.perf_counter() - t_start) * 1000, 2
-            )
-            if response is not None and config.cache_layer_enabled("redis"):
-                await self._save_to_redis_cache(
-                    exact_hash,
-                    response,
-                    "Saving Qdrant exact hit in Redis (instant response)",
-                    ttl=remaining_ttl,
-                    save_to_redis=True,
-                    point_id=point_id,
-                )
-
-        if response is None:
-            t_start = time.perf_counter()
-            semantic_result = await self.evaluate_semantic_cache(request)
-            breakdown.update(semantic_result.get("latency_breakdown") or {})
-            breakdown["cache_lookup_total_ms"] = round(
-                (time.perf_counter() - t_start) * 1000, 2
-            )
-            response = semantic_result.get("response")
+        _sem_start = time.perf_counter()
+        response, _semantic = await self._lookup_serving_cache(
+            exact_hash=exact_hash,
+            service_name=service_name,
+            request=request,
+            prompt_text=prompt_text,
+            breakdown=breakdown,
+        )
+        # Preserve the instant path's cache_lookup_total_ms accounting.
+        breakdown["cache_lookup_total_ms"] = round(
+            (time.perf_counter() - _sem_start) * 1000, 2
+        )
 
         if response is None:
             logger.info(
@@ -3107,7 +3124,6 @@ class LlmRouterService:
 
         prompt_text, _, _ = self._prepare_prompts(request)
         exact_hash = self._generate_cache_key(request)
-        tenant_id = request.tenant_id
 
         actual_service = service_name
         actual_model = request.model
@@ -3137,57 +3153,21 @@ class LlmRouterService:
                     exact_hash,
                 )
             else:
-                # 1. Try exact match from Redis first
-                t_redis_start = time.perf_counter()
-                response = await self._get_redis_exact_match(exact_hash, service_name)
-                t_redis_end = time.perf_counter()
-                breakdown["redis_exact_ms"] = round(
-                    (t_redis_end - t_redis_start) * 1000, 2
+                response, semantic_result = await self._lookup_serving_cache(
+                    exact_hash=exact_hash,
+                    service_name=service_name,
+                    request=request,
+                    prompt_text=prompt_text,
+                    breakdown=breakdown,
                 )
                 if response:
-                    self._record_cache_hit(response)
-                    for chunk in response_to_stream_chunks(response):
-                        yield chunk
-                    return
-
-                # 2. Try Exact Match in Qdrant
-                t_qdrant_exact_start = time.perf_counter()
-                response, point_id, remaining_ttl = await self._get_qdrant_exact_match(
-                    exact_hash, tenant_id, prompt_text
-                )
-                t_qdrant_exact_end = time.perf_counter()
-                breakdown["qdrant_exact_ms"] = round(
-                    (t_qdrant_exact_end - t_qdrant_exact_start) * 1000, 2
-                )
-                if response:
-                    use_redis_exact_matching = config.cache_layer_enabled("redis")
-                    if use_redis_exact_matching:
-                        await self._save_to_redis_cache(
-                            exact_hash,
-                            response,
-                            "Saving Qdrant exact search query matched response in Redis",
-                            ttl=remaining_ttl,
-                            save_to_redis=use_redis_exact_matching,
-                            point_id=point_id,
-                        )
-                    self._record_cache_hit(response)
-                    for chunk in response_to_stream_chunks(response):
-                        yield chunk
-                    return
-
-                # 3. Try Semantic Match if Exact misses
-                semantic_result = await self.evaluate_semantic_cache(request)
-                if "latency_breakdown" in semantic_result:
-                    breakdown.update(semantic_result["latency_breakdown"])
-
-                if semantic_result.get("response"):
-                    response = semantic_result["response"]
                     self._record_cache_hit(response)
                     for chunk in response_to_stream_chunks(response):
                         yield chunk
                     return
 
                 # Extract intent and other metadata if intent classification has been called already
+                assert semantic_result is not None
                 intent = semantic_result.get("intent", None)
                 time_sensitivity = semantic_result.get("time_sensitivity", 0.0)
                 core_operation = semantic_result.get("core_operation", None)

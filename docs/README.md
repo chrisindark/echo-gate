@@ -42,7 +42,8 @@ Redis + Qdrant (cache write) · Postgres (trace + usage) · Celery (eval, evicti
   request path is `api/app/modules/llm/llm_router_service.py::generate_completion`.
 - **Cache:** Redis (`api/app/modules/redis/redis_service.py`) plus a Qdrant collection
   named `embeddings_multivector` (`api/app/modules/qdrant/llm_cache_collection_service.py`).
-- **Providers:** `api/app/modules/llm/llm_provider_service.py`.
+- **Providers:** `api/app/modules/llm/providers/` (one adapter module per upstream);
+  `llm_provider_service.py` is the dispatch façade.
 - **Persistence:** SQLAlchemy models in `api/app/modules/*/*_model.py`, migrated by
   the single Alembic baseline in `alembic/versions/`.
 - **Background work:** `api/app/worker/celery_app.py` and `tasks.py` in the

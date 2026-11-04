@@ -75,6 +75,7 @@ Token/cost accounting per provider call.
 | `temperature` | numeric(3,2) | |
 | `max_tokens` | int | |
 | `input_text` / `output_text` | text | Prompt/response text. |
+| `prompt_hash` | varchar(64), indexed | SHA-256 of the **system** prompt only (whitespace-normalized), for per-application cost attribution. `NULL` = no system prompt, or written before the column existed and not recoverable by the backfill. See `app/core/prompt_identity.py`. |
 | `extra_metadata` | json | Extras. |
 
 #### `llm_quota_rules`

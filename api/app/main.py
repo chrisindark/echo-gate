@@ -18,6 +18,7 @@ from app.core.middlewares import (
     UserMiddleware,
 )
 from app.core.responses import BaseAPIResponse
+from app.core.telemetry import init_telemetry
 from app.modules.analytics.analytics_controller import api_v1_router as analytics_router
 from app.modules.api_keys.api_keys_controller import api_v1_router as api_keys_router
 from app.modules.chat.chat_controller import api_v1_router as chat_router
@@ -62,6 +63,7 @@ load_dotenv()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     config.load()
+    init_telemetry()
     await DependencyContainer.initialize()
     logger.info("EchoGate API initialized.")
     try:

@@ -396,6 +396,7 @@ Aggregated dashboard data. Query: `time_range`, `start_time`, `end_time`,
   "time_series": [{ "date_label": "2026-10-01", "requests": 0, "cost": 0.0, "tokens": 0 }],
   "cache_performance": { "llm_calls": 0, "redis_exact": 0, "qdrant_exact": 0, "qdrant_semantic": 0, "total": 0, "cache_hit_percentage": 0.0 },
   "model_breakdown": [{ "model": "...", "provider": "...", "requests": 0, "total_cost": 0.0, "total_tokens": 0 }],
+  "prompt_breakdown": [{ "prompt_hash": "sha256-hex-or-null", "requests": 0, "total_cost": 0.0, "total_tokens": 0 }],
   "evaluations": { "avg_relevance_score": null, "avg_contradiction_score": null, "avg_entailment_score": null, "false_positive_rate": null, "evaluated_count": 0 },
   "top_intents": [{ "intent": "code_generation", "count": 0 }],
   "latency_metrics": { "...": "LatencyMetricsResponse" }
@@ -405,6 +406,12 @@ Aggregated dashboard data. Query: `time_range`, `start_time`, `end_time`,
 > The dashboard already contains the KPI and cache-performance data. There are no
 > separate `/kpis` or `/cache-performance` endpoints (older READMEs referenced
 > them).
+
+> `prompt_breakdown` attributes cost per downstream application without caller
+> tagging: `prompt_hash` is the SHA-256 of the system prompt only, ordered by
+> cost descending. A `null` hash is the unattributed bucket — rows written
+> before the column existed that the backfill could not recover
+> (`python -m app.scripts.backfill_prompt_hashes`).
 
 ### `GET /api/v1/analytics/latency`
 

@@ -42,6 +42,9 @@ class Config:
         # Telemetry & Observability
         self.OTEL_ENABLED = os.getenv("OTEL_ENABLED", "true").lower() == "true"
         self.OTEL_SERVICE_NAME = os.getenv("OTEL_SERVICE_NAME", "echo-gate")
+        self.OTEL_EXPORTER_OTLP_ENDPOINT = os.getenv(
+            "OTEL_EXPORTER_OTLP_ENDPOINT", ""
+        ).strip()
 
         # Urls
         self.OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")

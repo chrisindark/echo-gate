@@ -10,6 +10,7 @@ class LlmUsageLogBase(BaseModel):
     caller_service_name: str
     input_text: str | None = None
     output_text: str | None = None
+    prompt_hash: str | None = None
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0

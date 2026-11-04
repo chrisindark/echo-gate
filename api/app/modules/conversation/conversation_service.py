@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
@@ -66,6 +66,11 @@ class ConversationService:
         touching conversation.updated_at.
         """
         now = datetime.now(UTC)
+        # The two rows would otherwise share one timestamp, and every read path
+        # orders only by `created_at` — so the pair's order, and therefore the
+        # prompt history sent on the next turn, would be undefined. Stamp the
+        # reply one microsecond later so the ordering is unambiguous and stable.
+        reply_at = now + timedelta(microseconds=1)
         t_id = (
             tenant_id
             or conversation.tenant_id
@@ -87,11 +92,11 @@ class ConversationService:
             user_id=u_id,
             role="assistant",
             content=assistant_content,
-            created_at=now,
+            created_at=reply_at,
         )
         self.db.add(user_msg)
         self.db.add(assistant_msg)
-        conversation.updated_at = now
+        conversation.updated_at = reply_at
         self.db.commit()
         self.db.refresh(user_msg)
         self.db.refresh(assistant_msg)

@@ -4,7 +4,7 @@ import time
 
 import httpx
 
-from app.scripts.test_dataset import TEST_DATASET
+from tests.datasets.prompt_dataset import TEST_DATASET
 
 API_URL = os.getenv(
     "ECHO_GATE_URL",

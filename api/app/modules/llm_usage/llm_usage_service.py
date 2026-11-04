@@ -7,6 +7,10 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionFactory, SessionLocal
+from app.core.prompt_identity import (
+    compute_prompt_hash,
+    system_prompt_from_prompt_text,
+)
 from app.modules.llm_usage.llm_usage_model import LlmUsageLog
 from app.modules.llm_usage.llm_usage_schema import LlmUsageLogCreate, LlmUsageLogUpdate
 
@@ -183,3 +187,51 @@ class LlmUsageService:
                 logger.exception("Failed to bulk update LLM usage logs")
                 s.rollback()
                 raise
+
+    def backfill_prompt_hashes(self, batch_size: int = 500) -> tuple[int, int, int]:
+        """Hash ``input_text`` of older rows that predate the ``prompt_hash`` column.
+
+        ``input_text`` is the encoded prompt produced by
+        ``LlmRouterService._prepare_prompts``; see
+        :mod:`app.core.prompt_identity` for the encoding and its recovery rules.
+
+        Rows whose encoding is ambiguous, or that have no system message, are
+        skipped: a wrong attribution is worse than a missing one.
+
+        Returns ``(scanned, updated, skipped)``.
+        """
+        scanned = updated = 0
+        unparseable: set[int] = set()
+        while True:
+            with self._get_session() as s:
+                query = s.query(LlmUsageLog).filter(
+                    LlmUsageLog.prompt_hash.is_(None),
+                    LlmUsageLog.input_text.isnot(None),
+                )
+                if unparseable:
+                    query = query.filter(LlmUsageLog.id.notin_(unparseable))
+                rows = query.order_by(LlmUsageLog.id.asc()).limit(batch_size).all()
+                if not rows:
+                    break
+
+                scanned += len(rows)
+                pending: list[dict[str, Any]] = []
+                for row in rows:
+                    system_prompt = system_prompt_from_prompt_text(row.input_text or "")
+                    if system_prompt is None:
+                        unparseable.add(row.id)
+                        continue
+                    pending.append(
+                        {
+                            "id": row.id,
+                            "prompt_hash": compute_prompt_hash(system_prompt),
+                        }
+                    )
+                if pending:
+                    s.bulk_update_mappings(LlmUsageLog, pending)
+                    s.commit()
+                updated += len(pending)
+
+            if len(rows) < batch_size:
+                break
+        return scanned, updated, scanned - updated
