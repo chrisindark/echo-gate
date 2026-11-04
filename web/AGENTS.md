@@ -53,6 +53,13 @@ poetry run uvicorn app.main:app --port 8000 --reload
   evaluation scores).
 - `src/app/analytics/page.tsx` — dashboard KPIs, cache performance, model breakdown,
   latency metrics.
+- `src/app/admin/cache/page.tsx` — cache warmup / pre-seeding: paste a JSON
+  array of `{request, response, tenant_id}` items and POST them to
+  `/api/v1/admin/cache/warmup`. Shows queued/succeeded/failed counts.
+- `src/app/admin/explorer/page.tsx` — cache inspector: semantic search over
+  stored entries (prompt, tenant, model filters) and single-entry eviction
+  across Qdrant + Redis. Backed by `/api/v1/admin/cache/search` and
+  `/api/v1/admin/cache/entry/{point_id}`.
 - `src/app/quota/page.tsx` — admin quota rule management (CRUD over
   `/api/v1/admin/llm-quota`): list/create/edit/toggle/delete rules, plus an
   "effective limits" preview that resolves which rule wins for a tenant.
@@ -75,9 +82,13 @@ poetry run uvicorn app.main:app --port 8000 --reload
   mirrors the gateway's per-provider allowlist in
   `../app/modules/chat/chat_schema.py` (`ALLOWED_MODELS`). When the backend adds or
   removes a model, update both.
-- The sidebar previously linked to `/cache`, which had no route; that entry has
-  been removed. There is no cache-browser page — a future feature if needed.
-- No charting library is installed; the analytics page renders cards and tables.
+- The cache pages (`/admin/cache`, `/admin/explorer`) are admin surfaces and
+  require an `X-Admin-Key` configured in Settings, exactly like `/quota`. The
+  inspector deliberately shows expired and cross-tenant entries; it reuses the
+  serving path's embedding and `user_prompt_embedding` vector name so hits match
+  what real traffic is compared against.
+- Charts use `recharts` (`Cache Performance` composition donut and `Top Intents`
+  bars); the rest of the analytics page is hand-rolled cards, bars, and tables.
 - Follow the existing component/formatting style. Do not reformat unrelated files.
 
 ## Related docs
