@@ -179,6 +179,28 @@ def test_time_series_buckets_sum_to_totals(session):
     assert sum(p.cost for p in points) == pytest.approx(1.75)
 
 
+def test_time_series_buckets_carry_cache_hits(session):
+    """Each bucket must expose hits, so hit rate over time needs no second call."""
+    _seed(session)
+    data = AnalyticsService(session).get_dashboard_data(start_time=START, end_time=END)
+
+    points = data.time_series
+    assert sum(p.cache_hits for p in points) == 2
+    assert sum(p.llm_calls for p in points) == 1
+    # Buckets must partition the same way the window-level donut does.
+    assert sum(p.cache_hits for p in points) == (
+        data.cache_performance.total - data.cache_performance.llm_calls
+    )
+    assert all(p.cache_hits + p.llm_calls == p.requests for p in points)
+
+    # The seed puts the LLM call at 10:05 and the hits at 10:20 / 10:40.
+    by_label = {p.date_label: p for p in points}
+    assert by_label["2026-01-01T10:05:00+00:00"].requests == 1
+    assert by_label["2026-01-01T10:05:00+00:00"].cache_hits == 0
+    assert by_label["2026-01-01T10:20:00+00:00"].cache_hits == 1
+    assert by_label["2026-01-01T10:40:00+00:00"].cache_hits == 1
+
+
 def test_evaluation_summary_only_counts_evaluated_rows(session):
     _seed(session)
     evals = (

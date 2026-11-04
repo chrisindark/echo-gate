@@ -5551,6 +5551,11 @@
       },
       "TimeSeriesDataPoint": {
         "properties": {
+          "cache_hits": {
+            "default": 0,
+            "title": "Cache Hits",
+            "type": "integer"
+          },
           "cost": {
             "title": "Cost",
             "type": "number"
@@ -5558,6 +5563,11 @@
           "date_label": {
             "title": "Date Label",
             "type": "string"
+          },
+          "llm_calls": {
+            "default": 0,
+            "title": "Llm Calls",
+            "type": "integer"
           },
           "requests": {
             "title": "Requests",

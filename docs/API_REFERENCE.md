@@ -393,7 +393,7 @@ Aggregated dashboard data. Query: `time_range`, `start_time`, `end_time`,
 ```json
 {
   "kpis": { "total_requests": 0, "total_cost": 0.0, "total_tokens": 0, "avg_latency_ms": 0.0, "cache_hit_rate": 0.0 },
-  "time_series": [{ "date_label": "2026-10-01", "requests": 0, "cost": 0.0, "tokens": 0 }],
+  "time_series": [{ "date_label": "2026-10-01", "requests": 0, "cost": 0.0, "tokens": 0, "cache_hits": 0, "llm_calls": 0 }],
   "cache_performance": { "llm_calls": 0, "redis_exact": 0, "qdrant_exact": 0, "qdrant_semantic": 0, "total": 0, "cache_hit_percentage": 0.0 },
   "model_breakdown": [{ "model": "...", "provider": "...", "requests": 0, "total_cost": 0.0, "total_tokens": 0 }],
   "prompt_breakdown": [{ "prompt_hash": "sha256-hex-or-null", "requests": 0, "total_cost": 0.0, "total_tokens": 0 }],

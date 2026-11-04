@@ -134,7 +134,7 @@ Feature-by-feature record of what exists in the codebase today.
 - [x] **Reranker threshold calibration script** (`app/scripts/calibrate_reranker.py`)
   with precision/recall/F1 sweep.
 
-### UI (`ui/` — Next.js 16, App Router, React 19, Tailwind v4, Radix)
+### UI (`web/` — Next.js 16, App Router, React 19, Tailwind v4, Radix)
 
 - [x] **Chat playground** (provider/model pickers, temperature/max-tokens,
   structured-output modes, API key, cache-status badges, `?hash=` trace
@@ -142,7 +142,7 @@ Feature-by-feature record of what exists in the codebase today.
   evaluation scores), analytics dashboard, admin quota rule management with
   `X-Admin-Key` auth, settings page.
 - [x] **Backend URL configurable** via `NEXT_PUBLIC_API_BASE_URL`
-  (`ui/src/lib/api.ts`) with a `ui/.env.example`.
+  (`web/src/lib/api.ts`) with a `web/.env.example`.
 
 ### Ops and repo hygiene
 
@@ -412,13 +412,15 @@ comparison and no data-driven threshold calibration. Remaining work:
   after a Qdrant reindex, or preloading high-traffic agent system prompts.
   Items carry an admin-only optional `tenant_id` (cache keys are tenant-scoped),
   fan-out is bounded, and per-item failures are reported instead of raised.
-- [ ] **Cache analytics visualizations** *(2026-11-04, partial)*: Recharts is
-  installed in `web/`. Landed: the `Cache Performance` composition donut
-  (Redis exact / Qdrant exact / semantic / miss) and the `Top Intents` bar
-  chart. Still open: cache hit rate over time, latency-breakdown waterfall,
-  routing-decision distribution as its own chart, and cumulative cost savings.
-  Data already flows through `GET /api/v1/analytics/dashboard` — this is
-  UI-only work.
+- [x] **Cache analytics visualizations** *(2026-11-04)*: Recharts in `web/`.
+  The `Cache Performance` composition donut (Redis exact / Qdrant exact /
+  semantic / miss), `Top Intents` bars, cache hit rate over time, the
+  latency-breakdown waterfall, routing-decision distribution as its own chart,
+  and cumulative cost avoided. Hit rate over time needed one additive backend
+  field: `time_series[]` now carries `cache_hits` and `llm_calls` per bucket, so
+  the chart cannot disagree with the window-level donut. Cost avoided is
+  explicitly labelled an estimate — each hit is priced at the window's mean cost
+  per LLM call, because the counterfactual cost of a hit is not recorded.
 - [x] **Cache entry inspector / manual eviction UI** *(2026-11-04, partial)*: a
   "Cache Explorer" page in `web/` that searches entries by prompt text
   (`POST /api/v1/admin/cache/search`, semantic, with tenant/model/scope/intent

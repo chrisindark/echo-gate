@@ -16,6 +16,11 @@ class TimeSeriesDataPoint(BaseModel):
     requests: int
     cost: float
     tokens: int
+    # Cache hits within the bucket, so the dashboard can chart hit rate over
+    # time without a second request. A hit is any routing decision other than
+    # `LLM`, matching `CachePerformanceResponse.cache_hit_percentage`.
+    cache_hits: int = 0
+    llm_calls: int = 0
 
 
 class CachePerformanceResponse(BaseModel):

@@ -87,8 +87,12 @@ poetry run uvicorn app.main:app --port 8000 --reload
   inspector deliberately shows expired and cross-tenant entries; it reuses the
   serving path's embedding and `user_prompt_embedding` vector name so hits match
   what real traffic is compared against.
-- Charts use `recharts` (`Cache Performance` composition donut and `Top Intents`
-  bars); the rest of the analytics page is hand-rolled cards, bars, and tables.
+- Charts use `recharts`: the `Cache Performance` composition donut, `Top Intents`
+  bars, cache hit rate over time, routing-decision distribution, cumulative cost
+  avoided, plus the hand-rolled latency-breakdown waterfall. The rest of the
+  analytics page is cards, bars, and tables. Hit rate over time reads
+  `time_series[].cache_hits`; cost avoided is an estimate (hits × mean cost per
+  LLM call) and is labelled as such in the UI.
 - Follow the existing component/formatting style. Do not reformat unrelated files.
 
 ## Related docs

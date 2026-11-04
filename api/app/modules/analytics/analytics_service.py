@@ -260,7 +260,9 @@ class AnalyticsService:
     ) -> list[TimeSeriesDataPoint]:
         # Fetch raw fields and bucket in memory so the same code works whether the
         # time-series step is sub-hour or multi-day, independent of DB date functions.
-        gw_query = self.db_session_read.query(GatewayRequestLog.created_at).filter(
+        gw_query = self.db_session_read.query(
+            GatewayRequestLog.created_at, GatewayRequestLog.routing_decision
+        ).filter(
             GatewayRequestLog.created_at >= start_time,
             GatewayRequestLog.created_at <= end_time,
         )
@@ -301,6 +303,7 @@ class AnalyticsService:
                         "requests": 0,
                         "cost": 0.0,
                         "tokens": 0,
+                        "cache_hits": 0,
                     }
                 )
                 curr = next_curr
@@ -315,6 +318,8 @@ class AnalyticsService:
                     for b in buckets:
                         if b["start"] <= cat < b["end"]:
                             b["requests"] += 1
+                            if row.routing_decision != "LLM":
+                                b["cache_hits"] += 1
                             break
 
             for row in llm_query.all():
@@ -336,16 +341,22 @@ class AnalyticsService:
                     requests=b["requests"],
                     cost=round(b["cost"], 6),
                     tokens=b["tokens"],
+                    cache_hits=b["cache_hits"],
+                    llm_calls=b["requests"] - b["cache_hits"],
                 )
                 for b in buckets
             ]
 
-        daily_stats = defaultdict(lambda: {"requests": 0, "cost": 0.0, "tokens": 0})
+        daily_stats = defaultdict(
+            lambda: {"requests": 0, "cost": 0.0, "tokens": 0, "cache_hits": 0}
+        )
 
         for row in gw_query.all():
             if row.created_at:
                 day_str = row.created_at.strftime("%Y-%m-%d")
                 daily_stats[day_str]["requests"] += 1
+                if row.routing_decision != "LLM":
+                    daily_stats[day_str]["cache_hits"] += 1
 
         for row in llm_query.all():
             if row.created_at:
@@ -367,6 +378,8 @@ class AnalyticsService:
                     requests=stats["requests"],
                     cost=round(stats["cost"], 6),
                     tokens=stats["tokens"],
+                    cache_hits=stats["cache_hits"],
+                    llm_calls=stats["requests"] - stats["cache_hits"],
                 )
             )
             curr_date += timedelta(days=1)
