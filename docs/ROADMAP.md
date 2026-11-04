@@ -369,9 +369,9 @@ Core principles (from the evaluation pipeline plan):
 
 Partially implemented today: the LLM judge (`app/modules/verifier/judge_service.py`),
 the `PENDING → EVALUATED` trace pipeline (`gateway_requests`), and the periodic
-`evaluate_pending_requests` Celery task are live. That task currently scores the
-logged response of every non-error trace in isolation — there is no sampled *fresh-answer*
-comparison and no data-driven threshold calibration. Remaining work:
+`evaluate_pending_requests` Celery task are live. The remaining-work list below
+is now closed: sampled fresh-answer audits, comparative judging, instant
+eviction, conformal calibration, and dataset export all landed (2026-11-04).
 
 - [x] **Asynchronous shadow audit trigger** (`LlmRouterService`): on a semantic
   cache hit, roll a small sample probability (p ≈ 0.01–0.02); when selected,
@@ -398,9 +398,14 @@ comparison and no data-driven threshold calibration. Remaining work:
   scheduled batch job (or admin CLI) analyzes the audit table grouped by
   intent and computes an empirical threshold quantile guaranteeing an error
   rate ≤ α (e.g. ≤ 2%) per intent, applying it as a Redis override
-  (`cache:thresholds:{intent}`) rather than online mutation. Note:
-  `app/scripts/calibrate_reranker.py` currently sweeps from a static test
-  dataset, not live audit records.
+  (`cache:thresholds:{intent}`) rather than online mutation. The scheduled job
+  and `python -m app.scripts.calibrate_intent_thresholds` both read live
+  `cache_evaluations` rows; `app/scripts/calibrate_reranker.py --source audit`
+  sweeps the same ground truth directly (precision/recall/F1 plus a per-intent
+  conformal recommendation) with no inference engine and no static dataset, and
+  the default `--source static` replay of `TEST_DATASET` remains for offline
+  reranker tuning.
+
 - [x] **In-domain dataset export**: export `(query_text, cached_answer, is_equivalent)`
   triples as they accumulate to fine-tune an in-domain cross-encoder reranker
   (`CacheAuditService.export_in_domain_dataset` +
@@ -421,15 +426,19 @@ comparison and no data-driven threshold calibration. Remaining work:
   the chart cannot disagree with the window-level donut. Cost avoided is
   explicitly labelled an estimate — each hit is priced at the window's mean cost
   per LLM call, because the counterfactual cost of a hit is not recorded.
-- [x] **Cache entry inspector / manual eviction UI** *(2026-11-04, partial)*: a
+- [x] **Cache entry inspector / manual eviction UI** *(2026-11-04)*: a
   "Cache Explorer" page in `web/` that searches entries by prompt text
   (`POST /api/v1/admin/cache/search`, semantic, with tenant/model/scope/intent
-  filters), shows metadata (scope, intent, tenant, TTL, hit count, score), and
-  evicts one entry across Qdrant + Redis
-  (`DELETE /api/v1/admin/cache/entry/{point_id}`). Both are admin-scoped thin
-  wrappers over `llm_cache_collection_service`. Still open: exact-hash search
-  mode, fuller payload metadata (entities, rerank scores), and bulk eviction by
-  intent, model, or age.
+  filters) or by exact hash (`mode: "exact"`, no inference call), shows the
+  payload metadata (scope, intent, tenant, TTL, hit count, score, entities,
+  service, core operation/subject, prompt/reranker/key versions, cost, latency,
+  tokens, retention value) plus the latest audit verdict for the point
+  (rerank score, vector similarity, equivalence, audit time), and evicts one
+  entry across Qdrant + Redis (`DELETE /api/v1/admin/cache/entry/{point_id}`)
+  or a filtered slice (`POST /api/v1/admin/cache/evict` by intent, model, scope,
+  tenant, age, or expired-only, dry-run by default, capped at 1000 per call).
+  All three are admin-scoped thin wrappers over
+  `llm_cache_collection_service`.
 - [x] **Diagnostics hardening** *(2026-11-04)*: `/api/v1/qdrant/search` and
   `/search/rrf` require `cache:read` and run their blocking Qdrant/BM25 calls in
   `asyncio.to_thread`; `QdrantSearchRequest.threshold` is finally applied
@@ -696,7 +705,8 @@ M4/MPS stays at 10-30 ms per request.
    ranking but a different scale silently turns the semantic cache off: the
    146 MB mxbai reranker scored 0.06 raw for a paraphrase where this one scores
    0.80, so nothing ever cleared the gate. Run
-   `python -m app.scripts.calibrate_reranker` against shadow data, then check the
+   `python -m app.scripts.calibrate_reranker --source audit` once shadow audits
+   have accumulated (or `--source static` for an offline replay), then check the
    eval goldens (`inference-platform/evals/check.py`) — several of them pin a
    specific model's spread on purpose. Verify with a live shadow request that a
    known paraphrase lands in the band you expect, not merely that the ranking is

@@ -167,6 +167,42 @@ class CacheAuditService:
                 evicted_count=evicted,
             )
 
+    def get_latest_audit_by_point_ids(self, point_ids: list[str]) -> dict[str, dict]:
+        """Return the most recent audit verdict for each cache point id.
+
+        The admin cache inspector uses this to show the ground-truth verdict and
+        the rerank/vector scores behind an entry, which only exist on the audit
+        row (they are query-time values, not part of the Qdrant payload).
+        Rows are distilled to plain dicts so the caller never touches a detached
+        ORM instance.
+        """
+        ids = [point_id for point_id in dict.fromkeys(point_ids) if point_id]
+        if not ids:
+            return {}
+
+        with self._get_read_session() as s:
+            rows = (
+                s.query(CacheEvaluation)
+                .filter(CacheEvaluation.point_id.in_(ids))
+                .order_by(CacheEvaluation.created_at.asc(), CacheEvaluation.id.asc())
+                .all()
+            )
+
+            latest: dict[str, dict] = {}
+            for row in rows:
+                latest[row.point_id] = {
+                    "audit_id": row.id,
+                    "rerank_score": float(row.rerank_score)
+                    if row.rerank_score is not None
+                    else None,
+                    "vector_similarity": float(row.vector_similarity)
+                    if row.vector_similarity is not None
+                    else None,
+                    "is_equivalent": row.is_equivalent,
+                    "created_at": row.created_at,
+                }
+            return latest
+
     def export_in_domain_dataset(
         self,
         tenant_id: str | None = None,

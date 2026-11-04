@@ -412,6 +412,54 @@
         "title": "BaseAPIResponse[ApiKeyRotateResponse]",
         "type": "object"
       },
+      "BaseAPIResponse_CacheBulkEvictResponse_": {
+        "properties": {
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "response": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CacheBulkEvictResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status_code": {
+            "default": 200,
+            "title": "Status Code",
+            "type": "integer"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "BaseAPIResponse[CacheBulkEvictResponse]",
+        "type": "object"
+      },
       "BaseAPIResponse_CacheEvictResponse_": {
         "properties": {
           "error_code": {
@@ -1484,6 +1532,128 @@
         "title": "BaseAPIResponse[list[str]]",
         "type": "object"
       },
+      "CacheBulkEvictRequest": {
+        "description": "Filtered, bounded eviction across a whole cache slice.\n\nAt least one filter is required: an empty body must never mean \"delete the\ncollection\". ``dry_run`` defaults to true so the UI can show the match count\nbefore anything is removed.",
+        "properties": {
+          "dry_run": {
+            "default": true,
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "expired_only": {
+            "default": false,
+            "description": "Match entries whose TTL has already lapsed",
+            "title": "Expired Only",
+            "type": "boolean"
+          },
+          "intent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intent"
+          },
+          "limit": {
+            "default": 1000,
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "older_than_days": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Match entries created more than this many days ago",
+            "title": "Older Than Days"
+          },
+          "purge_redis": {
+            "default": true,
+            "description": "Also delete the Redis copy for every matched exact hash",
+            "title": "Purge Redis",
+            "type": "boolean"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          }
+        },
+        "title": "CacheBulkEvictRequest",
+        "type": "object"
+      },
+      "CacheBulkEvictResponse": {
+        "properties": {
+          "deleted": {
+            "title": "Deleted",
+            "type": "integer"
+          },
+          "dry_run": {
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "filters": {
+            "additionalProperties": true,
+            "title": "Filters",
+            "type": "object"
+          },
+          "matched": {
+            "title": "Matched",
+            "type": "integer"
+          },
+          "redis_deleted": {
+            "title": "Redis Deleted",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "filters",
+          "matched",
+          "deleted",
+          "redis_deleted",
+          "dry_run"
+        ],
+        "title": "CacheBulkEvictResponse",
+        "type": "object"
+      },
       "CacheEvictResponse": {
         "properties": {
           "point_id": {
@@ -1581,6 +1751,17 @@
       "CacheSearchHit": {
         "description": "One stored entry, flattened from the Qdrant payload.",
         "properties": {
+          "cache_key_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cache Key Version"
+          },
           "cacheable": {
             "anyOf": [
               {
@@ -1591,6 +1772,46 @@
               }
             ],
             "title": "Cacheable"
+          },
+          "core_operation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Core Operation"
+          },
+          "core_subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Core Subject"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "entities": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Entities",
+            "type": "array"
           },
           "exact_hash": {
             "anyOf": [
@@ -1636,6 +1857,40 @@
             ],
             "title": "Intent"
           },
+          "is_equivalent": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Equivalent"
+          },
+          "last_audited_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Audited At"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          },
           "model": {
             "anyOf": [
               {
@@ -1662,6 +1917,61 @@
             ],
             "title": "Prompt"
           },
+          "prompt_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Version"
+          },
+          "provider_cost": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Cost"
+          },
+          "rerank_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rerank Score"
+          },
+          "reranker_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reranker Version"
+          },
+          "retention_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retention Value"
+          },
           "scope": {
             "anyOf": [
               {
@@ -1684,6 +1994,17 @@
             ],
             "title": "Score"
           },
+          "service_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Service Name"
+          },
           "tenant_id": {
             "anyOf": [
               {
@@ -1695,6 +2016,28 @@
             ],
             "title": "Tenant Id"
           },
+          "time_sensitivity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Sensitivity"
+          },
+          "token_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token Count"
+          },
           "user_prompt": {
             "anyOf": [
               {
@@ -1705,6 +2048,17 @@
               }
             ],
             "title": "User Prompt"
+          },
+          "vector_similarity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vector Similarity"
           }
         },
         "required": [
@@ -1714,8 +2068,20 @@
         "type": "object"
       },
       "CacheSearchRequest": {
-        "description": "Semantic lookup over stored cache entries.",
+        "description": "Lookup over stored cache entries: semantic (by prompt) or exact (by hash).\n\n``mode`` picks the lookup. Semantic mode needs ``query`` and embeds it;\nexact mode needs ``exact_hash`` and skips the inference engine entirely,\nwhich is what an operator wants when chasing a specific key from a trace.",
         "properties": {
+          "exact_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Exact cache key to look up (exact mode)",
+            "title": "Exact Hash"
+          },
           "intent": {
             "anyOf": [
               {
@@ -1745,8 +2111,17 @@
                 "type": "null"
               }
             ],
-            "description": "Drop hits below this similarity",
+            "description": "Drop semantic hits below this similarity (semantic mode)",
             "title": "Min Score"
+          },
+          "mode": {
+            "default": "semantic",
+            "enum": [
+              "semantic",
+              "exact"
+            ],
+            "title": "Mode",
+            "type": "string"
           },
           "model": {
             "anyOf": [
@@ -1760,10 +2135,16 @@
             "title": "Model"
           },
           "query": {
-            "description": "Free-text prompt to embed and match",
-            "minLength": 1,
-            "title": "Query",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Free-text prompt to embed and match (semantic mode)",
+            "title": "Query"
           },
           "scope": {
             "anyOf": [
@@ -1788,9 +2169,6 @@
             "title": "Tenant Id"
           }
         },
-        "required": [
-          "query"
-        ],
         "title": "CacheSearchRequest",
         "type": "object"
       },
@@ -6155,9 +6533,72 @@
         ]
       }
     },
+    "/api/v1/admin/cache/evict": {
+      "post": {
+        "description": "Evict a filtered slice of the cache, from Qdrant and (optionally) Redis.\n\nFilters are ANDed: ``intent``, ``model``, ``scope``, ``tenant_id``,\n``older_than_days`` (by ``created_at``) and ``expired_only`` (by\n``expires_at``). At least one is required, ``dry_run`` defaults to true, and\nthe match count is capped by ``limit`` so a single call cannot wipe the\ncollection.\n\nA real sweep also deletes the Redis copy of every matched exact hash unless\n``purge_redis`` is false; leaving those behind would keep exact hits\nservable after the vectors are gone. Per-key Redis failures are counted, not\nraised, exactly like single-entry eviction.",
+        "operationId": "bulk_evict_cache_api_v1_admin_cache_evict_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-admin-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CacheBulkEvictRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BaseAPIResponse_CacheBulkEvictResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": {
+          "AdminApiKeyAuth": []
+        },
+        "summary": "Bulk Evict Cache",
+        "tags": [
+          "Cache (Admin)"
+        ]
+      }
+    },
     "/api/v1/admin/cache/search": {
       "post": {
-        "description": "Find stored cache entries semantically similar to ``query``.\n\nMirrors the serving path's embedding and vector name so the hits shown here\nare the entries a real request would be compared against. Deliberately does\nnot apply the serving-path filters (``cacheable`` / ``expires_at`` /\ntenant scope), because an inspector has to be able to see the dead and the\ncross-tenant rows too.",
+        "description": "Find stored cache entries by prompt (semantic) or key (exact).\n\nSemantic mode mirrors the serving path's embedding and vector name so the\nhits shown here are the entries a real request would be compared against.\nExact mode looks the key up directly, which also works when the inference\nengine is down.\n\nNeither mode applies the serving-path filters (``cacheable`` / ``expires_at``\n/ tenant scope), because an inspector has to be able to see the dead and the\ncross-tenant rows too.",
         "operationId": "search_cache_api_v1_admin_cache_search_post",
         "parameters": [
           {

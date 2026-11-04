@@ -245,6 +245,32 @@ class TestCacheAuditServicePersistence(unittest.TestCase):
         # 2 / (2 + 1) = 66.7%
         self.assertAlmostEqual(summary.equivalence_rate, 2 / 3, places=3)
 
+    def test_latest_audit_by_point_ids_returns_plain_dicts(self):
+        for equivalent in (True, False):
+            self.service.log_audit(
+                CacheAuditCreate(
+                    point_id="point-1",
+                    is_equivalent=equivalent,
+                    rerank_score=0.8 if equivalent else 0.6,
+                    vector_similarity=0.9,
+                    evicted=not equivalent,
+                )
+            )
+        self.service.log_audit(CacheAuditCreate(point_id="point-2", is_equivalent=True))
+
+        latest = self.service.get_latest_audit_by_point_ids(
+            ["point-1", "point-2", "missing"]
+        )
+
+        self.assertEqual(set(latest), {"point-1", "point-2"})
+        # The most recent verdict wins, and the row is a plain dict so callers
+        # never hold a detached ORM instance.
+        self.assertFalse(latest["point-1"]["is_equivalent"])
+        self.assertAlmostEqual(latest["point-1"]["rerank_score"], 0.6)
+        self.assertAlmostEqual(latest["point-1"]["vector_similarity"], 0.9)
+        self.assertTrue(latest["point-2"]["is_equivalent"])
+        self.assertEqual(self.service.get_latest_audit_by_point_ids([]), {})
+
 
 class TestBackgroundCacheAuditExecution(unittest.IsolatedAsyncioTestCase):
     def setUp(self):

@@ -731,26 +731,50 @@ curl -X POST http://localhost:8000/api/v1/admin/cache/warmup \
 
 ### `POST /api/v1/admin/cache/search`
 
-Semantic lookup over stored cache entries. Requires `cache:read`.
+Search stored cache entries, either semantically or by exact hash. Requires
+`cache:read`.
 
-Body `{query, limit?, min_score?, model?, intent?, scope?, tenant_id?}` —
-`limit` is 1–100 (default 20). The query is embedded with the same encoder and
-`user_prompt_embedding` vector name the serving path uses, so the hits are the
-entries a real request would be compared against.
+Body: `{mode?, query?, exact_hash?, limit?, min_score?, model?, intent?, scope?,
+tenant_id?}`.
+
+- `mode` is `"semantic"` (default) or `"exact"`.
+- **semantic** requires `query`: it is embedded with the same encoder and
+  `user_prompt_embedding` vector name the serving path uses, so the hits are the
+  entries a real request would be compared against. `limit` is 1–100 (default
+  20); `min_score` (0–1) drops weak matches.
+- **exact** requires `exact_hash` and skips the inference engine entirely, so it
+  still works while the engine is down. It deliberately ignores `cacheable` and
+  `expires_at`, like the semantic mode ignores them.
+- `model`, `intent`, `scope` and `tenant_id` are optional ANDed filters in both
+  modes.
 
 ```json
 {"query": "how do I reset my password", "tenant_id": "acme", "limit": 10}
 ```
 
+```json
+{"mode": "exact", "exact_hash": "9f2c...e41"}
+```
+
 `response` carries `{count, results: [...]}`. Each hit is the Qdrant payload
-flattened: `point_id`, `score`, `prompt`, `user_prompt`, `model`, `intent`,
-`scope`, `tenant_id`, `exact_hash`, `cacheable`, `expires_at`, `hit_count`.
+flattened: `point_id`, `score`, `prompt`, `user_prompt`, `model`, `service_name`,
+`intent`, `scope`, `tenant_id`, `exact_hash`, `cacheable`, `created_at`,
+`expires_at`, `hit_count`, `entities`, `time_sensitivity`, `core_operation`,
+`core_subject`, `prompt_version`, `reranker_version`, `cache_key_version`,
+`provider_cost`, `latency_ms`, `token_count`, `retention_value`.
+
+Each hit also carries the **latest sampled audit verdict** for that point, when
+one exists: `rerank_score`, `vector_similarity`, `is_equivalent` and
+`last_audited_at` (they are query-time values, so they live in
+`cache_evaluations`, not in the payload). The lookup is best-effort: if Postgres
+is unreachable the search still returns hits with those four fields `null`.
 
 Unlike serving, the search deliberately applies **no** cacheability, expiry, or
 tenant-scope filter: an operator has to be able to see the dead and cross-tenant
 rows. This is why it needs an admin key rather than a tenant key.
 
-Returns `503` when Qdrant or the inference engine is unavailable.
+Returns `503` when Qdrant (either mode) or the inference engine (semantic mode
+only) is unavailable.
 
 ### `DELETE /api/v1/admin/cache/entry/{point_id}`
 
@@ -769,7 +793,33 @@ is `null` when no hash was supplied. Qdrant deletion is idempotent, so evicting
 an already-missing point still reports success; a real Qdrant failure is `500`,
 and a Redis failure is reported in the body rather than raised.
 
-Bulk eviction (by intent, model, or age) is not implemented yet.
+### `POST /api/v1/admin/cache/evict`
+
+Bulk eviction over a filtered slice of the cache. Requires `cache:write`.
+
+Body: `{intent?, model?, scope?, tenant_id?, older_than_days?, expired_only?,
+dry_run?, limit?, purge_redis?}`.
+
+- At least one filter is required (`400` otherwise): an empty body must never
+  mean "delete the collection". Filters are ANDed.
+- `older_than_days` matches on `created_at`; entries written before that field
+  existed do not match an age filter (they have no `created_at`).
+- `expired_only` matches on `expires_at < now`.
+- `dry_run` defaults to **true**: it reports `matched` and removes nothing.
+- `limit` (1–10000, default 1000) caps one call. If the filter matches more than
+  `limit`, the request is `400` — narrow the filter or raise the limit, because
+  an unbounded delete is not offered.
+- `purge_redis` (default true) also deletes the Redis copy of every matched exact
+  hash. Skipping it would leave exact hits servable after the vectors are gone.
+
+```json
+{"intent": "general_query", "older_than_days": 30, "dry_run": false}
+```
+
+`response` is `{filters, matched, deleted, redis_deleted, dry_run}`. `matched` is
+the exact filter count taken before anything is removed, so a dry run and a real
+sweep report the same number; `redis_deleted` counts the keys actually removed
+(a Redis failure is counted, not raised). `503` when Qdrant is unavailable.
 
 ---
 

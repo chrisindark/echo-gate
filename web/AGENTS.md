@@ -57,9 +57,13 @@ poetry run uvicorn app.main:app --port 8000 --reload
   array of `{request, response, tenant_id}` items and POST them to
   `/api/v1/admin/cache/warmup`. Shows queued/succeeded/failed counts.
 - `src/app/admin/explorer/page.tsx` — cache inspector: semantic search over
-  stored entries (prompt, tenant, model filters) and single-entry eviction
-  across Qdrant + Redis. Backed by `/api/v1/admin/cache/search` and
-  `/api/v1/admin/cache/entry/{point_id}`.
+  stored entries (prompt, tenant, model, intent, scope filters) or exact-hash
+  lookup, showing payload metadata (entities, core operation/subject, cost,
+  latency, tokens, retention) plus the latest audit verdict (rerank/vector
+  scores, equivalence, audit time). Evicts one entry across Qdrant + Redis and
+  bulk-evicts a filtered slice (intent / model / age / expired, dry-run first,
+  1000 per call). Backed by `/api/v1/admin/cache/search`,
+  `/api/v1/admin/cache/entry/{point_id}` and `/api/v1/admin/cache/evict`.
 - `src/app/quota/page.tsx` — admin quota rule management (CRUD over
   `/api/v1/admin/llm-quota`): list/create/edit/toggle/delete rules, plus an
   "effective limits" preview that resolves which rule wins for a tenant.
