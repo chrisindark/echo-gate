@@ -22,7 +22,9 @@ from app.modules.chat.chat_schema import (
 from app.modules.llm.llm_router_service import LlmRouterService
 
 
-def _request(model="gpt-4o-mini", service="openai", user_content="What is 2+2?") -> ChatCompletionRequest:
+def _request(
+    model="gpt-4o-mini", service="openai", user_content="What is 2+2?"
+) -> ChatCompletionRequest:
     return ChatCompletionRequest(
         service_name=service,
         model=model,
@@ -37,14 +39,14 @@ def _response(model="gpt-4o-mini") -> ChatCompletionResponse:
         id="chatcmpl-test",
         created=1,
         model=model,
-        choices=[
-            Choice(index=0, message=ChatMessage(role="assistant", content="4"))
-        ],
+        choices=[Choice(index=0, message=ChatMessage(role="assistant", content="4"))],
         usage={"prompt_tokens": 5, "completion_tokens": 1, "total_tokens": 6},
     )
 
 
-def _router(cache_service=None, redis_service=None, embedding_service=None) -> LlmRouterService:
+def _router(
+    cache_service=None, redis_service=None, embedding_service=None
+) -> LlmRouterService:
     if cache_service is None:
         cache_service = MagicMock()
     if redis_service is None:
@@ -53,7 +55,9 @@ def _router(cache_service=None, redis_service=None, embedding_service=None) -> L
         embedding_service = MagicMock()
         embedding_service.model_name = "BAAI/bge-small-en-v1.5"
         embedding_service.get_embedding = AsyncMock(return_value=[0.1] * 384)
-        embedding_service.get_sparse_embedding = AsyncMock(return_value={"indices": [1, 2], "values": [0.5, 0.3]})
+        embedding_service.get_sparse_embedding = AsyncMock(
+            return_value={"indices": [1, 2], "values": [0.5, 0.3]}
+        )
     return LlmRouterService(
         llm_provider_service=MagicMock(),
         embedding_service=embedding_service,
@@ -167,7 +171,9 @@ class TestSemanticCachePipelineCharacterization(unittest.IsolatedAsyncioTestCase
         self.assertIsInstance(hash1, str)
         self.assertIsInstance(hash2, str)
         self.assertEqual(len(hash1), 64)  # SHA-256 hex
-        self.assertNotEqual(hash1, hash2, "Different tenants must produce different cache keys")
+        self.assertNotEqual(
+            hash1, hash2, "Different tenants must produce different cache keys"
+        )
 
     async def test_model_scoped_exact_hash_generation(self):
         """Characterize: model affects cache key (tenant/model-scoped correctness)."""
@@ -176,7 +182,9 @@ class TestSemanticCachePipelineCharacterization(unittest.IsolatedAsyncioTestCase
         req2 = _request(model="openai/gpt-oss-safeguard-20b", service="groq")
         hash1 = router._generate_cache_key(req1)
         hash2 = router._generate_cache_key(req2)
-        self.assertNotEqual(hash1, hash2, "Different models must produce different cache keys")
+        self.assertNotEqual(
+            hash1, hash2, "Different models must produce different cache keys"
+        )
 
     async def test_pipeline_latency_breakdown_keys_present_on_miss(self):
         """Characterize latency breakdown structure."""

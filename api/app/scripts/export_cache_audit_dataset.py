@@ -43,7 +43,9 @@ def main() -> None:
         action="store_true",
         help="Include audits with is_equivalent=None (uncompared)",
     )
-    parser.add_argument("--tenant-id", type=str, default=None, help="Filter by tenant_id")
+    parser.add_argument(
+        "--tenant-id", type=str, default=None, help="Filter by tenant_id"
+    )
     parser.add_argument("--model", type=str, default=None, help="Filter by model")
     parser.add_argument("--intent", type=str, default=None, help="Filter by intent")
     args = parser.parse_args()
