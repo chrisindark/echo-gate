@@ -16,7 +16,17 @@ class CacheScope(str, Enum):
 
 class QdrantSearchRequest(BaseModel):
     messages: list[ChatMessage]
-    threshold: float = 0.90
+    threshold: float = Field(
+        default=0.90,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Cosine-similarity floor for dense matches. `/search` applies it to "
+            "the result set; `/search/rrf` applies it to each dense prefetch "
+            "branch, because the fused RRF score is a rank score, not a "
+            "similarity."
+        ),
+    )
     model_filter: str | None = None
 
 

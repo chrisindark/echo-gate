@@ -22,6 +22,22 @@ import {
   Zap,
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 
 type TimeRange =
   '1h' | '3h' | '6h' | '12h' | '1d' | '3d' | '7d' | '14d' | '30d';
@@ -115,6 +131,10 @@ interface AnalyticsData {
     requests: number;
     cost: number;
     tokens: number;
+    // Per-bucket cache hits, added so hit rate over time needs no second call.
+    // Older gateways omit them, hence the optional marker plus `?? 0` reads.
+    cache_hits?: number;
+    llm_calls?: number;
   }>;
   cache_performance: {
     total: number;
@@ -272,10 +292,9 @@ export default function AnalyticsPage() {
     const headers: Record<string, string> = {};
     if (apiKey) headers['X-API-Key'] = apiKey;
 
-    fetch(
-      `${API_ROOT}/api/v1/shadow-cache/summary?time_range=${timeRange}`,
-      { headers }
-    )
+    fetch(`${API_ROOT}/api/v1/shadow-cache/summary?time_range=${timeRange}`, {
+      headers,
+    })
       .then((res) => {
         if (!res.ok) {
           throw new Error(`HTTP error! status: ${res.status}`);
@@ -409,6 +428,15 @@ export default function AnalyticsPage() {
 
   // Speedup calculations
   const cacheHits = (cacheStats?.total || 0) - (cacheStats?.llm_calls || 0);
+  // Cache-layer composition for the Cache Performance donut. Kept in one place
+  // so the slices and the legend cannot drift apart.
+  const cacheHitRate = Math.min(100, Math.max(0, Number(kpis.cache_hit_rate)));
+  const cacheBreakdown = [
+    { name: 'Semantic', value: cacheStats.qdrant_semantic, fill: '#22c55e' },
+    { name: 'Qdrant exact', value: cacheStats.qdrant_exact, fill: '#3b82f6' },
+    { name: 'Redis exact', value: cacheStats.redis_exact, fill: '#a855f7' },
+    { name: 'Miss / LLM', value: cacheStats.llm_calls, fill: '#6b7280' },
+  ];
   const avgProviderLatency = latency?.avg_provider_latency_ms || 0;
   const avgCacheLatency = latency?.avg_cache_lookup_latency_ms || 0;
   const speedupRatio =
@@ -518,6 +546,84 @@ export default function AnalyticsPage() {
     ...componentList.filter((c) => !c.isTotal).map((c) => c.value || 0),
     1
   );
+
+  // --- Cache efficiency over time -----------------------------------------
+  // `cache_hits` arrives per bucket, so hit rate over time is a pure client
+  // derivation and always agrees with the window-level donut below.
+  const hitRateSeries = (timeSeries ?? []).map((d) => {
+    const hits = d.cache_hits ?? 0;
+    return {
+      label: d.date_label,
+      // `null` (not 0) for an empty bucket so the line shows a gap instead of
+      // a dip to 0% — a quiet period is not a cache failure.
+      hitRate: d.requests > 0 ? (hits / d.requests) * 100 : null,
+      hits,
+      requests: d.requests,
+    };
+  });
+
+  // --- Cumulative cost avoided -------------------------------------------
+  // We never record what a cache hit *would* have cost, so this is an
+  // estimate: each hit is priced at the window's mean cost per LLM call.
+  // Labelled as an estimate in the UI rather than presented as actuals.
+  const avgCostPerLlmCall =
+    (cacheStats?.llm_calls ?? 0) > 0
+      ? (kpis?.total_cost ?? 0) / (cacheStats?.llm_calls ?? 1)
+      : 0;
+  const bucketSavings = (timeSeries ?? []).map(
+    (d) => (d.cache_hits ?? 0) * avgCostPerLlmCall
+  );
+  const savingsSeries = (timeSeries ?? []).map((d, index) => ({
+    label: d.date_label,
+    saved: Number(bucketSavings[index].toFixed(6)),
+    cumulative: Number(
+      bucketSavings
+        .slice(0, index + 1)
+        .reduce((a, b) => a + b, 0)
+        .toFixed(6)
+    ),
+    hits: d.cache_hits ?? 0,
+  }));
+  const totalEstimatedSavings =
+    savingsSeries.length > 0
+      ? savingsSeries[savingsSeries.length - 1].cumulative
+      : 0;
+
+  // --- Routing-decision distribution -------------------------------------
+  // Its own chart: the funnel (how many requests took which path) is a
+  // different question from how fast each path was.
+  const ROUTING_COLORS: Record<string, string> = {
+    REDIS_EXACT: '#a855f7',
+    QDRANT_EXACT: '#3b82f6',
+    QDRANT_FAST: '#06b6d4',
+    QDRANT_SEMANTIC: '#22c55e',
+    LLM: '#f59e0b',
+  };
+  const routingDistribution = latency?.by_routing_decision ?? [];
+  const routingTotal = routingDistribution.reduce((a, r) => a + r.count, 0);
+
+  // --- Latency breakdown waterfall ---------------------------------------
+  // Stages run left to right in the order they occur on the semantic path.
+  // Values are per-stage averages over the requests where the stage ran (a
+  // cache hit never reaches the provider), so the workflow is a cascade of
+  // averages, not a single request's timeline — the UI says so.
+  const waterfallStages = [
+    { key: 'redis_exact_ms' as const, label: 'Redis exact', color: '#a855f7' },
+    { key: 'qdrant_exact_ms' as const, label: 'Qdrant exact', color: '#3b82f6' },
+    { key: 'embedding_gen_ms' as const, label: 'Embedding', color: '#6366f1' },
+    { key: 'qdrant_dense_ms' as const, label: 'Dense search', color: '#06b6d4' },
+    { key: 'qdrant_rrf_ms' as const, label: 'RRF fusion', color: '#0ea5e9' },
+    { key: 'intent_classify_ms' as const, label: 'Intent', color: '#8b5cf6' },
+    { key: 'rerank_ms' as const, label: 'Rerank', color: '#22c55e' },
+    { key: 'provider_ms' as const, label: 'Provider', color: '#f59e0b' },
+    { key: 'cache_write_ms' as const, label: 'Cache write', color: '#f43f5e' },
+  ];
+  const waterfall = waterfallStages.map((stage) => ({
+    ...stage,
+    value: Number(latency?.component_breakdown?.[stage.key] ?? 0),
+  }));
+  const waterfallTotal = waterfall.reduce((a, s) => a + s.value, 0);
+  const waterfallEndToEnd = Number(latency?.component_breakdown?.total_ms ?? 0);
 
   return (
     <div className="flex-1 overflow-y-auto p-6 md:p-8 bg-background">
@@ -853,8 +959,10 @@ export default function AnalyticsPage() {
                         Floors: {shadowReadiness.min_evaluations} evaluations ·{' '}
                         {(shadowReadiness.min_hit_rate * 100).toFixed(0)}%
                         would-be hit rate ·{' '}
-                        {(shadowReadiness.min_equivalence_rate * 100).toFixed(0)}%
-                        equivalence.
+                        {(shadowReadiness.min_equivalence_rate * 100).toFixed(
+                          0
+                        )}
+                        % equivalence.
                       </p>
                     </div>
                   </div>
@@ -1213,11 +1321,11 @@ export default function AnalyticsPage() {
           </Card>
         </motion.div>
 
-        {/* Latency Over Time Trend */}
+        {/* Latency Over Time */}
         <motion.div
-          initial={{ opacity: 0, y: 15 }}
+          initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
+          transition={{ duration: 0.5, delay: 0.3 }}
         >
           <Card size="3">
             <Box mb="4">
@@ -1267,6 +1375,181 @@ export default function AnalyticsPage() {
                 </div>
               )}
             </Box>
+          </Card>
+        </motion.div>
+
+        {/* Latency waterfall and routing-decision distribution */}
+        <motion.div
+          initial={{ opacity: 0, y: 15 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.35 }}
+          className="grid gap-4 md:grid-cols-2 lg:grid-cols-7"
+        >
+          <Card className="md:col-span-2 lg:col-span-4" size="3">
+            <Box mb="4">
+              <Heading size="4" className="flex items-center gap-2">
+                <Layers className="w-5 h-5 text-blue-500" />
+                Latency Breakdown Waterfall
+              </Heading>
+              <Text size="2" color="gray">
+                Where the average request spends its time, read left to right.
+                Stages are averaged over the requests that actually ran them, so
+                a cache hit contributes nothing to the provider stage.
+              </Text>
+            </Box>
+
+            {waterfallTotal > 0 ? (
+              <>
+                <div className="flex h-10 w-full overflow-hidden rounded-lg bg-secondary/60">
+                  {waterfall
+                    .filter((stage) => stage.value > 0)
+                    .map((stage) => (
+                      <motion.div
+                        key={stage.key}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ duration: 0.4 }}
+                        className="relative h-full group"
+                        style={{
+                          width: `${(stage.value / waterfallTotal) * 100}%`,
+                          backgroundColor: stage.color,
+                        }}
+                      >
+                        <div className="absolute -top-10 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-foreground text-background text-xs py-1 px-2 rounded-lg z-20 whitespace-nowrap shadow-md pointer-events-none">
+                          {stage.label}: {stage.value.toFixed(1)} ms
+                        </div>
+                      </motion.div>
+                    ))}
+                </div>
+
+                <div className="mt-4 space-y-2">
+                  {waterfall
+                    .filter((stage) => stage.value > 0)
+                    .map((stage) => (
+                      <div
+                        key={stage.key}
+                        className="flex items-center justify-between gap-3 text-xs"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div
+                            className="w-2.5 h-2.5 rounded-full shrink-0"
+                            style={{ backgroundColor: stage.color }}
+                          />
+                          <span className="font-medium truncate">
+                            {stage.label}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 shrink-0 font-mono">
+                          <span className="text-muted-foreground">
+                            {((stage.value / waterfallTotal) * 100).toFixed(1)}%
+                          </span>
+                          <span className="font-semibold">
+                            {stage.value.toFixed(1)} ms
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-border/60 flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">
+                    End-to-end average
+                  </span>
+                  <span className="font-mono font-bold">
+                    {waterfallEndToEnd > 0
+                      ? `${waterfallEndToEnd.toFixed(1)} ms`
+                      : '—'}
+                  </span>
+                </div>
+              </>
+            ) : (
+              <div className="h-[240px] flex items-center justify-center text-muted-foreground text-sm">
+                No latency components recorded for this range
+              </div>
+            )}
+          </Card>
+
+          <Card className="md:col-span-2 lg:col-span-3" size="3">
+            <Box mb="4">
+              <Heading size="4" className="flex items-center gap-2">
+                <Activity className="w-5 h-5 text-emerald-500" />
+                Routing Decision Distribution
+              </Heading>
+              <Text size="2" color="gray">
+                How many requests took each path, independent of how long those
+                paths took.
+              </Text>
+            </Box>
+
+            {routingDistribution.length > 0 ? (
+              <>
+                <ResponsiveContainer width="100%" height={230}>
+                  <BarChart
+                    data={routingDistribution.map((route) => ({
+                      name: route.routing_decision,
+                      count: route.count,
+                    }))}
+                    layout="vertical"
+                    margin={{ top: 4, right: 16, bottom: 4, left: 8 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                    <XAxis type="number" fontSize={11} allowDecimals={false} />
+                    <YAxis
+                      type="category"
+                      dataKey="name"
+                      width={124}
+                      fontSize={10}
+                    />
+                    <Tooltip
+                      formatter={(value) => [
+                        `${Number(value).toLocaleString()} requests`,
+                        'Count',
+                      ]}
+                    />
+                    <Bar dataKey="count" radius={[0, 4, 4, 0]}>
+                      {routingDistribution.map((route) => (
+                        <Cell
+                          key={route.routing_decision}
+                          fill={
+                            ROUTING_COLORS[route.routing_decision] ?? '#6b7280'
+                          }
+                        />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  {routingDistribution.map((route) => (
+                    <div
+                      key={route.routing_decision}
+                      className="flex items-center justify-between gap-2 text-xs bg-background/80 rounded-lg px-2.5 py-1.5 border border-border/40"
+                    >
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <div
+                          className="w-2 h-2 rounded-full shrink-0"
+                          style={{
+                            backgroundColor:
+                              ROUTING_COLORS[route.routing_decision] ??
+                              '#6b7280',
+                          }}
+                        />
+                        <span className="truncate">{route.routing_decision}</span>
+                      </div>
+                      <span className="font-mono font-semibold shrink-0">
+                        {routingTotal > 0
+                          ? `${((route.count / routingTotal) * 100).toFixed(1)}%`
+                          : '—'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="h-[240px] flex items-center justify-center text-muted-foreground text-sm">
+                No routing data for this range
+              </div>
+            )}
           </Card>
         </motion.div>
 
@@ -1322,58 +1605,214 @@ export default function AnalyticsPage() {
             <Box mb="4">
               <Heading size="4">Cache Performance</Heading>
               <Text size="2" color="gray">
-                Hits by routing decision.
+                Hit rate and where the hits came from.
               </Text>
             </Box>
             <Box className="flex flex-col justify-center items-center h-[280px] pb-6">
-              <div className="relative w-44 h-44 rounded-full border-8 border-primary/10 flex items-center justify-center">
-                <svg className="absolute inset-0 w-full h-full -rotate-90">
-                  <circle
-                    cx="50%"
-                    cy="50%"
-                    r="46%"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="8%"
-                    className="text-emerald-500"
-                    strokeDasharray="289"
-                    strokeDashoffset={
-                      289 -
-                      (289 *
-                        Math.min(100, Math.max(0, kpis?.cache_hit_rate || 0))) /
-                        100
-                    }
-                    strokeLinecap="round"
-                  />
-                </svg>
-                <div className="text-center">
+              <div className="relative w-44 h-44">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={cacheBreakdown}
+                      dataKey="value"
+                      nameKey="name"
+                      innerRadius="64%"
+                      outerRadius="92%"
+                      paddingAngle={2}
+                      stroke="none"
+                    >
+                      {cacheBreakdown.map((slice) => (
+                        <Cell key={slice.name} fill={slice.fill} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      formatter={(value) =>
+                        `${Number(value).toLocaleString()} requests`
+                      }
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
                   <div className="text-3xl font-bold">
-                    {(cacheStats?.total || 0) - (cacheStats?.llm_calls || 0)}
+                    {cacheHitRate.toFixed(1)}%
                   </div>
                   <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">
-                    Total Hits
+                    Hit rate
                   </div>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3 mt-6 w-full px-4">
-                <div className="flex items-center gap-2 text-xs">
-                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                  Semantic ({cacheStats?.qdrant_semantic || 0})
-                </div>
-                <div className="flex items-center gap-2 text-xs">
-                  <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />
-                  Qdrant Exact ({cacheStats?.qdrant_exact || 0})
-                </div>
-                <div className="flex items-center gap-2 text-xs">
-                  <div className="w-2.5 h-2.5 rounded-full bg-purple-500" />
-                  Redis Exact ({cacheStats?.redis_exact || 0})
-                </div>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <div className="w-2.5 h-2.5 rounded-full bg-gray-500" />
-                  Miss / LLM ({cacheStats?.llm_calls || 0})
-                </div>
+                {cacheBreakdown.map((slice) => (
+                  <div
+                    key={slice.name}
+                    className={cn(
+                      'flex items-center gap-2 text-xs',
+                      slice.name === 'Miss / LLM' && 'text-muted-foreground'
+                    )}
+                  >
+                    <div
+                      className="w-2.5 h-2.5 rounded-full"
+                      style={{ backgroundColor: slice.fill }}
+                    />
+                    {slice.name} ({slice.value})
+                  </div>
+                ))}
               </div>
             </Box>
+          </Card>
+        </motion.div>
+
+        {/* Cache efficiency over time: hit rate and cost avoided */}
+        <motion.div
+          initial={{ opacity: 0, y: 15 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.45 }}
+          className="grid gap-4 md:grid-cols-2"
+        >
+          <Card size="3">
+            <Box mb="4">
+              <Heading size="4" className="flex items-center gap-2">
+                <Zap className="w-5 h-5 text-emerald-500" />
+                Cache Hit Rate Over Time
+              </Heading>
+              <Text size="2" color="gray">
+                Share of requests answered from cache in each bucket. Matches
+                the window hit rate above when summed.
+              </Text>
+            </Box>
+            <Box className="h-[280px]">
+              {hitRateSeries.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart
+                    data={hitRateSeries}
+                    margin={{ top: 8, right: 12, bottom: 0, left: -20 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                    <XAxis
+                      dataKey="label"
+                      tickFormatter={formatTickLabel}
+                      fontSize={10}
+                      interval="preserveStartEnd"
+                      minTickGap={24}
+                    />
+                    <YAxis
+                      fontSize={11}
+                      domain={[0, 100]}
+                      tickFormatter={(value) => `${value}%`}
+                    />
+                    <Tooltip
+                      labelFormatter={(label) => formatTickLabel(String(label))}
+                      formatter={(value, name) => {
+                        if (name === 'hitRate') {
+                          return [`${Number(value).toFixed(1)}%`, 'Hit rate'];
+                        }
+                        return [String(value), String(name)];
+                      }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="hitRate"
+                      stroke="#22c55e"
+                      strokeWidth={2}
+                      dot={false}
+                      activeDot={{ r: 4 }}
+                      connectNulls={false}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-full flex items-center justify-center text-muted-foreground">
+                  No request data available
+                </div>
+              )}
+            </Box>
+          </Card>
+
+          <Card size="3">
+            <Box mb="4">
+              <Heading size="4" className="flex items-center gap-2">
+                <TrendingDown className="w-5 h-5 text-blue-500" />
+                Cumulative Cost Avoided
+              </Heading>
+              <Text size="2" color="gray">
+                Estimated. Each cache hit is priced at this window&apos;s mean
+                cost per LLM call; we do not record the counterfactual cost of a
+                hit.
+              </Text>
+            </Box>
+            <Box className="h-[280px]">
+              {savingsSeries.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart
+                    data={savingsSeries}
+                    margin={{ top: 8, right: 12, bottom: 0, left: -8 }}
+                  >
+                    <defs>
+                      <linearGradient
+                        id="savingsFill"
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2="1"
+                      >
+                        <stop
+                          offset="0%"
+                          stopColor="#3b82f6"
+                          stopOpacity={0.45}
+                        />
+                        <stop
+                          offset="100%"
+                          stopColor="#3b82f6"
+                          stopOpacity={0.02}
+                        />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                    <XAxis
+                      dataKey="label"
+                      tickFormatter={formatTickLabel}
+                      fontSize={10}
+                      interval="preserveStartEnd"
+                      minTickGap={24}
+                    />
+                    <YAxis
+                      fontSize={11}
+                      tickFormatter={(value) => `$${Number(value).toFixed(3)}`}
+                    />
+                    <Tooltip
+                      labelFormatter={(label) => formatTickLabel(String(label))}
+                      formatter={(value, name) =>
+                        name === 'cumulative'
+                          ? [
+                              `$${Number(value).toFixed(4)}`,
+                              'Cumulative avoided',
+                            ]
+                          : [`$${Number(value).toFixed(4)}`, 'Avoided in bucket']
+                      }
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="cumulative"
+                      stroke="#3b82f6"
+                      strokeWidth={2}
+                      fill="url(#savingsFill)"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-full flex items-center justify-center text-muted-foreground">
+                  No request data available
+                </div>
+              )}
+            </Box>
+            <div className="mt-3 pt-3 border-t border-border/60 flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">
+                Estimated total avoided
+              </span>
+              <span className="font-mono font-bold text-blue-500">
+                ${totalEstimatedSavings.toFixed(4)}
+              </span>
+            </div>
           </Card>
         </motion.div>
 
@@ -1475,49 +1914,46 @@ export default function AnalyticsPage() {
             </Box>
           </Card>
 
-          <Card size="3">
-            <Box mb="4">
-              <Heading size="4">Top Intents</Heading>
-              <Text size="2" color="gray">
-                Most frequent classified semantic intents.
-              </Text>
-            </Box>
-            <Box>
-              <div className="space-y-4">
-                {intents?.length > 0 ? (
-                  intents.slice(0, 5).map((intent, idx) => {
-                    const maxIntentCount = Math.max(
-                      ...intents.map((i) => i.count)
-                    );
-                    return (
-                      <div key={idx} className="space-y-1">
-                        <div className="flex justify-between text-sm">
-                          <span className="font-medium capitalize">
-                            {intent.intent.replace(/_/g, ' ')}
-                          </span>
-                          <span className="text-muted-foreground">
-                            {intent.count}
-                          </span>
-                        </div>
-                        <div className="w-full bg-secondary rounded-full h-1.5">
-                          <div
-                            className="bg-primary h-1.5 rounded-full"
-                            style={{
-                              width: `${(intent.count / maxIntentCount) * 100}%`,
-                            }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <div className="text-sm text-muted-foreground py-4 text-center">
-                    No intent data available.
-                  </div>
-                )}
-              </div>
-            </Box>
-          </Card>
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.25 }}
+          >
+            <Card size="3">
+              <Box mb="4">
+                <Flex align="center" justify="between">
+                  <Box>
+                    <Heading size="4">Top Intents</Heading>
+                    <Text size="2" color="gray">
+                      Most frequent classified semantic intents.
+                    </Text>
+                  </Box>
+                </Flex>
+              </Box>
+              <Box>
+                <ResponsiveContainer width="100%" height={250}>
+                  <BarChart
+                    data={(intents || []).slice(0, 6).map((i) => ({
+                      name: i.intent.replace(/_/g, ' '),
+                      count: i.count,
+                    }))}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                    <XAxis
+                      dataKey="name"
+                      angle={-45}
+                      textAnchor="end"
+                      height={70}
+                      fontSize={11}
+                    />
+                    <YAxis fontSize={12} allowDecimals={false} />
+                    <Tooltip />
+                    <Bar dataKey="count" fill="#06b6d4" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </Box>
+            </Card>
+          </motion.div>
         </motion.div>
       </div>
     </div>

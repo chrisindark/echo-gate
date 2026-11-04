@@ -19,6 +19,7 @@ from app.modules.analytics.analytics_schema import (
     LatencyPercentiles,
     LatencyTimeSeriesPoint,
     ModelBreakdownItem,
+    PromptBreakdownItem,
     TimeSeriesDataPoint,
     TopIntentItem,
 )
@@ -80,16 +81,21 @@ class AnalyticsService:
             start_time, end_time, tenant_id
         )
 
-        # 4. Time Series
+        # 4. Prompt-level cost attribution (system-prompt hash)
+        prompt_breakdown = self._calculate_prompt_breakdown(
+            start_time, end_time, tenant_id
+        )
+
+        # 5. Time Series
         time_series = self._calculate_time_series(start_time, end_time, tenant_id)
 
-        # 5. Evaluations Summary
+        # 6. Evaluations Summary
         evaluations = self._calculate_evaluations(start_time, end_time, tenant_id)
 
-        # 6. Top Intents
+        # 7. Top Intents
         top_intents = self._calculate_top_intents(start_time, end_time, tenant_id)
 
-        # 7. Latency Metrics
+        # 8. Latency Metrics
         latency_metrics = self._calculate_latency_metrics(
             start_time, end_time, tenant_id, time_range_label
         )
@@ -99,6 +105,7 @@ class AnalyticsService:
             time_series=time_series,
             cache_performance=cache_perf,
             model_breakdown=model_breakdown,
+            prompt_breakdown=prompt_breakdown,
             evaluations=evaluations,
             top_intents=top_intents,
             latency_metrics=latency_metrics,
@@ -215,12 +222,47 @@ class AnalyticsService:
             for row in results
         ]
 
+    def _calculate_prompt_breakdown(
+        self, start_time: datetime, end_time: datetime, tenant_id: str | None
+    ) -> list[PromptBreakdownItem]:
+        """Aggregate usage per system prompt, most expensive first."""
+        query = self.db_session_read.query(
+            LlmUsageLog.prompt_hash,
+            func.count(LlmUsageLog.id).label("requests"),
+            func.sum(LlmUsageLog.cost).label("total_cost"),
+            func.sum(LlmUsageLog.total_tokens).label("total_tokens"),
+        ).filter(
+            LlmUsageLog.created_at >= start_time,
+            LlmUsageLog.created_at <= end_time,
+        )
+
+        if tenant_id:
+            query = query.filter(LlmUsageLog.tenant_id == tenant_id)
+
+        results = (
+            query.group_by(LlmUsageLog.prompt_hash)
+            .order_by(func.sum(LlmUsageLog.cost).desc())
+            .all()
+        )
+
+        return [
+            PromptBreakdownItem(
+                prompt_hash=row.prompt_hash,
+                requests=row.requests or 0,
+                total_cost=float(row.total_cost or 0.0),
+                total_tokens=int(row.total_tokens or 0),
+            )
+            for row in results
+        ]
+
     def _calculate_time_series(
         self, start_time: datetime, end_time: datetime, tenant_id: str | None
     ) -> list[TimeSeriesDataPoint]:
         # Fetch raw fields and bucket in memory so the same code works whether the
         # time-series step is sub-hour or multi-day, independent of DB date functions.
-        gw_query = self.db_session_read.query(GatewayRequestLog.created_at).filter(
+        gw_query = self.db_session_read.query(
+            GatewayRequestLog.created_at, GatewayRequestLog.routing_decision
+        ).filter(
             GatewayRequestLog.created_at >= start_time,
             GatewayRequestLog.created_at <= end_time,
         )
@@ -261,6 +303,7 @@ class AnalyticsService:
                         "requests": 0,
                         "cost": 0.0,
                         "tokens": 0,
+                        "cache_hits": 0,
                     }
                 )
                 curr = next_curr
@@ -275,6 +318,8 @@ class AnalyticsService:
                     for b in buckets:
                         if b["start"] <= cat < b["end"]:
                             b["requests"] += 1
+                            if row.routing_decision != "LLM":
+                                b["cache_hits"] += 1
                             break
 
             for row in llm_query.all():
@@ -296,16 +341,22 @@ class AnalyticsService:
                     requests=b["requests"],
                     cost=round(b["cost"], 6),
                     tokens=b["tokens"],
+                    cache_hits=b["cache_hits"],
+                    llm_calls=b["requests"] - b["cache_hits"],
                 )
                 for b in buckets
             ]
 
-        daily_stats = defaultdict(lambda: {"requests": 0, "cost": 0.0, "tokens": 0})
+        daily_stats = defaultdict(
+            lambda: {"requests": 0, "cost": 0.0, "tokens": 0, "cache_hits": 0}
+        )
 
         for row in gw_query.all():
             if row.created_at:
                 day_str = row.created_at.strftime("%Y-%m-%d")
                 daily_stats[day_str]["requests"] += 1
+                if row.routing_decision != "LLM":
+                    daily_stats[day_str]["cache_hits"] += 1
 
         for row in llm_query.all():
             if row.created_at:
@@ -327,6 +378,8 @@ class AnalyticsService:
                     requests=stats["requests"],
                     cost=round(stats["cost"], 6),
                     tokens=stats["tokens"],
+                    cache_hits=stats["cache_hits"],
+                    llm_calls=stats["requests"] - stats["cache_hits"],
                 )
             )
             curr_date += timedelta(days=1)

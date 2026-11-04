@@ -14,6 +14,32 @@ from app.modules.qdrant.retention_policy import compute_retention_value
 
 logger = logging.getLogger(__name__)
 
+# Bulk eviction is an operator action behind an admin key, but it can still be
+# destructive: bound how many points one request may delete and require the
+# caller to narrow the filter rather than sweeping the whole collection.
+MAX_BULK_EVICT_POINTS = 10_000
+
+
+def build_payload_filter(
+    filter_payload: dict[str, Any] | None,
+) -> models.Filter | None:
+    """Translate ``{field: value}`` / ``{field: {"gte": n}}`` into a Qdrant filter."""
+    if not filter_payload:
+        return None
+
+    must_conditions = []
+    for key, value in filter_payload.items():
+        if isinstance(value, dict):
+            # Support range filters like {"gte": 123}
+            must_conditions.append(
+                models.FieldCondition(key=key, range=models.Range(**value))
+            )
+        else:
+            must_conditions.append(
+                models.FieldCondition(key=key, match=models.MatchValue(value=value))
+            )
+    return models.Filter(must=must_conditions)
+
 
 class LlmCacheCollectionService:
     """
@@ -254,6 +280,34 @@ class LlmCacheCollectionService:
             mark_cache_degraded("qdrant_exact_search_failed")
             return None, None
 
+    def search_by_exact_hash(
+        self,
+        exact_hash: str,
+        filter_payload: dict[str, Any] | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Look up entries by exact hash for the admin inspector.
+
+        Unlike :meth:`search_exact` this applies **no** ``cacheable`` or
+        ``expires_at`` condition -- an inspector has to be able to see the
+        non-cacheable and lapsed rows too -- and it raises on a Qdrant failure
+        instead of degrading to ``None``, because an empty result would read as
+        a clean miss rather than an outage.
+        """
+        conditions: dict[str, Any] = {"exact_hash": exact_hash}
+        conditions.update(filter_payload or {})
+
+        records, _ = self.client_service.scroll(
+            collection_name=self.collection_name,
+            scroll_filter=build_payload_filter(conditions),
+            limit=limit,
+            with_payload=True,
+        )
+        return [
+            {"payload": record.payload or {}, "score": None, "id": str(record.id)}
+            for record in records
+        ]
+
     @log_latency()
     def query_points_rrf(
         self,
@@ -265,23 +319,19 @@ class LlmCacheCollectionService:
         query_filter: models.Filter | None = None,
         limit: int = 10,
         score_threshold: float | None = None,
+        prefetch_score_threshold: float | None = None,
     ) -> list[dict[str, Any]]:
+        """Hybrid dense+sparse RRF search.
+
+        ``score_threshold`` filters the fused result set, whose scores are rank
+        fusion scores rather than cosine similarities. ``prefetch_score_threshold``
+        instead floors each **dense** prefetch branch by cosine similarity (the
+        sparse BM25 branch is left alone: BM25 scores live on a different scale).
+        """
+
         try:
             if filter_payload and not query_filter:
-                must_conditions = []
-                for k, v in filter_payload.items():
-                    if isinstance(v, dict):
-                        # Support range filters like {"gte": 123}
-                        must_conditions.append(
-                            models.FieldCondition(key=k, range=models.Range(**v))
-                        )
-                    else:
-                        must_conditions.append(
-                            models.FieldCondition(
-                                key=k, match=models.MatchValue(value=v)
-                            )
-                        )
-                query_filter = models.Filter(must=must_conditions)
+                query_filter = build_payload_filter(filter_payload)
 
             prefetch = []
 
@@ -291,6 +341,7 @@ class LlmCacheCollectionService:
                         query=system_prompt_vector,
                         using="system_prompt_embedding",
                         limit=limit * 2,
+                        score_threshold=prefetch_score_threshold,
                     )
                 )
             if system_prompt_sparse and system_prompt_sparse.get("indices"):
@@ -311,6 +362,7 @@ class LlmCacheCollectionService:
                         query=user_prompt_vector,
                         using="user_prompt_embedding",
                         limit=limit * 2,
+                        score_threshold=prefetch_score_threshold,
                     )
                 )
             if user_prompt_sparse and user_prompt_sparse.get("indices"):
@@ -366,20 +418,7 @@ class LlmCacheCollectionService:
     ) -> list[dict[str, Any]]:
         try:
             if filter_payload and not query_filter:
-                must_conditions = []
-                for k, v in filter_payload.items():
-                    if isinstance(v, dict):
-                        # Support range filters like {"gte": 123}
-                        must_conditions.append(
-                            models.FieldCondition(key=k, range=models.Range(**v))
-                        )
-                    else:
-                        must_conditions.append(
-                            models.FieldCondition(
-                                key=k, match=models.MatchValue(value=v)
-                            )
-                        )
-                query_filter = models.Filter(must=must_conditions)
+                query_filter = build_payload_filter(filter_payload)
 
             results = self.client_service.query_points(
                 collection_name=self.collection_name,
@@ -587,6 +626,135 @@ class LlmCacheCollectionService:
             collection_name=self.collection_name,
             points_selector=points_filter,
         )
+
+    def bulk_evict(
+        self,
+        *,
+        intent: str | None = None,
+        model: str | None = None,
+        scope: str | None = None,
+        tenant_id: str | None = None,
+        older_than_days: float | None = None,
+        expired_only: bool = False,
+        limit: int = MAX_BULK_EVICT_POINTS,
+        dry_run: bool = True,
+        now: int | None = None,
+    ) -> dict[str, Any]:
+        """Evict every cache entry matching an operator filter.
+
+        Returns ``{"matched", "deleted", "point_ids", "exact_hashes"}``.
+        ``matched`` is the exact filter count taken before anything is removed,
+        so a dry run and a real sweep report the same number. ``exact_hashes``
+        lets the caller purge the Redis copies too: deleting only the vectors
+        would leave exact hits servable.
+
+        Age filters compare ``created_at``, which entries written before that
+        field existed do not carry -- those rows only match the field filters.
+
+        Raises ``ValueError`` for an empty filter (a mistake, not a sweep of the
+        whole collection) and when the filter matches more than ``limit``
+        points, so an operator has to narrow it rather than issue an unbounded
+        delete.
+        """
+        import time
+
+        if now is None:
+            now = int(time.time())
+
+        must: list[models.FieldCondition] = []
+        for key, value in (
+            ("intent", intent),
+            ("model", model),
+            ("scope", scope),
+            ("tenant_id", tenant_id),
+        ):
+            if value:
+                must.append(
+                    models.FieldCondition(key=key, match=models.MatchValue(value=value))
+                )
+
+        if older_than_days is not None:
+            if older_than_days <= 0:
+                raise ValueError("older_than_days must be positive")
+            must.append(
+                models.FieldCondition(
+                    key="created_at",
+                    range=models.Range(lt=int(now - older_than_days * 86400)),
+                )
+            )
+
+        if expired_only:
+            must.append(
+                models.FieldCondition(key="expires_at", range=models.Range(lt=now))
+            )
+
+        if not must:
+            raise ValueError("bulk eviction requires at least one filter")
+
+        eviction_filter = models.Filter(must=must)
+        matched = int(
+            self.client_service.count(
+                collection_name=self.collection_name,
+                count_filter=eviction_filter,
+                exact=True,
+            )
+        )
+
+        if dry_run or matched == 0:
+            return {
+                "matched": matched,
+                "deleted": 0,
+                "point_ids": [],
+                "exact_hashes": [],
+            }
+
+        if matched > limit:
+            raise ValueError(
+                f"filter matches {matched} entries, above the {limit} limit; "
+                "narrow the filter or raise the limit"
+            )
+
+        # Only the exact hash is needed for the Redis purge; asking for the
+        # whole payload would pull every cached completion into memory.
+        records, _ = self.client_service.scroll(
+            collection_name=self.collection_name,
+            scroll_filter=eviction_filter,
+            limit=matched,
+            with_payload=["exact_hash"],
+        )
+        point_ids = [str(record.id) for record in records]
+        exact_hashes = list(
+            {
+                (record.payload or {}).get("exact_hash")
+                for record in records
+                if (record.payload or {}).get("exact_hash")
+            }
+        )
+
+        logger.info(
+            "Bulk eviction from '%s': %s point(s) matching %s",
+            self.collection_name,
+            matched,
+            {
+                "intent": intent,
+                "model": model,
+                "scope": scope,
+                "tenant_id": tenant_id,
+                "older_than_days": older_than_days,
+                "expired_only": expired_only,
+            },
+        )
+        self.client_service.delete(
+            collection_name=self.collection_name,
+            points_selector=eviction_filter,
+            wait=True,
+        )
+        return {
+            "matched": matched,
+            "deleted": matched,
+            "point_ids": point_ids,
+            "exact_hashes": exact_hashes,
+        }
 
     def evict_expired(self) -> None:
         """Evict lapsed entries, protecting the valuable ones from a flat sweep.

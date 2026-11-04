@@ -13,19 +13,20 @@ It is deliberately isolated:
   the OpenAPI contract snapshot is unchanged.
 - Not in `pyproject.toml`; excluded from the Docker image (`.dockerignore`).
   Freight is confined to this directory plus its own venv.
-- It speaks plain HTTP to a **running** gateway, so auth (`X-API-Key`), quotas,
-  caching, provider fallback, and RLS all behave exactly as for any other
-  caller. The bridge holds no gateway state and cannot bypass the gateway.
+- It speaks plain HTTP to a **running** gateway, so auth (tenant `X-API-Key`,
+  admin `X-Admin-Key` for the cache diagnostic), quotas, caching, provider
+  fallback, and RLS all behave exactly as for any other caller. The bridge
+  holds no gateway state and cannot bypass the gateway.
 
 ## Tools
 
 | Tool | Wraps | Notes |
 | --- | --- | --- |
 | `echo_gate_chat_completion` | `POST /api/v1/chat/completions` | Always non-streaming (`stream: false`); returns content, tool calls, usage, and a `cache_info` summary (hit/source/score/intent/latency). |
-| `echo_gate_semantic_cache_search` | `POST /api/v1/chat/completions/semantic-search` | Diagnostic: runs only the cache path, no provider call. |
+| `echo_gate_semantic_cache_search` | `POST /api/v1/chat/completions/semantic-search` | Diagnostic: runs only the cache path, no provider call. Uses the admin key (`cache:read`); set `ECHO_GATE_TENANT_ID` to pick the tenant inspected. |
 | `echo_gate_health` | `GET /api/v1/health/deps` | Non-gating dependency roll-up. |
 
-Admin endpoints are intentionally not exposed.
+The `/api/v1/admin/*` endpoints are not exposed as tools.
 
 ## Run
 
@@ -40,6 +41,8 @@ Start the gateway first (`docker-compose up -d qdrant redis postgres` +
 
 ```bash
 export ECHO_GATE_API_KEY=<tenant key>
+export ECHO_GATE_ADMIN_KEY=<admin key with cache:read>   # for the cache diagnostic
+export ECHO_GATE_TENANT_ID=<tenant to inspect>           # optional
 export ECHO_GATE_BASE_URL=http://localhost:8000   # optional, this is the default
 mcp-bridge/.venv/bin/fastmcp run mcp-bridge/server.py --transport stdio
 ```

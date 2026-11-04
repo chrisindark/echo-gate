@@ -5,9 +5,11 @@ import { AnimatePresence, motion } from 'framer-motion';
 import {
   Activity,
   BarChart3,
+  Database,
   GaugeCircle,
   Menu,
   MessageSquare,
+  Search,
   Settings,
   X,
 } from 'lucide-react';
@@ -27,6 +29,8 @@ export function AppSidebar() {
     { name: 'Analytics', path: '/analytics', icon: BarChart3 },
     { name: 'Traces', path: '/traces', icon: Activity },
     { name: 'Quota', path: '/quota', icon: GaugeCircle },
+    { name: 'Cache Admin', path: '/admin/cache', icon: Database },
+    { name: 'Cache Explorer', path: '/admin/explorer', icon: Search },
     { name: 'Settings', path: '/settings', icon: Settings },
   ];
 

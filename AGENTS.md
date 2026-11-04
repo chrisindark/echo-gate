@@ -41,8 +41,11 @@ provider behavior, or persistence decision is genuinely unspecified.
 - `api/app/modules/llm/llm_router_service.py`: cache lookup, semantic matching, provider
   routing, and cache writes. Preserve tenant, model, and request fields that affect
   response correctness when changing cache behavior.
-- `api/app/modules/llm/llm_provider_service.py`: provider adapters for `google-genai`,
-  `openai`, `groq`, `openrouter`, and `ollama`.
+- `api/app/modules/llm/providers/`: one adapter module per upstream (`openai`,
+  `groq`, `openrouter`, `ollama`, `gemini`, `claude`, `mock`), plus
+  `openai_compatible.py` for the shared streaming loop. `llm_provider_service.py`
+  is the thin dispatch façade: add a provider module, then one branch in
+  `generate_completion`/`generate_stream`.
 - `api/app/worker/celery_app.py` and `tasks.py` in the `gateway_requests`, `qdrant`, and
   `llm_usage` modules: background job definitions. Match the existing task patterns
   when adding work.
@@ -168,8 +171,9 @@ provider are available.
 Real, tracked discrepancies — document them, and only change them as an
 explicit task:
 
-- None currently tracked. The former gaps (`conversation/` router unmounted,
+- **No open gaps.** New discrepancies belong here, not fixed in passing.
+- The former gaps (`conversation/` router unmounted,
   anonymous shared rate-limit bucket, `.env.example` drift, Celery Beat
-  schedule mismatch) have been resolved; the date-stamped record lives in
-  `docs/ROADMAP.md`. Add new discrepancies here instead of fixing them in
-  passing.
+  schedule mismatch, unauthenticated chat cache diagnostics, and the ignored
+  `QdrantSearchRequest.threshold`) have been resolved; the date-stamped record
+  lives in `docs/ROADMAP.md`.

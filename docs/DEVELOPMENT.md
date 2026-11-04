@@ -222,8 +222,8 @@ vectors, so they stay valid across the swap (and expire on their own schedule).
 | `api/app/scripts/run_tests.py` | Sends the `TEST_DATASET` prompts to the gateway and writes `run_test_results.csv`. Env: `ECHO_GATE_URL`. |
 | `api/app/scripts/seed_prompts.py` | Seeds prompts and checks cache-threshold behavior; writes `send_prompt_results.csv`. Env: `ECHO_GATE_URL`, `ECHO_GATE_RESULTS_CSV`. |
 | `api/app/scripts/migrate_embeddings.py` | Re-embeds points between collections (`QDRANT_COLLECTION_NAME` → `<source>_v2`) through the inference engine. Flags: `--source`, `--target`, `--write`, `--dry-run`, `--batch-size`, `--limit`, `--min-retention-value`. See [Embedding model upgrades](#embedding-model-upgrades). |
-| `api/app/scripts/test_dataset.py` | The labelled prompt dataset (canonical id + `expected_match`) used by the runners. |
-| `api/app/scripts/calibrate_reranker.py` | Replays `TEST_DATASET` through `RerankerService` offline (no Redis/Qdrant/API) and sweeps acceptance thresholds, writing `reranker_calibration.{csv,json}` with precision/recall/F1 and a recommended threshold. Flags: `--limit`, `--max-candidates`, `--scoring-mode`, `--score-source`. |
+| `tests/datasets/prompt_dataset.py` | The labelled prompt dataset (canonical id + `expected_match`) used by the runners. `api/app/scripts/test_dataset.py` re-exports it for legacy imports. |
+| `api/app/scripts/calibrate_reranker.py` | Sweeps acceptance thresholds and writes `reranker_calibration.{csv,json}` with precision/recall/F1 and a recommended threshold. `--source static` (default) replays `TEST_DATASET` through `RerankerService` offline (no Redis/Qdrant/API, needs the inference engine); `--source audit` reads live `cache_evaluations` ground truth through `task_db_session` (system RLS, no inference engine) and adds a per-intent conformal recommendation matching `calibrate_intent_thresholds`. Flags: `--limit`, `--max-candidates`, `--scoring-mode`, `--score-source`, `--intent`, `--model`, `--alpha`, `--moderate-alpha`, `--min-samples`. |
 | `api/app/scripts/inspect_semantic_cache.py` | Read-only report over `gateway_requests.score_breakdown` (offline sweeps cannot exercise the intent/metadata factors). Flags near-boundary rejections: candidates whose `base_score` cleared the intent's high threshold but whose bounded factors dropped the final score below it, with per-field `metadata_comparisons`. Flags: `--limit`, `--boundary-margin`, `--json`. Run with `PYTHON_ENV=local` so the DB URL is loaded. |
 | `api/app/scripts/create_qdrant.py` | Re-initializes the Qdrant collection via the DI container. |
 | `api/app/scripts/check_qdrant.py` | Scrolls the first 5 points to inspect scope/tenant/user. |
@@ -269,7 +269,8 @@ npm run build
   endpoint to alert on — it never returns 503. Use `/api/v1/health/ready` only for
   the gating question ("can this replica serve correctly?"), which is Postgres alone.
 - `POST /api/v1/chat/completions/semantic-search` (and `/exact-search`) exercise the
-  cache without a provider call.
+  cache without a provider call. Both need an admin key with `cache:read`; pass
+  `?tenant_id=` to choose the scope (`/cache-save` needs `cache:write`).
 - `GET /api/v1/gateway-requests/?search=...` finds a trace; the detail view exposes
   `latency_breakdown` and evaluation scores.
 - Correlation IDs (`X-Correlation-ID`/`X-Request-ID`) thread a request through the

@@ -325,22 +325,37 @@ curl -X POST "http://localhost:8000/api/v1/chat/estimate" \
        "messages": [{"role": "user", "content": "Explain quantum computing in one paragraph."}]}'
 ```
 
+### Chat cache diagnostics
+
+These three routes are **operator diagnostics**, not tenant API. A tenant
+`X-API-Key` is not accepted and an anonymous caller cannot reach the shared
+anonymous cache scope through them. An admin key never establishes a tenant
+identity (`TenantContextMiddleware` resolves it to `anonymous`), so the tenant
+being inspected is passed explicitly.
+
 ### `POST /api/v1/chat/completions/semantic-search`
 
-Diagnostic: runs only the semantic cache path and returns its internal result
-(matches, intent, embeddings, latency breakdown) without calling a provider.
-Same `ChatCompletionRequest` body. Wrapped in `BaseAPIResponse`.
+Requires `X-Admin-Key` with `cache:read`. Optional query parameter `tenant_id`
+selects the tenant whose cache is inspected (omitted: the anonymous scope).
+
+Runs only the semantic cache path and returns its internal result (matches,
+intent, embeddings, latency breakdown) without calling a provider. Same
+`ChatCompletionRequest` body. Wrapped in `BaseAPIResponse`.
 
 ### `POST /api/v1/chat/completions/exact-search`
 
-Diagnostic: returns the Qdrant exact-match payload and `point_id` for the request's
-exact hash, without a provider call.
+Requires `X-Admin-Key` with `cache:read`; same optional `?tenant_id=`. Returns
+the Qdrant exact-match payload and `point_id` for the request's exact hash,
+without a provider call.
 
 ### `POST /api/v1/chat/completions/cache-save`
 
-Diagnostic: writes a `{request, response}` pair directly into the cache.
-Body: `{ "request": ChatCompletionRequest, "response": ChatCompletionResponse }`.
-Returns `{"point_id": ...}`.
+Requires `X-Admin-Key` with `cache:write`, which is not implied by `cache:read`.
+Body: `{ "request": ChatCompletionRequest, "response": ChatCompletionResponse,
+"tenant_id": "acme" }` — `tenant_id` is optional and defaults to the resolved
+scope. Writes the pair into the Qdrant cache and returns `{"point_id": ...}`.
+For a tenant-scoped seed that also fills Redis, prefer
+`POST /api/v1/admin/cache/warmup`.
 
 ---
 
@@ -378,9 +393,10 @@ Aggregated dashboard data. Query: `time_range`, `start_time`, `end_time`,
 ```json
 {
   "kpis": { "total_requests": 0, "total_cost": 0.0, "total_tokens": 0, "avg_latency_ms": 0.0, "cache_hit_rate": 0.0 },
-  "time_series": [{ "date_label": "2026-10-01", "requests": 0, "cost": 0.0, "tokens": 0 }],
+  "time_series": [{ "date_label": "2026-10-01", "requests": 0, "cost": 0.0, "tokens": 0, "cache_hits": 0, "llm_calls": 0 }],
   "cache_performance": { "llm_calls": 0, "redis_exact": 0, "qdrant_exact": 0, "qdrant_semantic": 0, "total": 0, "cache_hit_percentage": 0.0 },
   "model_breakdown": [{ "model": "...", "provider": "...", "requests": 0, "total_cost": 0.0, "total_tokens": 0 }],
+  "prompt_breakdown": [{ "prompt_hash": "sha256-hex-or-null", "requests": 0, "total_cost": 0.0, "total_tokens": 0 }],
   "evaluations": { "avg_relevance_score": null, "avg_contradiction_score": null, "avg_entailment_score": null, "false_positive_rate": null, "evaluated_count": 0 },
   "top_intents": [{ "intent": "code_generation", "count": 0 }],
   "latency_metrics": { "...": "LatencyMetricsResponse" }
@@ -390,6 +406,12 @@ Aggregated dashboard data. Query: `time_range`, `start_time`, `end_time`,
 > The dashboard already contains the KPI and cache-performance data. There are no
 > separate `/kpis` or `/cache-performance` endpoints (older READMEs referenced
 > them).
+
+> `prompt_breakdown` attributes cost per downstream application without caller
+> tagging: `prompt_hash` is the SHA-256 of the system prompt only, ordered by
+> cost descending. A `null` hash is the unattributed bucket — rows written
+> before the column existed that the backfill could not recover
+> (`python -m app.scripts.backfill_prompt_hashes`).
 
 ### `GET /api/v1/analytics/latency`
 
@@ -493,13 +515,20 @@ item is a `ShadowCacheEvaluationResponse` (`id`, `created_at`, `request_id`,
 
 ## Qdrant — `/api/v1/qdrant`
 
-Diagnostic vector-search endpoints.
+Operator-only vector-search diagnostics. Both endpoints return raw cache
+payloads (prompts and completions) for **every tenant at once** and take no
+tenant filter, so they require an `X-Admin-Key` with the `cache:read` scope.
+A tenant `X-API-Key` is not accepted for them.
 
 - `POST /api/v1/qdrant/search` — dense search over `user_prompt_embedding` (or
   `system_prompt_embedding`). Body `QdrantSearchRequest`
-  (`messages`, `threshold` default `0.90`, `model_filter`).
-  Returns `{found, payload}`.
+  (`messages`, `threshold` default `0.90` bounded to `[0, 1]`, `model_filter`).
+  Returns `{found, payload}`. `threshold` is a cosine-similarity floor and is
+  applied to the result set.
 - `POST /api/v1/qdrant/search/rrf` — same body, hybrid dense+sparse RRF search.
+  The fused score is a rank score, not a similarity, so `threshold` is applied
+  as a floor on each **dense prefetch** branch; the sparse BM25 branch (a
+  different score scale) is unfiltered.
 
 ---
 
@@ -640,6 +669,157 @@ RLS-bypassed session.
   obtain a fresh bucket, so this bounds honest anonymous load only — it is not
   a security boundary; see `app/core/guards.py` and
   `tests/test_anonymous_rate_limit.py`.
+
+---
+
+## Cache (admin) — `/api/v1/admin/cache`
+
+### `POST /api/v1/admin/cache/warmup`
+
+Pre-seeds the cache with `(request, response)` pairs through the same save path
+real traffic uses. Requires an `X-Admin-Key` with the `cache:write` scope.
+
+```json
+{
+  "force": true,
+  "items": [
+    {
+      "request": {
+        "service_name": "openai",
+        "model": "gpt-4o-mini",
+        "messages": [{"role": "user", "content": "hello"}]
+      },
+      "response": {
+        "id": "chatcmpl-1",
+        "created": 1,
+        "model": "gpt-4o-mini",
+        "choices": [
+          {"index": 0, "message": {"role": "assistant", "content": "hi"}}
+        ]
+      },
+      "tenant_id": "acme"
+    }
+  ]
+}
+```
+
+- `request` is a full `ChatCompletionRequest` body and `response` a
+  `ChatCompletionResponse`. Warmup reproduces the key the original traffic would
+  have produced, so every field that affects the answer (model, temperature,
+  tools, `session_id` / `conversation_id`) has to match.
+- `tenant_id` is an **admin-only** override. `ChatCompletionRequest` deliberately
+  never honours a caller-supplied tenant — it is a private attribute resolved
+  from the API key — but cache keys and Qdrant payloads are tenant-scoped, so
+  omitting it writes a `GLOBAL`-scope entry that no tenant's exact-match lookup
+  can hit; only semantic search may serve it, and to every tenant. Set it when
+  seeding from production traces.
+- `force` (default `true`) writes both cache layers regardless of `CACHE_MODE`
+  and the per-layer flags, exactly like the shadow evaluator.
+- At most 200 items per request (`400` beyond that, and for an empty list).
+  Fan-out is bounded to 5 in-flight writes.
+
+The envelope's `response` field carries `{"queued", "succeeded", "failed"}`. A
+failing item is counted in `failed` and never fails the request: a warmup run
+must not surface a cache error as an API error.
+
+```bash
+curl -X POST http://localhost:8000/api/v1/admin/cache/warmup \
+  -H "Content-Type: application/json" \
+  -H "X-Admin-Key: $ADMIN_KEY" \
+  -d @warmup-batch.json
+```
+
+### `POST /api/v1/admin/cache/search`
+
+Search stored cache entries, either semantically or by exact hash. Requires
+`cache:read`.
+
+Body: `{mode?, query?, exact_hash?, limit?, min_score?, model?, intent?, scope?,
+tenant_id?}`.
+
+- `mode` is `"semantic"` (default) or `"exact"`.
+- **semantic** requires `query`: it is embedded with the same encoder and
+  `user_prompt_embedding` vector name the serving path uses, so the hits are the
+  entries a real request would be compared against. `limit` is 1–100 (default
+  20); `min_score` (0–1) drops weak matches.
+- **exact** requires `exact_hash` and skips the inference engine entirely, so it
+  still works while the engine is down. It deliberately ignores `cacheable` and
+  `expires_at`, like the semantic mode ignores them.
+- `model`, `intent`, `scope` and `tenant_id` are optional ANDed filters in both
+  modes.
+
+```json
+{"query": "how do I reset my password", "tenant_id": "acme", "limit": 10}
+```
+
+```json
+{"mode": "exact", "exact_hash": "9f2c...e41"}
+```
+
+`response` carries `{count, results: [...]}`. Each hit is the Qdrant payload
+flattened: `point_id`, `score`, `prompt`, `user_prompt`, `model`, `service_name`,
+`intent`, `scope`, `tenant_id`, `exact_hash`, `cacheable`, `created_at`,
+`expires_at`, `hit_count`, `entities`, `time_sensitivity`, `core_operation`,
+`core_subject`, `prompt_version`, `reranker_version`, `cache_key_version`,
+`provider_cost`, `latency_ms`, `token_count`, `retention_value`.
+
+Each hit also carries the **latest sampled audit verdict** for that point, when
+one exists: `rerank_score`, `vector_similarity`, `is_equivalent` and
+`last_audited_at` (they are query-time values, so they live in
+`cache_evaluations`, not in the payload). The lookup is best-effort: if Postgres
+is unreachable the search still returns hits with those four fields `null`.
+
+Unlike serving, the search deliberately applies **no** cacheability, expiry, or
+tenant-scope filter: an operator has to be able to see the dead and cross-tenant
+rows. This is why it needs an admin key rather than a tenant key.
+
+Returns `503` when Qdrant (either mode) or the inference engine (semantic mode
+only) is unavailable.
+
+### `DELETE /api/v1/admin/cache/entry/{point_id}`
+
+Evict one entry. Requires `cache:write`. Optional `exact_hash` query parameter
+drops the Redis copy as well (the Redis key is the exact hash, so pass the value
+returned by `/search`); omit it to delete the Qdrant vector alone.
+
+```bash
+curl -X DELETE \
+  "http://localhost:8000/api/v1/admin/cache/entry/$POINT_ID?exact_hash=$HASH" \
+  -H "X-Admin-Key: $ADMIN_KEY"
+```
+
+`response` is `{point_id, qdrant_deleted, redis_deleted}`, where `redis_deleted`
+is `null` when no hash was supplied. Qdrant deletion is idempotent, so evicting
+an already-missing point still reports success; a real Qdrant failure is `500`,
+and a Redis failure is reported in the body rather than raised.
+
+### `POST /api/v1/admin/cache/evict`
+
+Bulk eviction over a filtered slice of the cache. Requires `cache:write`.
+
+Body: `{intent?, model?, scope?, tenant_id?, older_than_days?, expired_only?,
+dry_run?, limit?, purge_redis?}`.
+
+- At least one filter is required (`400` otherwise): an empty body must never
+  mean "delete the collection". Filters are ANDed.
+- `older_than_days` matches on `created_at`; entries written before that field
+  existed do not match an age filter (they have no `created_at`).
+- `expired_only` matches on `expires_at < now`.
+- `dry_run` defaults to **true**: it reports `matched` and removes nothing.
+- `limit` (1–10000, default 1000) caps one call. If the filter matches more than
+  `limit`, the request is `400` — narrow the filter or raise the limit, because
+  an unbounded delete is not offered.
+- `purge_redis` (default true) also deletes the Redis copy of every matched exact
+  hash. Skipping it would leave exact hits servable after the vectors are gone.
+
+```json
+{"intent": "general_query", "older_than_days": 30, "dry_run": false}
+```
+
+`response` is `{filters, matched, deleted, redis_deleted, dry_run}`. `matched` is
+the exact filter count taken before anything is removed, so a dry run and a real
+sweep report the same number; `redis_deleted` counts the keys actually removed
+(a Redis failure is counted, not raised). `503` when Qdrant is unavailable.
 
 ---
 

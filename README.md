@@ -368,10 +368,13 @@ curl -X POST "http://localhost:8000/api/v1/chat/completions" \
 
 ### 3. Inspecting Semantic Cache Directly
 
-Test candidate retrieval without hitting an LLM provider:
+Test candidate retrieval without hitting an LLM provider. This is operator
+tooling: it needs an admin key with `cache:read` (tenant `X-API-Key`s are
+rejected), and `?tenant_id=` picks the cache scope to inspect:
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/chat/completions/semantic-search" \
+curl -X POST "http://localhost:8000/api/v1/chat/completions/semantic-search?tenant_id=acme" \
+  -H "X-Admin-Key: $ECHO_GATE_ADMIN_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "qwen2.5-coder:7b",
@@ -397,10 +400,10 @@ curl -X POST "http://localhost:8000/api/v1/chat/completions/semantic-search" \
 
 | Method             | Path                                           | Purpose                                                     |
 | ------------------ | ---------------------------------------------- | ----------------------------------------------------------- |
-| `POST`             | `/api/v1/chat/completions/exact-search`        | Test the exact-cache lookup only.                           |
-| `POST`             | `/api/v1/chat/completions/cache-save`          | Write a `{request, response}` pair into the cache directly. |
-| `POST`             | `/api/v1/qdrant/search`                        | Dense vector search against the cache collection.           |
-| `POST`             | `/api/v1/qdrant/search/rrf`                    | Hybrid dense + sparse RRF cache search.                     |
+| `POST`             | `/api/v1/chat/completions/exact-search`        | Test the exact-cache lookup only (admin key, `cache:read`).  |
+| `POST`             | `/api/v1/chat/completions/cache-save`          | Write a `{request, response}` pair into the cache directly (admin key, `cache:write`). |
+| `POST`             | `/api/v1/qdrant/search`                        | Dense vector search over all tenants (admin key, `cache:read`). |
+| `POST`             | `/api/v1/qdrant/search/rrf`                    | Hybrid dense + sparse RRF search (admin key, `cache:read`).  |
 | `POST`             | `/api/v1/verifier/predict/rerank`              | Cross-encoder rerank of candidate strings.                  |
 | `GET`/`POST`       | `/api/v1/llm-usage/`                           | List / create token-usage logs.                             |
 | `POST`             | `/api/v1/llm-usage/calculate-costs`            | Queue background cost calculation.                          |

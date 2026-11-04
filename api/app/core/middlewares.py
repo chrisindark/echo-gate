@@ -10,6 +10,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.core.constants import EchoGateHeaders
 from app.core.logger import correlation_id_ctx_var
 from app.core.rls import ANONYMOUS_TENANT, rls_context
+from app.core.telemetry import correlation_trace_id, trace_context_from_id, trace_span
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,13 @@ class CorrelationIdMiddleware(BaseHTTPMiddleware):
         # Extract request ID and correlation ID from headers or generate
         request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
         correlation_id = request.headers.get("x-correlation-id") or request_id
+        trace_id = correlation_trace_id(correlation_id)
+
+        # Attach the correlation id as the OTel trace id so logs and traces join.
+        if trace_id is not None:
+            request.scope["trace_id"] = trace_id
+            request.scope["otel_trace_id"] = format(trace_id, "032x")
+            request.scope["correlation_id"] = correlation_id
 
         # Set the correlation ID in the context variable
         token = correlation_id_ctx_var.set(correlation_id)
@@ -34,46 +42,55 @@ class CorrelationIdMiddleware(BaseHTTPMiddleware):
         start_time = time.perf_counter()
         status_code = 500
 
-        try:
-            response = await call_next(request)
-            status_code = response.status_code
-            response.headers[EchoGateHeaders.CORRELATION_ID] = correlation_id
-            response.headers[EchoGateHeaders.REQUEST_ID] = request_id
-            return response
-        finally:
-            end_time = time.perf_counter()
-            process_time = end_time - start_time
-            duration_ms = round(process_time * 1000, 2)
+        span_attrs = {
+            "http.method": request.method,
+            "http.route": request.url.path,
+            "correlation_id": correlation_id,
+        }
+        with (
+            trace_context_from_id(trace_id),
+            trace_span("http.server.request", span_attrs),
+        ):
+            try:
+                response = await call_next(request)
+                status_code = response.status_code
+                response.headers[EchoGateHeaders.CORRELATION_ID] = correlation_id
+                response.headers[EchoGateHeaders.REQUEST_ID] = request_id
+                return response
+            finally:
+                end_time = time.perf_counter()
+                process_time = end_time - start_time
+                duration_ms = round(process_time * 1000, 2)
 
-            # Extract client IP (handle proxy forwarded headers first)
-            forwarded_for = request.headers.get("x-forwarded-for")
-            if forwarded_for:
-                client_ip = forwarded_for.split(",")[0].strip()
-            elif request.client:
-                client_ip = request.client.host
-            else:
-                client_ip = "unknown"
+                # Extract client IP (handle proxy forwarded headers first)
+                forwarded_for = request.headers.get("x-forwarded-for")
+                if forwarded_for:
+                    client_ip = forwarded_for.split(",")[0].strip()
+                elif request.client:
+                    client_ip = request.client.host
+                else:
+                    client_ip = "unknown"
 
-            method = request.method
-            path = request.url.path
-            if request.url.query:
-                path = f"{path}?{request.url.query}"
-            http_version = request.scope.get("http_version", "1.1")
+                method = request.method
+                path = request.url.path
+                if request.url.query:
+                    path = f"{path}?{request.url.query}"
+                http_version = request.scope.get("http_version", "1.1")
 
-            logger.info(
-                f'{client_ip} - "{method} {path} HTTP/{http_version}" {status_code} '
-                f"({process_time:.3f}s) [req_id={request_id}]",
-                extra={
-                    "http_method": method,
-                    "http_path": path,
-                    "http_status": status_code,
-                    "duration_ms": duration_ms,
-                    "client_ip": client_ip,
-                    "http_version": http_version,
-                    "request_id": request_id,
-                },
-            )
-            correlation_id_ctx_var.reset(token)
+                logger.info(
+                    f'{client_ip} - "{method} {path} HTTP/{http_version}" {status_code} '
+                    f"({process_time:.3f}s) [req_id={request_id}]",
+                    extra={
+                        "http_method": method,
+                        "http_path": path,
+                        "http_status": status_code,
+                        "duration_ms": duration_ms,
+                        "client_ip": client_ip,
+                        "http_version": http_version,
+                        "request_id": request_id,
+                    },
+                )
+                correlation_id_ctx_var.reset(token)
 
 
 class UserMiddleware(BaseHTTPMiddleware):

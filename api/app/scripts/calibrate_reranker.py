@@ -1,49 +1,58 @@
 """Offline calibration sweep for the semantic-cache reranker.
 
-This script replays the labelled `TEST_DATASET` through the real
-`RerankerService` (cross-encoder + bounded signal factors) *without* needing
-Redis, Qdrant, the API, or the intent LLM. It simulates the sequential cache
-that `run_tests.py` produces (every earlier prompt is a candidate for the
-current prompt) and measures how well the composite `rerank_score` separates
-expected matches from non-matches.
+Two data sources:
 
-It then sweeps acceptance thresholds and reports precision/recall/F1 so the
-`CACHE_CONFIDENCE_THRESHOLDS` values can be tuned from data, and writes:
+* ``--source static`` (default) replays the labelled `TEST_DATASET` through the
+  real `RerankerService` (cross-encoder + bounded signal factors) *without*
+  needing Redis, Qdrant, the API, or the intent LLM. It simulates the sequential
+  cache that `run_tests.py` produces (every earlier prompt is a candidate for
+  the current prompt) and measures how well the composite `rerank_score`
+  separates expected matches from non-matches.
+* ``--source audit`` sweeps the live ground truth in `cache_evaluations`
+  instead: every row with a recorded `rerank_score` and a judge verdict, which
+  is what the shadow audit accumulates in production. No inference engine is
+  needed (the scores are already stored), and the report adds a per-intent
+  conformal recommendation computed with the same
+  `compute_conformal_threshold` the scheduled calibration job uses.
 
-  * ``reranker_calibration.csv``  - one row per test query
-  * ``reranker_calibration.json`` - summary + recommended threshold
+Both sources sweep acceptance thresholds and report precision/recall/F1 so the
+`CACHE_CONFIDENCE_THRESHOLDS` values can be tuned from data, and write:
 
-Caveat: intent classification and the LLM-extracted metadata (core_operation,
-core_subject, subject_modifier, action_modifier) are unavailable offline, so
-those factors are inert here (the request intent is ``None`` and the request
-metadata is empty, both of which are deliberately *not* penalized). The sweep
-therefore calibrates the dominant cross-encoder + entity signal; run it against
-a live gateway trace to calibrate the metadata factors too.
+  * ``reranker_calibration.csv``   - one row per sample
+  * ``reranker_calibration.json``  - summary + recommended threshold
+
+Caveat for the static source: intent classification and the LLM-extracted
+metadata (core_operation, core_subject, subject_modifier, action_modifier) are
+unavailable offline, so those factors are inert there (the request intent is
+``None`` and the request metadata is empty, both of which are deliberately *not*
+penalized). The sweep therefore calibrates the dominant cross-encoder + entity
+signal. Use ``--source audit`` to calibrate from real traffic instead.
 
 Usage:
     poetry run python -m app.scripts.calibrate_reranker
     poetry run python -m app.scripts.calibrate_reranker --limit 60 --max-candidates 40
     poetry run python -m app.scripts.calibrate_reranker --scoring-mode additive
     poetry run python -m app.scripts.calibrate_reranker --score-source base
+    poetry run python -m app.scripts.calibrate_reranker --source audit
+    poetry run python -m app.scripts.calibrate_reranker --source audit --intent code_generation
+    poetry run python -m app.scripts.calibrate_reranker --source audit --alpha 0.01 --min-samples 20
 
-Requires a running inference engine (`INFERENCE_BASE_URL`): scoring goes through
-the same `CrossEncoderService` the gateway uses, so the numbers match production.
+The static source requires a running inference engine (`INFERENCE_BASE_URL`):
+scoring goes through the same `CrossEncoderService` the gateway uses, so the
+numbers match production. The audit source only needs the gateway database.
 """
 
 import argparse
 import csv
 import json
 import statistics
+import sys
 from collections import defaultdict
 from typing import Any
 
 from app.core.config import config
-from app.modules.intent_classifier.entity_extractor_service import (
-    EntityExtractorService,
-)
 from app.modules.reranking.reranker_service import RerankerService
 from app.modules.verifier.instruction_service import InstructionVerifier
-from app.scripts.test_dataset import TEST_DATASET
 
 # Mirrors the request shape used by `run_tests.py` so the calibration reflects
 # real gateway traffic.
@@ -165,10 +174,19 @@ def _best_threshold(rows: list[dict[str, float]], key: str = "f1") -> dict[str, 
     return max(rows, key=lambda r: (r[key], r["precision"], r["threshold"]))
 
 
-def main() -> None:
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--limit", type=int, default=0, help="Limit number of test cases (0 = all)."
+        "--source",
+        choices=["static", "audit"],
+        default="static",
+        help=(
+            "static (default): replay the labelled TEST_DATASET through the "
+            "reranker. audit: sweep live cache_evaluations ground truth."
+        ),
+    )
+    parser.add_argument(
+        "--limit", type=int, default=0, help="Limit number of samples (0 = all)."
     )
     parser.add_argument(
         "--max-candidates",
@@ -180,7 +198,7 @@ def main() -> None:
         "--scoring-mode",
         choices=["multiplicative", "additive"],
         default=None,
-        help="Override RERANKER_SCORING_MODE for this run.",
+        help="Override RERANKER_SCORING_MODE for this run (static source only).",
     )
     parser.add_argument(
         "--score-source",
@@ -193,10 +211,48 @@ def main() -> None:
         default="reranker_calibration",
         help="Prefix for the .csv and .json outputs.",
     )
-    args = parser.parse_args()
+    parser.add_argument(
+        "--intent",
+        default=None,
+        help="Audit source only: restrict to one intent (e.g. 'code_generation').",
+    )
+    parser.add_argument(
+        "--model",
+        default=None,
+        help="Audit source only: restrict to one model name.",
+    )
+    parser.add_argument(
+        "--alpha",
+        type=float,
+        default=getattr(config, "CACHE_CALIBRATION_ALPHA", 0.02),
+        help=(
+            "Audit source only: target error rate for the high threshold "
+            "(default 0.02)."
+        ),
+    )
+    parser.add_argument(
+        "--moderate-alpha",
+        type=float,
+        default=getattr(config, "CACHE_CALIBRATION_MODERATE_ALPHA", 0.05),
+        help="Audit source only: target error rate for the moderate threshold (0.05).",
+    )
+    parser.add_argument(
+        "--min-samples",
+        type=int,
+        default=getattr(config, "CACHE_CALIBRATION_MIN_SAMPLES", 10),
+        help=(
+            "Audit source only: minimum records before an intent is reported as "
+            "calibrated (default 10)."
+        ),
+    )
+    return parser
 
-    if args.scoring_mode:
-        config.RERANKER_SCORING_MODE = args.scoring_mode
+
+def _run_static_calibration(args: argparse.Namespace) -> None:
+    from app.modules.intent_classifier.entity_extractor_service import (
+        EntityExtractorService,
+    )
+    from tests.datasets.prompt_dataset import TEST_DATASET
 
     tests = TEST_DATASET[: args.limit] if args.limit else TEST_DATASET
     print(
@@ -349,9 +405,6 @@ def main() -> None:
         "threshold_sweep": sweep,
     }
 
-    with open(f"{args.output_prefix}.json", "w", encoding="utf-8") as handle:
-        json.dump(summary, handle, indent=2)
-
     fieldnames = [
         "index",
         "test_id",
@@ -364,13 +417,33 @@ def main() -> None:
         "predicted_at_best_threshold",
         *[f"factor_{key}" for key in _FACTOR_KEYS],
     ]
-    with open(f"{args.output_prefix}.csv", "w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(per_query_rows)
+    _write_outputs(args.output_prefix, summary, per_query_rows, fieldnames)
 
+    _print_report(summary, best, sweep)
+    print(f"\nWrote {args.output_prefix}.csv and {args.output_prefix}.json")
+
+
+def _write_outputs(
+    prefix: str,
+    summary: dict[str, Any],
+    rows: list[dict[str, Any]],
+    fieldnames: list[str],
+) -> None:
+    with open(f"{prefix}.json", "w", encoding="utf-8") as handle:
+        json.dump(summary, handle, indent=2)
+
+    with open(f"{prefix}.csv", "w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def _print_report(
+    summary: dict[str, Any], best: dict[str, float], sweep: list[dict[str, float]]
+) -> None:
     print("\n=== Reranker calibration ===")
-    print(f"queries:            {summary['queries']}")
+    print(f"source:             {summary.get('source', 'static')}")
+    print(f"samples:            {summary['queries']}")
     print(f"positives/negatives:{summary['positives']}/{summary['negatives']}")
     print(f"AUC:                {summary['auc']}")
     print(f"mean pos score:     {summary['mean_positive_score']}")
@@ -390,8 +463,241 @@ def main() -> None:
             f"{row['recall']:>6.4f}  {row['f1']:>5.3f}  {row['accepted']:>6}"
         )
 
+
+def _load_live_audit_rows(
+    intent: str | None = None,
+    model: str | None = None,
+    limit: int = 0,
+) -> list[dict[str, Any]]:
+    """Read compared ``cache_evaluations`` rows: rerank score + judge verdict.
+
+    ``task_db_session`` puts the session in system RLS mode, which is required
+    here: calibration has to see every tenant's audits, and a plain `SessionLocal`
+    would only see the anonymous tenant. Rows are distilled inside the session
+    so nothing detached leaks out.
+    """
+    from sqlalchemy import select
+
+    from app.core.database import task_db_session
+    from app.modules.cache_audit.cache_audit_model import CacheEvaluation
+
+    with task_db_session() as session:
+        stmt = select(CacheEvaluation).where(
+            CacheEvaluation.rerank_score.isnot(None),
+            CacheEvaluation.is_equivalent.isnot(None),
+        )
+        if intent:
+            stmt = stmt.where(CacheEvaluation.intent == intent)
+        if model:
+            stmt = stmt.where(CacheEvaluation.model == model)
+        stmt = stmt.order_by(CacheEvaluation.created_at.asc(), CacheEvaluation.id.asc())
+        if limit:
+            stmt = stmt.limit(limit)
+
+        return [
+            {
+                "audit_id": row.id,
+                "intent": row.intent,
+                "model": row.model,
+                "rerank_score": float(row.rerank_score),
+                "vector_similarity": float(row.vector_similarity)
+                if row.vector_similarity is not None
+                else None,
+                "is_equivalent": bool(row.is_equivalent),
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+            }
+            for row in session.scalars(stmt).all()
+        ]
+
+
+def _per_intent_calibration(
+    rows: list[dict[str, Any]],
+    alpha: float,
+    moderate_alpha: float,
+    min_samples: int,
+) -> dict[str, dict[str, Any]]:
+    """Recommend a ''high''/''moderate'' threshold per intent from live audits.
+
+    Uses the same conformal quantile rule as the scheduled calibration job
+    (`IntentCalibrationService`), so this report predicts what
+    `python -m app.scripts.calibrate_intent_thresholds` would apply.
+    """
+    from app.modules.cache_audit.calibration_service import (
+        compute_conformal_threshold,
+    )
+
+    by_intent: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        by_intent[row["intent"] or "unclassified"].append(row)
+
+    results: dict[str, dict[str, Any]] = {}
+    for intent_name, items in sorted(by_intent.items()):
+        defaults = config.CACHE_CONFIDENCE_THRESHOLDS.get(
+            intent_name,
+            config.CACHE_CONFIDENCE_THRESHOLDS.get(
+                "general_query", {"high": 0.95, "moderate": 0.88}
+            ),
+        )
+        scores = [item["rerank_score"] for item in items]
+        labels = [item["is_equivalent"] for item in items]
+        errors = sum(1 for label in labels if not label)
+
+        if len(items) < min_samples:
+            results[intent_name] = {
+                "samples": len(items),
+                "errors": errors,
+                "default_high": defaults["high"],
+                "default_moderate": defaults["moderate"],
+                "high": defaults["high"],
+                "moderate": defaults["moderate"],
+                "empirical_error_rate": 0.0,
+                "error_count": errors,
+                "calibrated": False,
+                "reason": f"Insufficient samples ({len(items)} < {min_samples})",
+            }
+            continue
+
+        high, high_error_rate, high_error_count = compute_conformal_threshold(
+            scores=scores,
+            is_equivalent=labels,
+            alpha=alpha,
+            default_threshold=defaults["high"],
+        )
+        moderate, _, _ = compute_conformal_threshold(
+            scores=scores,
+            is_equivalent=labels,
+            alpha=moderate_alpha,
+            default_threshold=defaults["moderate"],
+        )
+
+        results[intent_name] = {
+            "samples": len(items),
+            "errors": errors,
+            "default_high": defaults["high"],
+            "default_moderate": defaults["moderate"],
+            "high": high,
+            # Mirrors the service: moderate may never exceed high.
+            "moderate": min(moderate, high),
+            "empirical_error_rate": high_error_rate,
+            "error_count": high_error_count,
+            "calibrated": True,
+            "reason": None,
+        }
+    return results
+
+
+def _run_audit_calibration(args: argparse.Namespace) -> int:
+    rows = _load_live_audit_rows(intent=args.intent, model=args.model, limit=args.limit)
+    if not rows:
+        print(
+            "No compared audit records found in cache_evaluations "
+            "(need rerank_score and is_equivalent). Run the shadow audit first, "
+            "or pass --intent/--model if you expect a narrower slice.",
+            file=sys.stderr,
+        )
+        return 1
+
+    labels = [row["is_equivalent"] for row in rows]
+    scores = [row["rerank_score"] for row in rows]
+
+    sweep = _sweep(labels, scores)
+    best = _best_threshold(sweep)
+
+    positives = [score for score, label in zip(scores, labels, strict=False) if label]
+    negatives = [
+        score for score, label in zip(scores, labels, strict=False) if not label
+    ]
+    auc = _auc(positives, negatives)
+
+    for row in rows:
+        row["predicted_at_best_threshold"] = row["rerank_score"] >= best["threshold"]
+
+    per_intent = _per_intent_calibration(
+        rows,
+        alpha=args.alpha,
+        moderate_alpha=args.moderate_alpha,
+        min_samples=args.min_samples,
+    )
+
+    summary = {
+        "source": "audit",
+        "intent_filter": args.intent,
+        "model_filter": args.model,
+        "queries": len(rows),
+        "positives": len(positives),
+        "negatives": len(negatives),
+        "auc": round(auc, 4) if auc == auc else None,  # NaN guard
+        "mean_positive_score": round(statistics.mean(positives), 4)
+        if positives
+        else None,
+        "mean_negative_score": round(statistics.mean(negatives), 4)
+        if negatives
+        else None,
+        "recommended_threshold": best["threshold"],
+        "recommended_metrics": best,
+        "alpha": args.alpha,
+        "moderate_alpha": args.moderate_alpha,
+        "min_samples": args.min_samples,
+        "per_intent": per_intent,
+        "threshold_sweep": sweep,
+    }
+
+    fieldnames = [
+        "audit_id",
+        "intent",
+        "model",
+        "rerank_score",
+        "vector_similarity",
+        "is_equivalent",
+        "predicted_at_best_threshold",
+        "created_at",
+    ]
+    _write_outputs(args.output_prefix, summary, rows, fieldnames)
+
+    _print_report(summary, best, sweep)
+    _print_per_intent(per_intent)
+    print(
+        "\nApply calibrated overrides with: "
+        "poetry run python -m app.scripts.calibrate_intent_thresholds --apply"
+    )
     print(f"\nWrote {args.output_prefix}.csv and {args.output_prefix}.json")
+    return 0
+
+
+def _print_per_intent(per_intent: dict[str, dict[str, Any]]) -> None:
+    print("\n=== Per-intent conformal recommendation ===")
+    print(
+        f"{'INTENT':<22} | {'SAMPLES':<7} | {'ERR':<4} | "
+        f"{'DEFAULT (H/M)':<15} | {'RECOMMENDED (H/M)':<18} | STATUS"
+    )
+    print("-" * 104)
+    for intent, result in sorted(per_intent.items()):
+        default_str = f"{result['default_high']:.2f} / {result['default_moderate']:.2f}"
+        recommended = f"{result['high']:.4f} / {result['moderate']:.4f}"
+        status = (
+            f"err {result['empirical_error_rate'] * 100:.1f}%"
+            if result["calibrated"]
+            else f"SKIPPED ({result['reason']})"
+        )
+        print(
+            f"{intent:<22} | {result['samples']:<7} | {result['errors']:<4} | "
+            f"{default_str:<15} | {recommended:<18} | {status}"
+        )
+
+
+def main() -> int:
+    parser = _build_parser()
+    args = parser.parse_args()
+
+    if args.scoring_mode:
+        config.RERANKER_SCORING_MODE = args.scoring_mode
+
+    if args.source == "audit":
+        return _run_audit_calibration(args)
+
+    _run_static_calibration(args)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

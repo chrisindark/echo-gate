@@ -11,7 +11,7 @@ the chat playground, trace explorer, and analytics dashboards.
 | --- | --- | --- |
 | HTTP API | `api/app/main.py`, `api/app/modules/*/*_controller.py` | FastAPI app, middleware, routers. |
 | Routing/cache core | `api/app/modules/llm/llm_router_service.py` | Owns the request lifecycle: exact cache, semantic cache, verification, provider call, cache write, logging. |
-| Provider adapters | `api/app/modules/llm/llm_provider_service.py` | One method per provider: `google-genai`/`gemini`, `openai`, `groq`, `openrouter`, `ollama`. |
+| Provider adapters | `api/app/modules/llm/providers/` | One module per upstream (`openai`, `groq`, `openrouter`, `ollama`, `gemini`, `claude`, `mock`) mixed into `LlmProviderService`, which keeps only credentials and the `service_name` dispatch. |
 | Embeddings | `api/app/modules/embedding/embedding_service.py` | Dense embeddings (via `inference-platform/` over HTTP) and sparse lexical embeddings (BM25, still local — see the inference platform section for why). |
 | Inference platform | `api/app/modules/inference/inference_client.py` | HTTP client for the shared model server: embeddings, reranking, relevance, NLI. Fail-open; owns role routing and error classification. |
 | Redis cache | `api/app/modules/redis/redis_service.py` | Exact-match cache and quota counters. |

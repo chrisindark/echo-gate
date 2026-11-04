@@ -20,6 +20,10 @@ Configuration (loading order: process environment wins, then mcp-bridge/.env
 via python-dotenv, then built-in defaults):
     ECHO_GATE_BASE_URL        default http://localhost:8000
     ECHO_GATE_API_KEY         tenant API key, sent as X-API-Key
+    ECHO_GATE_ADMIN_KEY       admin key, sent as X-Admin-Key by the cache
+                              diagnostics (scope: cache:read)
+    ECHO_GATE_TENANT_ID       optional tenant the semantic-cache diagnostic
+                              inspects; omitted means the anonymous scope
     ECHO_GATE_TIMEOUT_SECONDS per-request timeout, default 120
 
 The bridge is a dumb HTTP client: auth, quotas, caching, and fallback
@@ -43,6 +47,8 @@ mcp = FastMCP("echo-gate")
 
 BASE_URL = os.getenv("ECHO_GATE_BASE_URL", "http://localhost:8000").rstrip("/")
 API_KEY = os.getenv("ECHO_GATE_API_KEY", "")
+ADMIN_KEY = os.getenv("ECHO_GATE_ADMIN_KEY", "")
+TENANT_ID = os.getenv("ECHO_GATE_TENANT_ID", "")
 REQUEST_TIMEOUT = float(os.getenv("ECHO_GATE_TIMEOUT_SECONDS", "120"))
 
 CHAT_COMPLETIONS = f"{BASE_URL}/api/v1/chat/completions"
@@ -55,6 +61,23 @@ async def _http() -> Any:
     headers = {"X-API-Key": API_KEY} if API_KEY else {}
     async with httpx.AsyncClient(
         base_url=BASE_URL, headers=headers, timeout=REQUEST_TIMEOUT
+    ) as client:
+        yield client
+
+
+@asynccontextmanager
+async def _admin_http() -> Any:
+    """Client for the operator-only cache diagnostics (X-Admin-Key)."""
+    if not ADMIN_KEY:
+        raise ToolError(
+            "ECHO_GATE_ADMIN_KEY is not set. The cache diagnostics require an "
+            "admin key with the cache:read scope "
+            "(python -m app.scripts.create_admin_key create)."
+        )
+    async with httpx.AsyncClient(
+        base_url=BASE_URL,
+        headers={"X-Admin-Key": ADMIN_KEY},
+        timeout=REQUEST_TIMEOUT,
     ) as client:
         yield client
 
@@ -182,8 +205,11 @@ async def echo_gate_semantic_cache_search(
     Diagnostic tool: reports whether the prompt would hit the semantic cache
     (matches, intent classification, scores, latency breakdown). Useful for
     agents to debug why a prompt is (or is not) served from cache.
+
+    Needs ECHO_GATE_ADMIN_KEY (scope cache:read); the gateway rejects tenant
+    keys on this route. Set ECHO_GATE_TENANT_ID to inspect a specific tenant's
+    cache, otherwise the anonymous scope is inspected.
     """
-    _check_key()
     request: dict[str, Any] = {
         "model": model,
         "messages": [{"role": "user", "content": message}],
@@ -191,10 +217,11 @@ async def echo_gate_semantic_cache_search(
     }
     if service_name is not None:
         request["service_name"] = service_name
+    params = {"tenant_id": TENANT_ID} if TENANT_ID else None
 
     try:
-        async with _http() as client:
-            response = await client.post(SEMANTIC_SEARCH, json=request)
+        async with _admin_http() as client:
+            response = await client.post(SEMANTIC_SEARCH, json=request, params=params)
     except httpx.HTTPError as e:
         raise ToolError(f"Echo Gate is unreachable at {BASE_URL}: {e}") from e
     if response.status_code != 200:

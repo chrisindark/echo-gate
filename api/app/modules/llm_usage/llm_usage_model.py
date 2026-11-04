@@ -64,4 +64,11 @@ class LlmUsageLog(Base):
     input_text = Column(Text, nullable=True)
     output_text = Column(Text, nullable=True)
 
+    # SHA-256 of the *system* prompt only (not the full conversation), so usage
+    # can be attributed per downstream application/workflow without explicit
+    # caller tagging. Opaque and one-way: no prompt text is duplicated here.
+    # Nullable for rows written before the column existed (backfilled by
+    # `python -m app.scripts.backfill_prompt_hashes`).
+    prompt_hash = Column(String(64), nullable=True, index=True)
+
     extra_metadata = Column(JSON, nullable=True)

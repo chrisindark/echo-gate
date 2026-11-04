@@ -53,6 +53,17 @@ poetry run uvicorn app.main:app --port 8000 --reload
   evaluation scores).
 - `src/app/analytics/page.tsx` — dashboard KPIs, cache performance, model breakdown,
   latency metrics.
+- `src/app/admin/cache/page.tsx` — cache warmup / pre-seeding: paste a JSON
+  array of `{request, response, tenant_id}` items and POST them to
+  `/api/v1/admin/cache/warmup`. Shows queued/succeeded/failed counts.
+- `src/app/admin/explorer/page.tsx` — cache inspector: semantic search over
+  stored entries (prompt, tenant, model, intent, scope filters) or exact-hash
+  lookup, showing payload metadata (entities, core operation/subject, cost,
+  latency, tokens, retention) plus the latest audit verdict (rerank/vector
+  scores, equivalence, audit time). Evicts one entry across Qdrant + Redis and
+  bulk-evicts a filtered slice (intent / model / age / expired, dry-run first,
+  1000 per call). Backed by `/api/v1/admin/cache/search`,
+  `/api/v1/admin/cache/entry/{point_id}` and `/api/v1/admin/cache/evict`.
 - `src/app/quota/page.tsx` — admin quota rule management (CRUD over
   `/api/v1/admin/llm-quota`): list/create/edit/toggle/delete rules, plus an
   "effective limits" preview that resolves which rule wins for a tenant.
@@ -75,9 +86,17 @@ poetry run uvicorn app.main:app --port 8000 --reload
   mirrors the gateway's per-provider allowlist in
   `../app/modules/chat/chat_schema.py` (`ALLOWED_MODELS`). When the backend adds or
   removes a model, update both.
-- The sidebar previously linked to `/cache`, which had no route; that entry has
-  been removed. There is no cache-browser page — a future feature if needed.
-- No charting library is installed; the analytics page renders cards and tables.
+- The cache pages (`/admin/cache`, `/admin/explorer`) are admin surfaces and
+  require an `X-Admin-Key` configured in Settings, exactly like `/quota`. The
+  inspector deliberately shows expired and cross-tenant entries; it reuses the
+  serving path's embedding and `user_prompt_embedding` vector name so hits match
+  what real traffic is compared against.
+- Charts use `recharts`: the `Cache Performance` composition donut, `Top Intents`
+  bars, cache hit rate over time, routing-decision distribution, cumulative cost
+  avoided, plus the hand-rolled latency-breakdown waterfall. The rest of the
+  analytics page is cards, bars, and tables. Hit rate over time reads
+  `time_series[].cache_hits`; cost avoided is an estimate (hits × mean cost per
+  LLM call) and is labelled as such in the UI.
 - Follow the existing component/formatting style. Do not reformat unrelated files.
 
 ## Related docs

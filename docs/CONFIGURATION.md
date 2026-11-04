@@ -355,9 +355,9 @@ used.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `OTEL_ENABLED` | `true` | Enable OpenTelemetry tracing instrumentation. When no exporter is configured, acts as zero-overhead NoOp. |
+| `OTEL_ENABLED` | `true` | Enable OpenTelemetry tracing instrumentation. When `OTEL_EXPORTER_OTLP_ENDPOINT` is unset, acts as zero-overhead NoOp. |
 | `OTEL_SERVICE_NAME` | `echo-gate` | Service name attached to emitted traces and spans. |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | `""` | Target OTLP HTTP/gRPC collector (e.g., Langfuse `/api/public/otel`, Datadog, or Jaeger). |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `""` | OTLP collector endpoint (e.g. Langfuse `/api/public/otel`, Datadog, Jaeger). When set, spans are exported; empty keeps tracing in-process only. |
 
 ## Not read by anything
 
