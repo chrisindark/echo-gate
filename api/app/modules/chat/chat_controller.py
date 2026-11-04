@@ -7,8 +7,13 @@ from pydantic import BaseModel
 from app.core.constants import CACHE_PREFER_INSTANT, EchoGateHeaders
 from app.core.dependencies import get_llm_router_service
 from app.core.error_classification import classify_provider_error
-from app.core.guards import api_key_auth_optional_guard, llm_quota_guard
+from app.core.guards import (
+    api_key_auth_optional_guard,
+    llm_quota_guard,
+    require_admin_scope,
+)
 from app.core.responses import BaseAPIResponse
+from app.modules.admin.admin_api_keys_service import AdminKeyIdentity
 from app.modules.chat.chat_estimate_service import chat_estimate_service
 from app.modules.chat.chat_schema import (
     SSE_DONE_EVENT,
@@ -24,11 +29,22 @@ from app.modules.llm.llm_router_service import LlmRouterService
 class CacheSavePayload(BaseModel):
     request: ChatCompletionRequest
     response: ChatCompletionResponse
+    # An operator seeding a specific tenant's cache. Without it the write would
+    # land in the anonymous scope, because an admin key never establishes a
+    # tenant identity for TenantContextMiddleware.
+    tenant_id: str | None = None
 
 
 logger = logging.getLogger(__name__)
 
 api_v1_router = APIRouter(prefix="/api/v1/chat", tags=["Chat"])
+
+# The cache diagnostics below read (and, for cache-save, write) cache rows by
+# tenant. They are operator tooling, not part of the tenant API surface: a
+# tenant X-API-Key is not accepted and an anonymous caller cannot reach the
+# shared anonymous cache scope through them.
+RequireCacheRead = require_admin_scope("cache:read")
+RequireCacheWrite = require_admin_scope("cache:write")
 
 
 @api_v1_router.post(
@@ -198,15 +214,21 @@ async def estimate_chat_cost(request: ChatEstimateRequest) -> ChatEstimateRespon
 async def semantic_search(
     http_request: Request,
     request: ChatCompletionRequest,
+    tenant_id: str | None = None,
+    identity: AdminKeyIdentity = Depends(RequireCacheRead),
     llmRouterService: LlmRouterService = Depends(get_llm_router_service),
 ) -> dict:
     """
     Test endpoint for semantic search only.
+
+    Requires ``cache:read``. ``tenant_id`` targets a specific tenant's cache;
+    omitting it inspects the anonymous scope, which is what an admin key
+    resolves to.
     """
     if not request.user:
         request.user = getattr(http_request.state, "user", None)
     request.user_id = getattr(http_request.state, "user_id", None)
-    request.tenant_id = getattr(http_request.state, "tenant_id", None)
+    request.tenant_id = tenant_id or getattr(http_request.state, "tenant_id", None)
     request.session_id = request.session_id or http_request.headers.get(
         EchoGateHeaders.SESSION_ID
     )
@@ -219,6 +241,10 @@ async def semantic_search(
     if result.get("intent"):
         result["intent"] = result["intent"].value
 
+    logger.info(
+        f"Semantic-search diagnostic: tenant={request.tenant_id} "
+        f"admin_key={identity.key_id}"
+    )
     return BaseAPIResponse.success_response(result)
 
 
@@ -229,15 +255,19 @@ async def semantic_search(
 async def exact_search(
     http_request: Request,
     request: ChatCompletionRequest,
+    tenant_id: str | None = None,
+    identity: AdminKeyIdentity = Depends(RequireCacheRead),
     llmRouterService: LlmRouterService = Depends(get_llm_router_service),
 ) -> dict:
     """
     Test endpoint for exact search only.
+
+    Requires ``cache:read``; ``tenant_id`` scopes the lookup to one tenant.
     """
     if not request.user:
         request.user = getattr(http_request.state, "user", None)
     request.user_id = getattr(http_request.state, "user_id", None)
-    request.tenant_id = getattr(http_request.state, "tenant_id", None)
+    request.tenant_id = tenant_id or getattr(http_request.state, "tenant_id", None)
     request.session_id = request.session_id or http_request.headers.get(
         EchoGateHeaders.SESSION_ID
     )
@@ -246,6 +276,10 @@ async def exact_search(
     )
 
     payload, point_id = await llmRouterService.get_exact_match(request)
+    logger.info(
+        f"Exact-search diagnostic: tenant={request.tenant_id} "
+        f"admin_key={identity.key_id}"
+    )
     return BaseAPIResponse.success_response({"payload": payload, "point_id": point_id})
 
 
@@ -256,10 +290,14 @@ async def exact_search(
 async def cache_save(
     http_request: Request,
     payload: CacheSavePayload,
+    identity: AdminKeyIdentity = Depends(RequireCacheWrite),
     llmRouterService: LlmRouterService = Depends(get_llm_router_service),
 ) -> dict:
     """
     Test endpoint to save cache directly.
+
+    Requires ``cache:write``. Pass ``tenant_id`` in the body to seed a specific
+    tenant; otherwise the entry lands in the anonymous scope.
     """
     request = payload.request
     response = payload.response
@@ -267,7 +305,9 @@ async def cache_save(
     if not request.user:
         request.user = getattr(http_request.state, "user", None)
     request.user_id = getattr(http_request.state, "user_id", None)
-    request.tenant_id = getattr(http_request.state, "tenant_id", None)
+    request.tenant_id = payload.tenant_id or getattr(
+        http_request.state, "tenant_id", None
+    )
     request.session_id = request.session_id or http_request.headers.get(
         EchoGateHeaders.SESSION_ID
     )
@@ -277,5 +317,9 @@ async def cache_save(
 
     point_id, _ = await llmRouterService.save_to_qdrant_cache(
         request=request, response=response
+    )
+    logger.info(
+        f"Cache-save diagnostic: tenant={request.tenant_id} "
+        f"point={point_id} admin_key={identity.key_id}"
     )
     return BaseAPIResponse.success_response({"point_id": point_id})

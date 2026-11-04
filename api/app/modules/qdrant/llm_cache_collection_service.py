@@ -265,7 +265,16 @@ class LlmCacheCollectionService:
         query_filter: models.Filter | None = None,
         limit: int = 10,
         score_threshold: float | None = None,
+        prefetch_score_threshold: float | None = None,
     ) -> list[dict[str, Any]]:
+        """Hybrid dense+sparse RRF search.
+
+        ``score_threshold`` filters the fused result set, whose scores are rank
+        fusion scores rather than cosine similarities. ``prefetch_score_threshold``
+        instead floors each **dense** prefetch branch by cosine similarity (the
+        sparse BM25 branch is left alone: BM25 scores live on a different scale).
+        """
+
         try:
             if filter_payload and not query_filter:
                 must_conditions = []
@@ -291,6 +300,7 @@ class LlmCacheCollectionService:
                         query=system_prompt_vector,
                         using="system_prompt_embedding",
                         limit=limit * 2,
+                        score_threshold=prefetch_score_threshold,
                     )
                 )
             if system_prompt_sparse and system_prompt_sparse.get("indices"):
@@ -311,6 +321,7 @@ class LlmCacheCollectionService:
                         query=user_prompt_vector,
                         using="user_prompt_embedding",
                         limit=limit * 2,
+                        score_threshold=prefetch_score_threshold,
                     )
                 )
             if user_prompt_sparse and user_prompt_sparse.get("indices"):

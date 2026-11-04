@@ -168,8 +168,9 @@ provider are available.
 Real, tracked discrepancies — document them, and only change them as an
 explicit task:
 
-- None currently tracked. The former gaps (`conversation/` router unmounted,
+- **No open gaps.** New discrepancies belong here, not fixed in passing.
+- The former gaps (`conversation/` router unmounted,
   anonymous shared rate-limit bucket, `.env.example` drift, Celery Beat
-  schedule mismatch) have been resolved; the date-stamped record lives in
-  `docs/ROADMAP.md`. Add new discrepancies here instead of fixing them in
-  passing.
+  schedule mismatch, unauthenticated chat cache diagnostics, and the ignored
+  `QdrantSearchRequest.threshold`) have been resolved; the date-stamped record
+  lives in `docs/ROADMAP.md`.

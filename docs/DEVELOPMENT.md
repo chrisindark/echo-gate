@@ -269,7 +269,8 @@ npm run build
   endpoint to alert on — it never returns 503. Use `/api/v1/health/ready` only for
   the gating question ("can this replica serve correctly?"), which is Postgres alone.
 - `POST /api/v1/chat/completions/semantic-search` (and `/exact-search`) exercise the
-  cache without a provider call.
+  cache without a provider call. Both need an admin key with `cache:read`; pass
+  `?tenant_id=` to choose the scope (`/cache-save` needs `cache:write`).
 - `GET /api/v1/gateway-requests/?search=...` finds a trace; the detail view exposes
   `latency_breakdown` and evaluation scores.
 - Correlation IDs (`X-Correlation-ID`/`X-Request-ID`) thread a request through the
