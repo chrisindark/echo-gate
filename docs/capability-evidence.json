@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "description": "Canonical registry of documented Echo Gate capabilities and their evidence. Verified by scripts/check_doc_capabilities.py; every documented capability must point to a real test file and real source symbol.",
+  "capabilities": [
+    {
+      "id": "multi-provider-routing",
+      "readmeCapability": "Multi-Provider Routing & Resiliency",
+      "doc": "README.md",
+      "claim": "Multi-Provider Routing & Resiliency",
+      "source": "api/app/modules/llm/llm_provider_service.py",
+      "export": "LlmProviderService",
+      "test": "api/app/modules/llm/tests/test_router_resilience.py",
+      "testNeedle": "test_failure_before_content_fails_over_to_next_candidate"
+    },
+    {
+      "id": "multi-level-caching",
+      "readmeCapability": "Multi-Level Caching Pipeline",
+      "doc": "README.md",
+      "claim": "Multi-Level Caching Pipeline",
+      "source": "api/app/modules/llm/llm_router_service.py",
+      "export": "LlmRouterService",
+      "test": "api/app/modules/llm/tests/test_cache_write_failure_isolation.py",
+      "testNeedle": "test_redis_write_failure_does_not_break_response"
+    },
+    {
+      "id": "semantic-verification",
+      "readmeCapability": "Semantic Verification & Request Intelligence",
+      "doc": "README.md",
+      "claim": "Semantic Verification & Request Intelligence",
+      "source": "api/app/modules/intent_classifier/intent_classifier_service.py",
+      "export": "IntentClassifierService",
+      "test": "api/app/modules/intent_classifier/tests/test_intent_classifier_degradation.py",
+      "testNeedle": "test_timeout_degrades_to_none"
+    },
+    {
+      "id": "request-tracing",
+      "readmeCapability": "Full Request Tracing & Latency Profiling",
+      "doc": "README.md",
+      "claim": "Full Request Tracing & Latency Profiling",
+      "source": "api/app/modules/gateway_requests/gateway_requests_service.py",
+      "export": "GatewayRequestsService",
+      "test": "api/app/modules/analytics/tests/test_analytics_aggregation.py",
+      "testNeedle": "test_kpis_and_hit_rate"
+    },
+    {
+      "id": "quotas-and-usage",
+      "readmeCapability": "Quotas, Usage, & Cost Tracking",
+      "doc": "README.md",
+      "claim": "Quotas, Usage, & Cost Tracking",
+      "source": "api/app/modules/llm_quota/llm_quota_service.py",
+      "export": "LlmQuotaService",
+      "test": "api/app/modules/llm_quota/tests/test_llm_quota_concurrency.py",
+      "testNeedle": "test_limit_is_exact_under_concurrency"
+    },
+    {
+      "id": "openapi-contract",
+      "doc": "docs/API_REFERENCE.md",
+      "claim": "OpenAPI",
+      "source": "api/app/main.py",
+      "export": "app",
+      "test": "tests/contract/test_openapi_snapshot.py",
+      "testNeedle": "test_openapi_document_matches_committed_snapshot"
+    }
+  ]
+}
