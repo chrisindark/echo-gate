@@ -572,6 +572,22 @@ cloud monorepo reusing core as a library (cleanest IP, worst sync cost).
 - [x] **Admin surface**: `/api/v1/admin/*` kept; `billing:*` routes
   (`api/app/modules/billing/billing_controller.py`) mount only when
   `features.is_enabled("billing")` (2026-11-05).
+- [x] **Event bus / webhook sink** *(2026-11-05)*: typed events from background
+  tasks (`cache.miss`, `quota.exceeded`, `provider.failure`, `audit.failed`) to
+  a configurable sink. OSS defaults to per-type webhook URLs
+  (`EVENTS_WEBHOOK_*`); a type with no URL is dropped before any dispatch work,
+  and `EVENTS_ENABLED` is a kill switch, so the default build is unchanged.
+  Delivery prefers Celery and otherwise runs on a task/daemon thread, so webhook
+  I/O is never inline on a request path; failures are logged and ignored
+  (fail-open). Payloads exclude prompt/response text and strip credential-shaped
+  keys recursively. Cloud replaces the sink with a Stripe/PagerDuty/Slack
+  fan-out via `events.set_event_sink()`. Wiring: `_log_usage` (`cache.miss`),
+  `check_quota` refusals (`quota.exceeded`), `_call_provider_with_retry`
+  (`provider.failure`), `_background_cache_audit` (`audit.failed`). Tests:
+  `api/app/core/tests/test_events.py`,
+  `api/app/modules/llm/tests/test_event_emission_wiring.py`, plus audit wiring
+  cases in `cache_audit/tests/test_cache_audit.py`. Documented in
+  `docs/EXTENSION_SEAMS.md` and `docs/CONFIGURATION.md`.
 
 #### Cloud control plane (private repo / ee package):
 

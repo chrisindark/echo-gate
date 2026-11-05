@@ -10,6 +10,23 @@ changes' entry with a `[BREAKING]` marker.
 
 ## [Unreleased]
 
+### Added
+
+- **Event bus / webhook sink**: the gateway now emits four typed events from
+  background-task paths — `cache.miss` (a provider served a request that missed
+  the cache), `quota.exceeded` (RPM/TPM/budget refusal), `provider.failure` (one
+  per failed upstream attempt, `final` on the last), and `audit.failed` (a
+  sampled cache audit found a non-equivalent entry, could not fetch ground
+  truth, or raised). OSS default posts each type to its own
+  `EVENTS_WEBHOOK_*` URL; an unset type is dropped before any dispatch work, so
+  the default build behaves exactly as before. Delivery prefers Celery and
+  otherwise runs on a task/daemon thread, so a slow webhook never adds latency,
+  and delivery errors are logged and ignored. Payloads are operational metadata
+  only (no prompt/response text) with credential-shaped keys stripped
+  recursively. Cloud overlays replace the sink via
+  `app.core.events.set_event_sink()`. Documented in `docs/CONFIGURATION.md` and
+  `docs/EXTENSION_SEAMS.md`.
+
 ## [v0.1.0] - 2026-11-05
 
 First tagged release. API surface pinned by the OpenAPI snapshot contract test

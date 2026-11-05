@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.constants import EchoGateHeaders
 from app.core.database import SessionFactory, SessionLocal
+from app.core.events import emit_quota_exceeded
 from app.modules.llm_quota.llm_quota_model import LlmQuotaRule
 from app.modules.redis.redis_service import RedisService
 
@@ -214,7 +215,33 @@ class LlmQuotaService:
             reset_tokens_seconds=reset_tpm_seconds,
         )
 
+        def _emit_exceeded(
+            reason: str,
+            limit: int | None = None,
+            used: int | None = None,
+            retry_after_seconds: int | None = None,
+        ) -> None:
+            # Event bus seam: background-only, fail-open, and a no-op unless the
+            # operator configured a destination for `quota.exceeded`. The API key
+            # is deliberately not part of the payload.
+            emit_quota_exceeded(
+                reason=reason,
+                tenant_id=tenant_id,
+                user_id=user,
+                provider=provider,
+                model=model,
+                limit=limit,
+                used=used,
+                retry_after_seconds=retry_after_seconds,
+            )
+
         if rpm > max_rpm:
+            _emit_exceeded(
+                "rate_limit",
+                limit=int(max_rpm),
+                used=int(rpm),
+                retry_after_seconds=quota.retry_after(),
+            )
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail=f"Rate limit exceeded (Limit: {max_rpm} RPM)",
@@ -225,6 +252,12 @@ class LlmQuotaService:
             )
 
         if used_tpm > max_tpm:
+            _emit_exceeded(
+                "token_limit",
+                limit=int(max_tpm),
+                used=used_tpm,
+                retry_after_seconds=quota.retry_after(tokens=True),
+            )
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail=f"Token rate limit exceeded (Limit: {max_tpm} TPM)",
@@ -240,6 +273,7 @@ class LlmQuotaService:
             budget_val = 0
 
         if budget is not None and budget_val <= 0:
+            _emit_exceeded("budget_exhausted")
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
                 detail="Payment Required: Budget exhausted",
