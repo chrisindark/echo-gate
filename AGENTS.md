@@ -25,5 +25,5 @@ Instead of reading all docs upfront, load the specific skill matching your task:
 ## Verification Cheatsheet
 - Fast syntax check: `poetry run python -m compileall api/app`
 - Unit tests: `poetry run pytest`
-- OpenAPI snapshot check: `poetry run pytest tests/test_openapi_snapshot.py`
+- OpenAPI snapshot check: `poetry run pytest tests/contract/test_openapi_snapshot.py`
 - UI check: `cd web && npm run lint && npm run build`

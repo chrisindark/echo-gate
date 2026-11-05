@@ -17,6 +17,7 @@ from app.core.middlewares import (
     TenantContextMiddleware,
     UserMiddleware,
 )
+from app.core.anonymous_telemetry import schedule_anonymous_telemetry
 from app.core.responses import BaseAPIResponse
 from app.core.telemetry import init_telemetry
 from app.modules.analytics.analytics_controller import api_v1_router as analytics_router
@@ -64,11 +65,16 @@ load_dotenv()
 async def lifespan(app: FastAPI):
     config.load()
     init_telemetry()
+    # Opt-in anonymous usage ping (config.TELEMETRY_ENABLED, default off).
+    # Fail-open: scheduling never blocks startup or serving.
+    telemetry_task = schedule_anonymous_telemetry()
     await DependencyContainer.initialize()
     logger.info("EchoGate API initialized.")
     try:
         yield
     finally:
+        if telemetry_task is not None:
+            telemetry_task.cancel()
         await DependencyContainer.shutdown()
         logger.info("EchoGate API shutting down")
 

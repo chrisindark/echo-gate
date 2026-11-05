@@ -1,7 +1,7 @@
 """Deterministic OpenAPI contract snapshot test.
 
 Regenerates the FastAPI OpenAPI document and compares it against the committed
-snapshot in ``tests/snapshots/openapi.json``. Any structural change to the API
+snapshot in ``tests/contract/snapshots/openapi.json``. Any structural change to the API
 contract (endpoints, request/response schemas) fails the test and rewrites the
 snapshot so the change shows up in ``git diff``.
 
@@ -131,7 +131,7 @@ def format_report(diff: dict[str, list[str]]) -> str:
         lines.append(
             "Existing contract elements changed. If this is intentional, "
             "commit the regenerated snapshot; otherwise revert it with "
-            "`git checkout -- tests/snapshots/openapi.json`."
+            "`git checkout -- tests/contract/snapshots/openapi.json`."
         )
     else:
         lines.append(
@@ -147,7 +147,7 @@ class TestOpenApiSnapshot(unittest.TestCase):
     maxDiff = None
 
     def test_openapi_document_matches_committed_snapshot(self):
-        """Fail when app.openapi() drifts from tests/snapshots/openapi.json."""
+        """Fail when app.openapi() drifts from tests/contract/snapshots/openapi.json."""
         spec = app.openapi()
         rendered = canonical_json(spec)
 

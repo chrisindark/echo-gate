@@ -171,7 +171,7 @@ Echo Gate accepts OpenAI-compatible `chat/completions` requests and routes them 
 - **Frontend Dashboard**: Next.js 16, React 19, Tailwind CSS v4, Radix UI Themes, Lucide Icons
 - **Vector & Cache Storage**: Qdrant (dense + sparse vectors), Redis 7 (in-memory key-value)
 - **Relational Storage**: PostgreSQL 16 (request logs, token usage, quotas, evaluations)
-- **Machine Learning & Inference**: Ollama, `sentence-transformers`, `CrossEncoder`, DeBERTa-v3 NLI, Google GenAI SDK
+- **Machine Learning & Inference**: Ollama, inference-platform HTTP service (embeddings, cross-encoder rerank, NLI via `sentence-transformers`), DeBERTa-v3 NLI, Google GenAI SDK
 - **Task Queue**: Celery (backed by Redis)
 
 ---
@@ -254,10 +254,18 @@ DEFAULT_LLM_SERVICE=ollama
 
 ### 4. Start Infrastructure Containers
 
-Start PostgreSQL, Redis, and Qdrant:
+Start PostgreSQL, Redis, and Qdrant (services are gated behind the `core` profile):
 
 ```bash
-docker compose -f deploy/compose/docker-compose.yml up -d postgres redis qdrant
+docker compose --profile core -f deploy/compose/docker-compose.yml up -d postgres redis qdrant
+```
+
+Or run the one-command self-hosting bring-up, which also starts the inference
+platform, runs migrations, and mints the first admin key:
+
+```bash
+./deploy/compose/setup.sh           # core + ui
+./deploy/compose/setup.sh --no-ui   # core only
 ```
 
 ### 5. Install Dependencies & Run Database Migrations
@@ -415,7 +423,7 @@ curl -X POST "http://localhost:8000/api/v1/chat/completions/semantic-search?tena
 
 The full, authoritative endpoint reference is in
 [docs/API_REFERENCE.md](docs/API_REFERENCE.md); the API contract is also snapshotted
-in `tests/snapshots/openapi.json`.
+in `tests/contract/snapshots/openapi.json`.
 
 ---
 

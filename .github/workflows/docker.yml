@@ -3,6 +3,8 @@ name: Docker build & scan
 on:
   push:
     branches: [main]
+    tags:
+      - "v*"
   pull_request:
     branches: [main]
 
@@ -40,8 +42,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Release gate: sync check, then build with VERSION stamped and digest recorded.
+      - name: Check version sync
+        run: python scripts/check_versions.py --tag "${{ github.ref_name }}"
+        if: startsWith(github.ref, 'refs/tags/v')
+
       # PRs: single-platform build loaded into the runner so Trivy can scan
-      # it locally. main: multi-arch publish (docker save cannot load a
+      # it locally. main/tags: multi-arch publish (docker save cannot load a
       # multi-manifest image, so the merge build is not loaded).
       - name: Build image (pull_request)
         if: github.event_name == 'pull_request'
@@ -55,7 +62,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build & publish image (main, multi-arch)
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/v')
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -66,6 +73,29 @@ jobs:
             ${{ env.IMAGE }}:main
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Build & publish release image (tags)
+        id: release-image
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            VERSION=${{ github.ref_name }}
+          tags: |
+            ${{ env.IMAGE }}:${{ github.ref_name }}
+            ${{ env.IMAGE }}:sha-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+
+      - name: Record image digest
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          echo "Release image: ${{ steps.release-image.outputs.digest }}"
+          echo "Release image digest: ${{ steps.release-image.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Trivy vulnerability scan (pull_request)
         if: github.event_name == 'pull_request'

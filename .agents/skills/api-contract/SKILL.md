@@ -8,8 +8,8 @@ description: Instructions for managing, testing, and updating Echo Gate's OpenAP
 Echo Gate enforces strict API contract consistency using an automated OpenAPI snapshot test.
 
 ## 1. How Snapshot Testing Works
-- Test file: `tests/test_openapi_snapshot.py`
-- Canonical snapshot: `tests/snapshots/openapi.json`
+- Test file: `tests/contract/test_openapi_snapshot.py`
+- Canonical snapshot: `tests/contract/snapshots/openapi.json`
 - The test compares the generated `app.openapi()` schema against the checked-in JSON snapshot.
 - Any change to endpoint paths, request bodies, query parameters, response codes, or Pydantic schemas will trigger a diff failure during CI.
 
@@ -17,14 +17,12 @@ Echo Gate enforces strict API contract consistency using an automated OpenAPI sn
 1. Make your changes in `api/app/modules/<feature>/` (controller, schema, or route).
 2. Run the test:
    ```bash
-   poetry run pytest tests/test_openapi_snapshot.py
+   poetry run pytest tests/contract/test_openapi_snapshot.py
    ```
 3. If changes were intentional and verified to be backward-compatible:
-   - Regenerate the snapshot:
+   - Regenerate the snapshot (the test rewrites it on failure):
      ```bash
-     poetry run pytest tests/test_openapi_snapshot.py --snapshot-update
-     # Or run the script if present:
-     poetry run python -m app.scripts.generate_openapi_snapshot
+     poetry run pytest tests/contract/test_openapi_snapshot.py
      ```
-   - Inspect `git diff tests/snapshots/openapi.json` to verify only the expected additive changes were made.
+   - Inspect `git diff tests/contract/snapshots/openapi.json` to verify only the expected additive changes were made.
    - Commit the updated snapshot alongside your code.

@@ -4,7 +4,7 @@ Base URL for local development: `http://localhost:8000`. All JSON endpoints live
 under `/api/v1`. Interactive docs are served at `/docs` (Swagger) and `/redoc`.
 
 The authoritative contract is the generated OpenAPI document, snapshotted in
-`tests/snapshots/openapi.json` and enforced by `tests/test_openapi_snapshot.py`.
+`tests/contract/snapshots/openapi.json` and enforced by `tests/contract/test_openapi_snapshot.py`.
 This reference matches that snapshot; if they ever disagree, the snapshot (and
 `app.openapi()`) wins.
 

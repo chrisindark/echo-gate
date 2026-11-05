@@ -15,7 +15,7 @@
 cp api/app/.env.example api/app/.env.local       # then edit keys/URLs
 
 # 2. Infrastructure (Postgres, Redis, Qdrant)
-docker compose -f deploy/compose/docker-compose.yml up -d postgres redis qdrant
+docker compose --profile core -f deploy/compose/docker-compose.yml up -d postgres redis qdrant
 
 # 3. Backend dependencies
 poetry install
@@ -54,7 +54,7 @@ poetry run celery -A app.worker.celery_app worker --loglevel=info
 poetry run celery -A app.worker.celery_app beat --loglevel=info
 
 # UI only
-cd ui && npm install && npm run dev   # http://localhost:3000
+cd web && npm install && npm run dev   # http://localhost:3000
 ```
 
 Interactive API docs: `http://localhost:8000/docs`.
@@ -120,26 +120,23 @@ Existing suites:
 
 | File | Covers |
 | --- | --- |
-| `tests/test_api_keys_unit.py` | Key hashing determinism, prefix, entropy, empty-key resolution. |
-| `tests/test_health.py` | `/health/live`, `/ready`, `/deps`, `/worker` healthy and degraded paths. |
-| `tests/test_logging_and_correlation.py` | JSON formatter, logger setup, latency decorator, correlation-ID middleware. |
-| `tests/test_rls.py` | RLS stamping/isolation, fail-closed default, cross-tenant insert rejection, API-key resolution. (Requires a live Postgres.) |
-| `tests/test_tenant_middleware.py` | Identity propagation and no context leakage between requests. |
-| `tests/test_tools_support.py` | Tool/tool-call schema, cache-key uniqueness, prompt prep, semantic-cache bypass with tools, Gemini translation. |
-| `tests/test_openapi_snapshot.py` | API contract gate (see below). |
+| `api/app/modules/*/*/tests/` (co-located) | Per-module unit tests: router resilience, cache-write failure isolation, intent-classifier degradation, conversation cache hit, quota concurrency, analytics aggregation, cost estimation, retention policy, and more. |
+| `tests/integration/` | End-to-end tests: streaming support, shadow cache, anonymous rate limiting, RLS, chat auth, tools support. (Some need a live Postgres.) |
+| `tests/datasets/prompt_dataset.py` | The labelled prompt dataset used by runners and calibration. |
+| `tests/contract/test_openapi_snapshot.py` | API contract gate (see below). |
 
 ### API contract snapshot
 
-`tests/test_openapi_snapshot.py` compares `app.openapi()` against the committed
-`tests/snapshots/openapi.json`. Any structural API change makes the test fail and
+`tests/contract/test_openapi_snapshot.py` compares `app.openapi()` against the committed
+`tests/contract/snapshots/openapi.json`. Any structural API change makes the test fail and
 regenerates the snapshot so the change appears in `git diff`; the failure report
 classifies additions (safe) versus removals/modifications (breaking). When you
 intentionally change the API, review the diff, confirm additions are additive, and
 commit the regenerated snapshot. To discard an accidental run,
-`git checkout -- tests/snapshots/openapi.json`.
+`git checkout -- tests/contract/snapshots/openapi.json`.
 
 Many tests import `app.main`, so they need the same env the app does; integration
-tests (`test_rls.py`) need the live infrastructure and the non-owner app role.
+tests (`tests/integration/test_rls.py`) need the live infrastructure and the non-owner app role.
 
 ## Migrations
 

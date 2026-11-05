@@ -11,7 +11,7 @@ Follow the full setup in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) and the
 README quickstart. Short version:
 
 ```bash
-docker compose -f deploy/compose/docker-compose.yml up -d qdrant redis postgres
+docker compose --profile core -f deploy/compose/docker-compose.yml up -d qdrant redis postgres
 poetry install
 cp api/app/.env.example api/app/.env.local        # then fill in provider keys
 poetry run alembic upgrade head
@@ -37,8 +37,8 @@ The UI is a separate Next.js app in `web/` (`npm install`, `npm run dev`,
 
 ## API contract
 
-The public API surface is contract-tested: `tests/test_openapi_snapshot.py`
-compares `app.openapi()` against `tests/snapshots/openapi.json`. If the test
+The public API surface is contract-tested: `tests/contract/test_openapi_snapshot.py`
+compares `app.openapi()` against `tests/contract/snapshots/openapi.json`. If the test
 fails with a classified diff, confirm the changes are additive, then commit
 the regenerated snapshot. Removing or reshaping existing endpoints needs a
 reviewed, intentional change, not a snapshot overwrite.
