@@ -79,9 +79,7 @@ class _FailingProvider:
 class TestCacheMissEmission(unittest.IsolatedAsyncioTestCase):
     async def test_provider_served_request_emits_cache_miss(self):
         router = _router(_FailingProvider())
-        with patch(
-            "app.modules.llm.llm_router_service.emit_cache_miss"
-        ) as emit:
+        with patch("app.modules.llm.llm_router_service.emit_cache_miss") as emit:
             await router._log_usage(
                 request=_request(),
                 response=_response(),
@@ -99,9 +97,7 @@ class TestCacheMissEmission(unittest.IsolatedAsyncioTestCase):
 
     async def test_cache_hit_does_not_emit_cache_miss(self):
         router = _router(_FailingProvider())
-        with patch(
-            "app.modules.llm.llm_router_service.emit_cache_miss"
-        ) as emit:
+        with patch("app.modules.llm.llm_router_service.emit_cache_miss") as emit:
             await router._log_usage(
                 request=_request(),
                 response=_response(cache_info={"cache_hit": True}),
@@ -114,9 +110,7 @@ class TestCacheMissEmission(unittest.IsolatedAsyncioTestCase):
 
     async def test_failed_request_does_not_emit_cache_miss(self):
         router = _router(_FailingProvider())
-        with patch(
-            "app.modules.llm.llm_router_service.emit_cache_miss"
-        ) as emit:
+        with patch("app.modules.llm.llm_router_service.emit_cache_miss") as emit:
             await router._log_usage(
                 request=_request(),
                 response=None,
@@ -134,9 +128,7 @@ class TestCacheMissEmission(unittest.IsolatedAsyncioTestCase):
         router = _router(_FailingProvider())
         response = _response()
         response.system_fingerprint = "mock"
-        with patch(
-            "app.modules.llm.llm_router_service.emit_cache_miss"
-        ) as emit:
+        with patch("app.modules.llm.llm_router_service.emit_cache_miss") as emit:
             await router._log_usage(
                 request=_request(),
                 response=response,
@@ -167,9 +159,10 @@ class TestProviderFailureEmission(unittest.IsolatedAsyncioTestCase):
 
     async def test_exhausted_candidates_emit_a_final_provider_failure(self):
         router = _router(_FailingProvider())
-        with patch(
-            "app.modules.llm.llm_router_service.emit_provider_failure"
-        ) as emit, self.assertRaises(HTTPException):
+        with (
+            patch("app.modules.llm.llm_router_service.emit_provider_failure") as emit,
+            self.assertRaises(HTTPException),
+        ):
             await router._call_provider_with_retry(
                 request=_request(), service_name="openai"
             )
@@ -210,9 +203,12 @@ def _quota_service(redis, rpm_limit=10, tpm_limit=20000) -> LlmQuotaService:
 class TestQuotaExceededEmission(unittest.IsolatedAsyncioTestCase):
     async def test_rpm_exceeded_emits_reason_rate_limit(self):
         service = _quota_service(_StubRedis(rpm=11), rpm_limit=10)
-        with patch(
-            "app.modules.llm_quota.llm_quota_service.emit_quota_exceeded"
-        ) as emit, self.assertRaises(HTTPException) as ctx:
+        with (
+            patch(
+                "app.modules.llm_quota.llm_quota_service.emit_quota_exceeded"
+            ) as emit,
+            self.assertRaises(HTTPException) as ctx,
+        ):
             await service.check_quota(api_key="sk-caller", tenant_id="t1")
         self.assertEqual(ctx.exception.status_code, 429)
         emit.assert_called_once()
@@ -225,12 +221,13 @@ class TestQuotaExceededEmission(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("sk-caller", repr(kwargs))
 
     async def test_tpm_exceeded_emits_reason_token_limit(self):
-        service = _quota_service(
-            _StubRedis(rpm=1, tpm="25000"), tpm_limit=20000
-        )
-        with patch(
-            "app.modules.llm_quota.llm_quota_service.emit_quota_exceeded"
-        ) as emit, self.assertRaises(HTTPException) as ctx:
+        service = _quota_service(_StubRedis(rpm=1, tpm="25000"), tpm_limit=20000)
+        with (
+            patch(
+                "app.modules.llm_quota.llm_quota_service.emit_quota_exceeded"
+            ) as emit,
+            self.assertRaises(HTTPException) as ctx,
+        ):
             await service.check_quota(api_key="sk-caller")
         self.assertEqual(ctx.exception.status_code, 429)
         self.assertEqual(emit.call_args.kwargs["reason"], "token_limit")
@@ -238,9 +235,12 @@ class TestQuotaExceededEmission(unittest.IsolatedAsyncioTestCase):
 
     async def test_exhausted_budget_emits_reason_budget_exhausted(self):
         service = _quota_service(_StubRedis(rpm=1, budget="0"))
-        with patch(
-            "app.modules.llm_quota.llm_quota_service.emit_quota_exceeded"
-        ) as emit, self.assertRaises(HTTPException) as ctx:
+        with (
+            patch(
+                "app.modules.llm_quota.llm_quota_service.emit_quota_exceeded"
+            ) as emit,
+            self.assertRaises(HTTPException) as ctx,
+        ):
             await service.check_quota(api_key="sk-caller")
         self.assertEqual(ctx.exception.status_code, 402)
         self.assertEqual(emit.call_args.kwargs["reason"], "budget_exhausted")

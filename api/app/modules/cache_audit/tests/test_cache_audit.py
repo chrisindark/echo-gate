@@ -537,13 +537,14 @@ class TestBackgroundCacheAuditExecution(unittest.IsolatedAsyncioTestCase):
         )
         self.mock_judge.evaluate_equivalence = AsyncMock(return_value=False)
 
-        with patch.object(
-            self.router,
-            "_call_provider_with_retry",
-            AsyncMock(return_value=(fresh, "openai", "gpt-4o-mini")),
-        ), patch(
-            "app.modules.llm.llm_router_service.emit_audit_failed"
-        ) as emit:
+        with (
+            patch.object(
+                self.router,
+                "_call_provider_with_retry",
+                AsyncMock(return_value=(fresh, "openai", "gpt-4o-mini")),
+            ),
+            patch("app.modules.llm.llm_router_service.emit_audit_failed") as emit,
+        ):
             await self.router._background_cache_audit(
                 request=req,
                 cached_response=cached,
@@ -573,13 +574,14 @@ class TestBackgroundCacheAuditExecution(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
-        with patch.object(
-            self.router,
-            "_call_provider_with_retry",
-            AsyncMock(return_value=(fresh, "openai", "gpt-4o-mini")),
-        ), patch(
-            "app.modules.llm.llm_router_service.emit_audit_failed"
-        ) as emit:
+        with (
+            patch.object(
+                self.router,
+                "_call_provider_with_retry",
+                AsyncMock(return_value=(fresh, "openai", "gpt-4o-mini")),
+            ),
+            patch("app.modules.llm.llm_router_service.emit_audit_failed") as emit,
+        ):
             await self.router._background_cache_audit(
                 request=req,
                 cached_response=cached,
@@ -595,13 +597,14 @@ class TestBackgroundCacheAuditExecution(unittest.IsolatedAsyncioTestCase):
         req = _request()
         cached = _response(content="Cached answer.")
 
-        with patch.object(
-            self.router,
-            "_call_provider_with_retry",
-            AsyncMock(side_effect=RuntimeError("Provider timeout")),
-        ), patch(
-            "app.modules.llm.llm_router_service.emit_audit_failed"
-        ) as emit:
+        with (
+            patch.object(
+                self.router,
+                "_call_provider_with_retry",
+                AsyncMock(side_effect=RuntimeError("Provider timeout")),
+            ),
+            patch("app.modules.llm.llm_router_service.emit_audit_failed") as emit,
+        ):
             await self.router._background_cache_audit(
                 request=req,
                 cached_response=cached,

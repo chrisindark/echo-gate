@@ -1,4 +1,4 @@
-"""Value-aware cache retention (vCache-style).
+"""Value-aware cache retention.
 
 Cache space is not free and not every entry saves the same thing. A slow,
 expensive reasoning-model answer is worth keeping far longer than a two-token

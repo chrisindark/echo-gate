@@ -1674,7 +1674,7 @@ class LlmRouterService:
                 expires_at = now + CACHE_NEGATIVE_TTL_OFFSET
                 cacheable = False
 
-            # Value-aware retention (vCache): a slow, expensive answer is worth
+            # Value-aware retention: a slow, expensive answer is worth
             # keeping longer than a cheap one, and the score is what the
             # eviction sweep orders by.
             usage = response.usage
@@ -2430,9 +2430,7 @@ class LlmRouterService:
                     tenant_id=request.tenant_id,
                     model=fresh_model or model,
                     match_type=match_type,
-                    rerank_score=None
-                    if rerank_score is None
-                    else float(rerank_score),
+                    rerank_score=None if rerank_score is None else float(rerank_score),
                     vector_similarity=None
                     if vector_similarity is None
                     else float(vector_similarity),

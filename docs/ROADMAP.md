@@ -490,7 +490,7 @@ once every step landed; what follows is the record.*
   dominated). Multi-stage build keeps poetry and its wheel cache out of the
   runtime image. Implementations: the `inference_platform` service in this repo
   (`uv run inference-platform`) for laptops, Infinity for GPU hosts.
-- [x] **Cost-aware cache retention (vCache-style)** (`2026-10-29`): cache
+- [x] **Cost-aware cache retention** (`2026-10-29`): cache
   entries record `provider_cost` (from `app/core/pricing.py`), `latency_ms`,
   `token_count`, `hit_count`, and a `retention_value` score. The intent TTL is
   stretched by `(1 + log10(1 + cost * 100)) * (1 + latency_ms / 1000)` up to
@@ -652,6 +652,50 @@ raises suspicion and slows adoption.
 ~4 focused PRs) → OSS launch bound to Phase 0 → cloud distribution
 (metering first, then portal, then SSO) → enterprise self-hosted (Helm +
 support playbook) last.
+
+---
+
+### Phase 5 — Gateway Evolution: Protocol Expansion, Optimization & Governance
+
+Expanding Echo Gate's gateway surface, prompt efficiency, and safety guardrails, drawing on battle-tested design patterns from modern open-source LLM gateways.
+
+- [ ] **1. Prompt Token Optimization Pipeline**
+  - **Motivation**: Shaving input tokens before upstream LLM dispatch directly lowers inference costs, reduces TTFT (time-to-first-token), and prevents cache corpus bloat.
+  - **Lossless & Rule-Based Compaction**:
+    - Whitespace & boilerplate compaction: collapse repetitive spaces, tabs, and duplicate newline runs across prompt turns.
+    - Tool-result tabularization (`json-table`): rewrite large uniform JSON arrays returned from tool calls into compact markdown/pipe-delimited tables, dropping redundant key names.
+    - Turn deduplication (`session-dedup`): detect exact-match duplicate message turns in lengthy multi-turn sessions.
+  - **Context Window & Headroom Management**:
+    - Conversation context reduction (`ccr`): retain system prompt and last $N$ turns while compressing intermediate turns.
+    - Headroom trimmer: dynamically prune oldest turns to guarantee prompt fit within the selected model's context window minus completion tokens.
+  - **Lossy Prompt Compression**:
+    - Offload token-pruning models (e.g. LLMLingua-2 token classifier) to `inference-platform/` over HTTP to strictly preserve Echo Gate's architectural invariant of zero in-process ML models.
+
+- [ ] **2. Anthropic Messages Protocol Adapter (`POST /api/v1/messages`)**
+  - **Motivation**: Enable seamless drop-in integration for Anthropic SDK clients (Claude Code, Cursor, OpenCode, Python/TS `anthropic` SDKs) without client-side translation layers.
+  - **Bidirectional Wire Translation**:
+    - Normalize Anthropic request format (`system` string/array, `messages` with structured text/image blocks) to Echo Gate's internal representation.
+    - Translate gateway responses back into native Anthropic `message` structures and stop reasons.
+  - **Streaming Parity**:
+    - Map internal streaming tokens to Anthropic SSE event format (`message_start`, `content_block_start`, `content_block_delta`, `message_delta`, `message_stop`).
+    - Support instant cache hit playback directly into Anthropic SSE stream format.
+  - **Contract Integrity**:
+    - Snapshot contract tests updated and verified in `tests/contract/test_openapi_snapshot.py`.
+
+- [ ] **3. In-Flight PII Redaction & Soft-Steering Guardrails**
+  - **Pre-Routing PII Scrubber**:
+    - Detect and mask sensitive entity types (Email, Phone, Credit Card, SSN, IBAN, and custom regex patterns) *prior* to cache lookup or provider transmission.
+    - Guarantees sensitive customer data is never indexed into Qdrant vector store, Redis cache keys, or external provider logs.
+  - **Dual-Mode Content Guardrails**:
+    - Hard-blocking mode: evaluate inputs against policy rules (regex, topic criteria) and abort request with structured audit logs.
+    - Soft-steering mode (`inject`): append policy instructions directly to the system prompt, directing the downstream LLM to self-enforce behavior without failing the call.
+
+- [ ] **4. Dynamic Routing Profiles & A/B Experimentation Engine**
+  - **Routing Profiles**:
+    - Named presets (e.g. `quality`, `cheap`, `fast`, `code`) packaging candidate model priorities, fallback chains, and timeout budgets into reusable configurations.
+  - **A/B Testing Variants**:
+    - Allow splitting incoming traffic between competing router configurations (model sets, prompt versions, or cache configurations).
+    - Traffic distribution strategies: `weighted`, `round-robin`, and `sticky` (identifying callers via `user` field, session headers, or hashed conversation prefix).
 
 ---
 
