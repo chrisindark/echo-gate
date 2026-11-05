@@ -99,7 +99,7 @@ jobs:
 
       - name: Trivy vulnerability scan (pull_request)
         if: github.event_name == 'pull_request'
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           scan-type: image
           image-ref: ${{ env.IMAGE }}:scan
@@ -116,7 +116,7 @@ jobs:
 
       - name: Trivy vulnerability scan (main — fail on HIGH/CRITICAL)
         if: github.event_name == 'push'
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           scan-type: image
           image-ref: ${{ env.IMAGE }}:sha-${{ github.sha }}
