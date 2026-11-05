@@ -212,18 +212,18 @@ def _custom_openapi() -> dict:
     security_schemes["AdminApiKeyAuth"] = ADMIN_KEY_HEADER
 
     for path, item in schema.get("paths", {}).items():
-        scheme = (
-            {"AdminApiKeyAuth": []}
+        security_requirement = (
+            [{"AdminApiKeyAuth": []}]
             if path.startswith("/api/v1/admin/")
-            else {"ApiKeyAuth": []}
+            else [{"ApiKeyAuth": []}]
             if path.startswith(("/api/v1/analytics", "/api/v1/gateway-requests"))
             else None
         )
-        if scheme is None:
+        if security_requirement is None:
             continue
         for method, operation in item.items():
             if method in {"get", "post", "put", "patch", "delete", "head", "options"}:
-                operation["security"] = scheme
+                operation["security"] = security_requirement
 
     app.openapi_schema = schema
     return schema

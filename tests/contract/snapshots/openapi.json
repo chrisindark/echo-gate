@@ -6249,9 +6249,11 @@
             "description": "Validation Error"
           }
         },
-        "security": {
-          "AdminApiKeyAuth": []
-        },
+        "security": [
+          {
+            "AdminApiKeyAuth": []
+          }
+        ],
         "summary": "List Api Keys",
         "tags": [
           "API Keys"
@@ -6310,9 +6312,11 @@
             "description": "Validation Error"
           }
         },
-        "security": {
-          "AdminApiKeyAuth": []
-        },
+        "security": [
+          {
+            "AdminApiKeyAuth": []
+          }
+        ],
         "summary": "Create Api Key",
         "tags": [
           "API Keys"
@@ -6372,9 +6376,11 @@
             "description": "Validation Error"
           }
         },
-        "security": {
-          "AdminApiKeyAuth": []
-        },
+        "security": [
+          {
+            "AdminApiKeyAuth": []
+          }
+        ],
         "summary": "Revoke Api Key",
         "tags": [
           "API Keys"
@@ -6446,9 +6452,11 @@
             "description": "Validation Error"
           }
         },
-        "security": {
-          "AdminApiKeyAuth": []
-        },
+        "security": [
+          {
+            "AdminApiKeyAuth": []
+          }
+        ],
         "summary": "Rotate Api Key",
         "tags": [
           "API Keys"
@@ -6524,9 +6532,11 @@
             "description": "Validation Error"
           }
         },
-        "security": {
-          "AdminApiKeyAuth": []
-        },
+        "security": [
+          {
+            "AdminApiKeyAuth": []
+          }
+        ],
         "summary": "Evict Cache Entry",
         "tags": [
           "Cache (Admin)"
@@ -6587,9 +6597,11 @@
             "description": "Validation Error"
           }
         },
-        "security": {
-          "AdminApiKeyAuth": []
-        },
+        "security": [
+          {
+            "AdminApiKeyAuth": []
+          }
+        ],
         "summary": "Bulk Evict Cache",
         "tags": [
           "Cache (Admin)"
@@ -6650,9 +6662,11 @@
             "description": "Validation Error"
           }
         },
-        "security": {
-          "AdminApiKeyAuth": []
-        },
+        "security": [
+          {
+            "AdminApiKeyAuth": []
+          }
+        ],
         "summary": "Search Cache",
         "tags": [
           "Cache (Admin)"
@@ -6713,9 +6727,11 @@
             "description": "Validation Error"
           }
         },
-        "security": {
-          "AdminApiKeyAuth": []
-        },
+        "security": [
+          {
+            "AdminApiKeyAuth": []
+          }
+        ],
         "summary": "Warmup Cache",
         "tags": [
           "Cache (Admin)"
@@ -6855,9 +6871,11 @@
             "description": "Validation Error"
           }
         },
-        "security": {
-          "AdminApiKeyAuth": []
-        },
+        "security": [
+          {
+            "AdminApiKeyAuth": []
+          }
+        ],
         "summary": "List Quota Rules",
         "tags": [
           "LLM Quota (Admin)"
@@ -6916,9 +6934,11 @@
             "description": "Validation Error"
           }
         },
-        "security": {
-          "AdminApiKeyAuth": []
-        },
+        "security": [
+          {
+            "AdminApiKeyAuth": []
+          }
+        ],
         "summary": "Create Quota Rule",
         "tags": [
           "LLM Quota (Admin)"
@@ -7035,9 +7055,11 @@
             "description": "Validation Error"
           }
         },
-        "security": {
-          "AdminApiKeyAuth": []
-        },
+        "security": [
+          {
+            "AdminApiKeyAuth": []
+          }
+        ],
         "summary": "Get Effective Limits",
         "tags": [
           "LLM Quota (Admin)"
@@ -7088,9 +7110,11 @@
             "description": "Validation Error"
           }
         },
-        "security": {
-          "AdminApiKeyAuth": []
-        },
+        "security": [
+          {
+            "AdminApiKeyAuth": []
+          }
+        ],
         "summary": "List Quota Tenants",
         "tags": [
           "LLM Quota (Admin)"
@@ -7150,9 +7174,11 @@
             "description": "Validation Error"
           }
         },
-        "security": {
-          "AdminApiKeyAuth": []
-        },
+        "security": [
+          {
+            "AdminApiKeyAuth": []
+          }
+        ],
         "summary": "Delete Quota Rule",
         "tags": [
           "LLM Quota (Admin)"
@@ -7210,9 +7236,11 @@
             "description": "Validation Error"
           }
         },
-        "security": {
-          "AdminApiKeyAuth": []
-        },
+        "security": [
+          {
+            "AdminApiKeyAuth": []
+          }
+        ],
         "summary": "Get Quota Rule",
         "tags": [
           "LLM Quota (Admin)"
@@ -7280,9 +7308,11 @@
             "description": "Validation Error"
           }
         },
-        "security": {
-          "AdminApiKeyAuth": []
-        },
+        "security": [
+          {
+            "AdminApiKeyAuth": []
+          }
+        ],
         "summary": "Update Quota Rule",
         "tags": [
           "LLM Quota (Admin)"
@@ -7407,9 +7437,11 @@
             "description": "Validation Error"
           }
         },
-        "security": {
-          "ApiKeyAuth": []
-        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
         "summary": "Get Dashboard Data",
         "tags": [
           "Analytics"
@@ -7534,9 +7566,11 @@
             "description": "Validation Error"
           }
         },
-        "security": {
-          "ApiKeyAuth": []
-        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
         "summary": "Get Latency Metrics",
         "tags": [
           "Analytics"
@@ -8420,9 +8454,11 @@
             "description": "Validation Error"
           }
         },
-        "security": {
-          "ApiKeyAuth": []
-        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
         "summary": "Get Gateway Request Logs",
         "tags": [
           "Gateway Requests"
@@ -8463,9 +8499,11 @@
             "description": "Validation Error"
           }
         },
-        "security": {
-          "ApiKeyAuth": []
-        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
         "summary": "Create Gateway Request Log",
         "tags": [
           "Gateway Requests"
@@ -8525,9 +8563,11 @@
             "description": "Validation Error"
           }
         },
-        "security": {
-          "ApiKeyAuth": []
-        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
         "summary": "Get Gateway Request Log By Hash",
         "tags": [
           "Gateway Requests"
@@ -8550,9 +8590,11 @@
             "description": "Successful Response"
           }
         },
-        "security": {
-          "ApiKeyAuth": []
-        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
         "summary": "Trigger Evaluation",
         "tags": [
           "Gateway Requests"
@@ -8597,9 +8639,11 @@
             "description": "Validation Error"
           }
         },
-        "security": {
-          "ApiKeyAuth": []
-        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
         "summary": "Get Pending Evaluations",
         "tags": [
           "Gateway Requests"
@@ -8643,9 +8687,11 @@
             "description": "Validation Error"
           }
         },
-        "security": {
-          "ApiKeyAuth": []
-        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
         "summary": "Delete Gateway Request Log",
         "tags": [
           "Gateway Requests"
@@ -8703,9 +8749,11 @@
             "description": "Validation Error"
           }
         },
-        "security": {
-          "ApiKeyAuth": []
-        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
         "summary": "Get Gateway Request Log",
         "tags": [
           "Gateway Requests"
@@ -8757,9 +8805,11 @@
             "description": "Validation Error"
           }
         },
-        "security": {
-          "ApiKeyAuth": []
-        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
         "summary": "Update Gateway Request Log",
         "tags": [
           "Gateway Requests"
