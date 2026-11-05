@@ -1,0 +1,19 @@
+echo-gate {{ .Chart.AppVersion }} is deployed as {{ .Release.Name }}.
+
+Gateway API: http://{{ .Release.Name }}-echo-gate-api.{{ .Release.Namespace }}.svc:8000
+
+A run-once migration Job provisions the non-owner role + RLS policies:
+  kubectl -n {{ .Release.Namespace }} logs job/{{ .Release.Name }}-echo-gate-api-migrations
+
+The gateway refuses to start without the inference platform — point the
+API at it (separate chart: inference-platform/deploy/helm/inference-platform):
+  --set echo-gate-api.config.inferenceBaseUrl=http://<service>.default.svc:7997
+
+Secret mounting: set echo-gate-api.existingSecret (or extraEnvFromSecrets)
+to mount a pre-created Secret — provider keys and DATABASE_URL /
+MIGRATION_DATABASE_URL come from there (never values.yaml in plain text).
+TLS terminates at the Ingress (IngressClass + cert-manager Certificate
+Secret); the pods serve HTTP inside the cluster.
+
+To move off the bundled data stores, disable postgres/redis/qdrant and
+override echo-gate-api.config.{redisUrl,celeryBrokerUrl,qdrantUrl,databaseUrl}.

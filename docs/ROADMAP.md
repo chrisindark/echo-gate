@@ -556,20 +556,22 @@ cloud monorepo reusing core as a library (cleanest IP, worst sync cost).
 
 #### Extension seams to add to the core:
 
-- [ ] `app/core/features.py` — feature-flag registry
+- [x] `app/core/features.py` — feature-flag registry
   (`DEPLOYMENT_MODE=oss|cloud`); no runtime license logic in the OSS build.
-- [ ] **Identity protocol**: extract sign-in from the current `X-API-Key`/admin-key
-  guards into an `IdentityProvider` protocol; OSS keeps
-  `ApiKeyIdentityProvider`, cloud registers `OidcIdentityProvider` plus a
-  session portal. `TenantContextMiddleware` is the natural injection point.
-- [ ] **Metering export**: emit typed usage events (from `_log_usage`) to a
-  configurable sink; OSS defaults to a `noop` sink, the cloud installs a
-  Stripe recorder.
-- [ ] **Storage/broker hardening**: abstract the `redis_service`/`qdrant`
-  constructors for managed-service connection parameters (TLS, IAM auth,
-  retry policy) — the cloud needs this more than self-hosters.
-- [ ] **Admin surface**: keep `/api/v1/admin/*`; cloud registers `billing:*`
-  routes only when the ee package is present.
+  Landed with `register_cloud()` / `is_enabled()` / `mode()` (2026-11-05).
+- [x] **Identity protocol**: `app/core/identity.py` — `IdentityProvider`
+  protocol; OSS keeps `ApiKeyIdentityProvider`, cloud registers
+  `OidcIdentityProvider` plus a session portal. `TenantContextMiddleware`
+  is the injection point (2026-11-05).
+- [x] **Metering export**: `app/core/metering.py` — `MeteringSink` protocol;
+  OSS defaults to `NoopMeteringSink`, the cloud installs a Stripe recorder
+  (2026-11-05).
+- [x] **Storage/broker hardening**: `app/core/storage.py` — `StorageFactory`
+  abstracts the `redis_service`/`qdrant` constructors for managed-service
+  connection parameters (TLS, IAM auth, retry policy) (2026-11-05).
+- [x] **Admin surface**: `/api/v1/admin/*` kept; `billing:*` routes
+  (`api/app/modules/billing/billing_controller.py`) mount only when
+  `features.is_enabled("billing")` (2026-11-05).
 - [ ] **Event bus / webhook sink**: emit typed events from background tasks
   (`cache.miss`, `quota.exceeded`, `provider.failure`, `audit.failed`) to a
   configurable sink. OSS defaults to webhook URLs per event type (zero
@@ -617,13 +619,17 @@ raises suspicion and slows adoption.
   disciplined by the existing OpenAPI snapshot contract test.
 - [ ] Opt-in telemetry (`TELEMETRY_ENABLED`, default off; version + instance
   id ping), documented in `docs/`.
-- [ ] **Multi-region cache federation** (architecture-only): document a
-  federation architecture where each region runs its own cache stack
-  (local-first read → provider, async replication of high-value entries
-  across regions via Celery). The scope/tenant filter already supports
-  this — entries are isolated, so cross-region replication is safe. Record
-  the design so the Qdrant collection schema does not accidentally add
-  region-incompatible assumptions.
+- [x] **Multi-region cache federation** (architecture-only, *2026-11-05*): design
+  recorded in
+  [`docs/MULTI_REGION_CACHE_FEDERATION.md`](MULTI_REGION_CACHE_FEDERATION.md)
+  — local-first read → provider, async replication of high-value entries
+  (`retention_value`-gated, `GLOBAL`/`TENANT` scope only) across regions via
+  Celery (`replicate_cache_entry` + daily high-water sweep) over an
+  admin-scoped ingestion endpoint. Qdrant payload gains additive
+  `region_origin`/`federation_version` with `CACHE_FEDERATION_*` knobs
+  (default-off) so the schema never adds region-incompatible assumptions.
+  Implemented as design + seams only; replication stays disabled until
+  a follow-up lands off these seams.
 
 **Sequencing within this phase**: extension seams (no behavior change,
 ~4 focused PRs) → OSS launch bound to Phase 0 → cloud distribution

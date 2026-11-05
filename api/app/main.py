@@ -140,6 +140,16 @@ app.include_router(api_keys_router)
 app.include_router(llm_quota_router)
 app.include_router(cache_admin_router)
 
+# Extension seam: cloud-only surfaces (e.g. /api/v1/billing/*) register here,
+# and only when the ee overlay has flipped the feature registry. The OSS
+# image never mounts them.
+from app.core import features as _feature_registry  # noqa: E402
+
+if _feature_registry.is_enabled("billing"):
+    from app.modules.billing.billing_controller import billing_router  # noqa: E402
+
+    app.include_router(billing_router)
+
 # Mount interactive coverage report in local development
 if PYTHON_ENV == "local":
     from fastapi.responses import HTMLResponse

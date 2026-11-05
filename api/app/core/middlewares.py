@@ -141,13 +141,21 @@ class TenantContextMiddleware:
         user_id: str | None = None
 
         if api_key:
-            # Imported lazily so the middleware module stays import-light.
-            from app.modules.api_keys.api_keys_service import api_key_service
+            # IdentityProvider seam (OSS: ApiKeyIdentityProvider). A cloud
+            # overlay registers OidcIdentityProvider here; the resolution
+            # order and trust model are unchanged.
+            from app.core.identity import default_provider
 
-            identity = await asyncio.to_thread(api_key_service.resolve_api_key, api_key)
-            if identity is not None:
-                tenant_id = identity.tenant_id
-                user_id = identity.user_id
+            provider = default_provider()
+
+            def _resolve() -> None:
+                nonlocal tenant_id, user_id
+                identity = provider.resolve({"x-api-key": api_key})
+                if identity is not None:
+                    tenant_id = identity.tenant_id
+                    user_id = identity.user_id
+
+            await asyncio.to_thread(_resolve)
 
         state = scope.setdefault("state", {})
         state["tenant_id"] = tenant_id or ANONYMOUS_TENANT

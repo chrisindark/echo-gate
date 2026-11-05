@@ -1,0 +1,28 @@
+apiVersion: v2
+name: echo-gate
+description: Echo Gate LLM gateway — umbrella chart for enterprise self-Hosted deployments (gateway, workers, data plane, and observability UI).
+type: application
+version: 0.1.0
+appVersion: "v0.1.0"
+kubeVersion: ">=1.25.0"
+keywords:
+  - llm
+  - gateway
+  - caching
+  - enterprise
+dependencies:
+  - name: echo-gate-api
+    version: 0.1.0
+    condition: echoGateApi.enabled
+  - name: postgres
+    version: 1.0.0
+    condition: postgres.enabled
+    repository: oci://registry-1.docker.io/bitnamicharts
+  - name: redis
+    version: 1.0.0
+    condition: redis.enabled
+    repository: oci://registry-1.docker.io/bitnamicharts
+  - name: qdrant
+    version: 1.0.0
+    condition: qdrant.enabled
+    repository: oci://registry-1.docker.io/bitnamicharts
