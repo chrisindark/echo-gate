@@ -400,4 +400,3 @@ def emit_audit_failed(
             "reason": reason,
         },
     )
-

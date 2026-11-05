@@ -57,7 +57,7 @@ Version sources (gateway `pyproject.toml`, `web/package.json`,
   `heuristic` instead of failing. `ESTIMATE_DEFAULT_COMPLETION_TOKENS` (256)
   supplies the completion length when `max_tokens` is omitted. Additive: new
   route and schemas only, OpenAPI snapshot regenerated.
-- **Value-aware cache retention (vCache-style)**: cache entries now record
+- **Value-aware cache retention**: cache entries now record
   `provider_cost`, `latency_ms`, `token_count`, `hit_count`, and a
   `retention_value` score, so intent TTLs stretch for slow, expensive answers
   (up to `CACHE_RETENTION_MAX_TTL_SECONDS`) and the eviction sweep deletes

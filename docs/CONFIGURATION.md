@@ -265,7 +265,7 @@ Default `INTENT_TTL_SECONDS`: `weather` 300 · `product_info` 3600 ·
 
 `time_sensitivity >= 0.9` or intent `finance_market` is never cached.
 
-## Cache retention (vCache-style)
+## Value-aware cache retention
 
 TTLs stay intent-driven, but the write path stretches them by entry value and
 the eviction sweep protects the valuable entries instead of letting every point

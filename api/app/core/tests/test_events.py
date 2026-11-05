@@ -110,7 +110,9 @@ class TestEventBuilding(unittest.TestCase):
 
     def test_sink_failure_is_swallowed(self):
         events.set_event_sink(_CaptureSink(raises=True))
-        event = events.emit_event(events.EVENT_QUOTA_EXCEEDED, {}, sink=_CaptureSink(raises=True))
+        event = events.emit_event(
+            events.EVENT_QUOTA_EXCEEDED, {}, sink=_CaptureSink(raises=True)
+        )
         self.assertIsNotNone(event)  # never raises
 
     def test_delivery_failure_is_swallowed(self):
@@ -186,9 +188,7 @@ class TestWebhookSink(unittest.TestCase):
         return _FakeHttpResponse(status)
 
     def test_posts_to_the_url_for_its_type(self):
-        sink = events.WebhookEventSink(
-            {"cache.miss": "https://example.test/miss"}
-        )
+        sink = events.WebhookEventSink({"cache.miss": "https://example.test/miss"})
         with patch("urllib.request.urlopen", return_value=self._response()) as urlopen:
             sink.emit({"type": "cache.miss", "payload": {"a": 1}})
         urlopen.assert_called_once()
@@ -238,9 +238,7 @@ class TestOffPathDelivery(unittest.TestCase):
                 delivered.set()
 
         events.set_event_sink(_ThreadRecordingSink())
-        with patch(
-            "app.core.helpers.is_celery_broker_online", return_value=False
-        ):
+        with patch("app.core.helpers.is_celery_broker_online", return_value=False):
             events._dispatch({"type": "cache.miss", "payload": {}})
             # Called from the main thread with no running loop: must not block,
             # and delivery happens on the daemon thread.
@@ -259,9 +257,7 @@ class TestOffPathDelivery(unittest.TestCase):
 
         async def _emit_and_return() -> float:
             start = time.monotonic()
-            with patch(
-                "app.core.helpers.is_celery_broker_online", return_value=False
-            ):
+            with patch("app.core.helpers.is_celery_broker_online", return_value=False):
                 events._dispatch({"type": "cache.miss", "payload": {}})
             return time.monotonic() - start
 
@@ -273,9 +269,10 @@ class TestOffPathDelivery(unittest.TestCase):
 
     def test_celery_dispatch_is_preferred_when_broker_is_online(self):
         task = MagicMock()
-        with patch(
-            "app.core.helpers.is_celery_broker_online", return_value=True
-        ), patch.object(events, "_celery_delivery_task", return_value=task):
+        with (
+            patch("app.core.helpers.is_celery_broker_online", return_value=True),
+            patch.object(events, "_celery_delivery_task", return_value=task),
+        ):
             events._dispatch({"type": "cache.miss", "payload": {}})
         task.delay.assert_called_once_with({"type": "cache.miss", "payload": {}})
 
@@ -289,9 +286,10 @@ class TestOffPathDelivery(unittest.TestCase):
         task = MagicMock()
         task.delay.side_effect = RuntimeError("broker down")
         events.set_event_sink(_Sink())
-        with patch(
-            "app.core.helpers.is_celery_broker_online", return_value=True
-        ), patch.object(events, "_celery_delivery_task", return_value=task):
+        with (
+            patch("app.core.helpers.is_celery_broker_online", return_value=True),
+            patch.object(events, "_celery_delivery_task", return_value=task),
+        ):
             events._dispatch({"type": "cache.miss", "payload": {}})
             self.assertTrue(delivered.wait(timeout=5))
 

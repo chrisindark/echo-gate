@@ -15,8 +15,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
-from app.core.config import config
-
 
 @dataclass(frozen=True)
 class Identity:

@@ -53,7 +53,9 @@ class Config:
         # No prompts, responses, tenant data, or IPs ever leave the host.
         # Ping failures are logged and ignored — telemetry can never affect
         # request serving (fail-open).
-        self.TELEMETRY_ENABLED = os.getenv("TELEMETRY_ENABLED", "false").lower() == "true"
+        self.TELEMETRY_ENABLED = (
+            os.getenv("TELEMETRY_ENABLED", "false").lower() == "true"
+        )
         self.TELEMETRY_ENDPOINT = os.getenv("TELEMETRY_ENDPOINT", "").strip()
         self.TELEMETRY_INTERVAL_SECONDS = int(
             os.getenv("TELEMETRY_INTERVAL_SECONDS", "86400")
@@ -234,7 +236,7 @@ class Config:
             os.getenv("ESTIMATE_DEFAULT_COMPLETION_TOKENS", "256")
         )
 
-        # Value-aware cache retention (vCache-style).
+        # Value-aware cache retention.
         #
         # Entry TTLs are still intent-driven, but generation cost and latency
         # stretch them (and the eviction sweep protects the valuable ones)

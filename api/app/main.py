@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 
+from app.core.anonymous_telemetry import schedule_anonymous_telemetry
 from app.core.config import config
 from app.core.constants import EchoGateHeaders
 from app.core.dependencies import DependencyContainer
@@ -17,7 +18,6 @@ from app.core.middlewares import (
     TenantContextMiddleware,
     UserMiddleware,
 )
-from app.core.anonymous_telemetry import schedule_anonymous_telemetry
 from app.core.responses import BaseAPIResponse
 from app.core.telemetry import init_telemetry
 from app.modules.analytics.analytics_controller import api_v1_router as analytics_router

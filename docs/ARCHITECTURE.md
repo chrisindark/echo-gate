@@ -430,7 +430,7 @@ TTL is chosen by `IntentClassifierService.calculate_ttl(intent, time_sensitivity
 accepted; moderate accepted only at a middling temperature (0.6–1.6) and only for
 subjective intents (`chitchat`, `greeting`); everything else rejected.
 
-### Value-aware retention (vCache)
+### Value-aware retention
 
 The intent TTL is the floor, not the verdict. At write time
 `save_to_qdrant_cache` records what the entry is worth — `provider_cost` from

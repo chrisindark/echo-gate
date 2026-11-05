@@ -24,6 +24,23 @@
 - [x] **Event Bus / Webhook Sink** *(2026-11-05)*: `api/app/core/events.py` emits the four typed events (`cache.miss`, `quota.exceeded`, `provider.failure`, `audit.failed`) from their real background-task paths. OSS default is per-type `EVENTS_WEBHOOK_*` URLs; unset type → dropped before dispatch, `EVENTS_ENABLED` kill switch, Celery-or-thread delivery (never inline), fail-open, no prompt text and credential keys stripped. Cloud swaps the sink via `set_event_sink()`. Tests: `core/tests/test_events.py`, `llm/tests/test_event_emission_wiring.py`.
 - [x] **Extension Seams** *(2026-11-05)*: `docs/EXTENSION_SEAMS.md` + seams wired (behavior-preserving, OSS defaults = current behavior, OpenAPI snapshot gate confirms no contract change) — `app/core/features.py` (`DEPLOYMENT_MODE` + `register_cloud()`/`is_enabled()`), `app/core/identity.py` (`IdentityProvider`, injected at `TenantContextMiddleware`), `app/core/metering.py` (`MeteringSink`/`NoopMeteringSink`), `app/core/storage.py` (`StorageFactory`), and `/api/v1/billing/*` mounted only when `features.is_enabled("billing")` (placeholder router in `api/app/modules/billing/billing_controller.py` for the private cloud overlay to implement). Tests in `api/app/core/tests/test_extension_seams.py`.
 
+### P3 — Advanced Gateway Features & Protocol Expansion (Post-0.1.0)
+- [ ] **Prompt Token Optimization Pipeline**:
+  - Implement an opt-in pre-processing pipeline for chat completion requests to reduce token footprint before semantic cache key generation and upstream LLM dispatch.
+  - Phase A (Lossless rule-based): excessive whitespace collapse, repeated turn/session deduplication (`session-dedup`), and tool-call JSON array-to-markdown/pipe table serialization.
+  - Phase B (Context & Headroom): conversation context reduction (`ccr`) and target model headroom trimming to avoid context window overflow.
+  - Phase C (Lossy prompt compression): offload heavier compression algorithms (e.g., extractive lexical filtering or LLMLingua-2 token classifier) to `inference-platform/` over HTTP to maintain the non-negotiable invariant of zero in-process embeddings/models in the gateway.
+- [ ] **Anthropic Messages Protocol Adapter (`POST /api/v1/messages`)**:
+  - Add native support for the Anthropic Messages API specification so Claude SDKs (Python/TypeScript), Cursor in Claude mode, and Claude Code can connect directly to Echo Gate without client-side translation.
+  - Bidirectional payload normalization: map Anthropic system/message blocks to internal representations while maintaining fail-open semantic caching, streaming SSE chunk translation, and usage accounting.
+  - Update OpenAPI snapshot contract gate (`tests/contract/test_openapi_snapshot.py`).
+- [ ] **Soft-Steering Guardrails & In-Flight PII Redaction**:
+  - Dual-mode guardrails: support both hard-blocking (`block` + audit log on violation) and soft-steering (`inject` mode: appending dynamic system instructions for model self-enforcement without request abortion).
+  - Pre-routing PII scrubber: scrub sensitive entities (email, phone, credit card, SSN, IBAN, and custom regex patterns) *before* cache lookup or upstream transmission to prevent sensitive data leakage into Redis, Qdrant vectors, or external provider logs.
+- [ ] **Dynamic Routing Profiles & A/B Experiments**:
+  - Introduce reusable routing profiles (e.g. `quality`, `cheap`, `fast`, `code`) bundling candidate model priorities, fallback chains, and timeout budgets.
+  - A/B testing engine: split traffic across router variants (models, prompt versions, or providers) with configurable rotation (`weighted`, `round-robin`, or `sticky` via `X-Session-ID`, `user` identity, or hashed conversation prefix).
+
 ---
 
 ## Historical Record
