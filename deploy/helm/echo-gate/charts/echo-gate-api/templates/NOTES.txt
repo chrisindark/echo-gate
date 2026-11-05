@@ -1,0 +1,19 @@
+echo-gate-api {{ .Chart.AppVersion }} is deployed as {{ include "echo-gate-api.fullname" . }}.
+
+Gateway API: http://{{ include "echo-gate-api.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}
+Health (gating):  GET /api/v1/health/ready   (Postgres only — 503 evicts replicas)
+Health (roll-up): GET /api/v1/health/deps    (non-gating, use for alerting)
+
+The migration Job (run-once, owner role for RLS) lives at
+{{ include "echo-gate-api.fullname" . }}-migrations — check it:
+  kubectl -n {{ .Release.Namespace }} get jobs
+  kubectl -n {{ .Release.Namespace }} logs job/{{ include "echo-gate-api.fullname" . }}-migrations
+
+Secret mounting: set echo-gate-api.existingSecret (or extraEnvFromSecrets) to
+mount a pre-created Secret (e.g. from cert-manager / External Secrets). Provider
+keys (OPENAI_API_KEY, etc.) and DATABASE_URL / MIGRATION_DATABASE_URL come from
+that Secret — never from values.yaml in plain text.
+
+TLS: echo-gate-api.ingress.enabled=true provisions an Ingress; point its tls
+secretName at a cert-manager Certificate (or pre-signed Secret). The gateway
+itself serves HTTP inside the cluster; TLS terminates at the Ingress.

@@ -1,0 +1,124 @@
+# Defaults for the Echo Gate gateway API workload (standalone sub-chart).
+# The umbrella chart (deploy/helm/echo-gate/) wraps these with infra sub-charts.
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/chrisindark/echo-gate
+  tag: ""            # defaults to .Chart.AppVersion
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop: ["ALL"]
+
+service:
+  type: ClusterIP
+  port: 8000
+  annotations: {}
+
+# Non-secret configuration. Secret values belong in `existingSecret` or
+# `extraEnvFromSecrets` (mounted, never values.yaml in plain text).
+config:
+  pythonEnv: production
+  cacheMode: active
+  defaultLlmService: google-genai
+  # Shared inference platform (required). Set to the in-cluster Service URL.
+  inferenceBaseUrl: http://inference-platform.default.svc:7997
+  # Backing stores (overridden by the umbrella chart defaults).
+  redisUrl: redis://redis.default.svc:6379/0
+  celeryBrokerUrl: redis://redis.default.svc:6379/1
+  qdrantUrl: http://qdrant.default.svc:6333
+  databaseUrl: postgresql+psycopg://echo_gate_app:__DB_APP_PASSWORD__@postgres.default.svc:5432/echo_gate
+  databaseUrlRead: postgresql+psycopg://echo_gate_app:__DB_APP_PASSWORD__@postgres.default.svc:5432/echo_gate
+  migrationDatabaseUrl: postgresql+psycopg://postgres:__DB_OWNER_PASSWORD__@postgres.default.svc:5432/echo_gate
+  dbAppRole: echo_gate_app
+  # Degradation: cache failures stay fail-open (see ARCHITECTURE.md).
+  useRedisExactMatching: "true"
+  useQdrantExactMatching: "true"
+  useQdrantSemanticMatching: "true"
+  telemetryEnabled: "false"
+  telemetryEndpoint: ""
+
+# Secrets mounting (cert-manager / External Secrets pattern).
+# Set `existingSecret` to a pre-created Secret and the chart will mount it
+# via envFrom; sensitive keys (OPENAI_API_KEY, etc.) stay out of values.yaml.
+existingSecret: ""
+secretName: ""              # generated Secret name, if creating one here
+secretData: {}              # provider keys (base64 handled by secret), never committed
+extraEnvFromSecrets: []     # additional Secrets to mount (e.g. from cert-manager)
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    memory: 2Gi
+
+# Probes: /ready gates on Postgres alone (fail-closed); /health/deps is the
+# non-gating roll-up for alerting. Liveness is process-only.
+probes:
+  readiness:
+    httpGet:
+      path: /api/v1/health/ready
+      port: http
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+  liveness:
+    httpGet:
+      path: /api/v1/health/live
+      port: http
+    periodSeconds: 20
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 8
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 0
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: gateway.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: gateway-tls
+      hosts:
+        - gateway.example.com
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+terminationGracePeriodSeconds: 30

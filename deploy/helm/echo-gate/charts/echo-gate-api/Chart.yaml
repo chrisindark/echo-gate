@@ -1,0 +1,11 @@
+apiVersion: v2
+name: echo-gate-api
+description: Echo Gate gateway API workload (FastAPI). Bundled as a sub-chart of the echo-gate umbrella; also installable standalone.
+type: application
+version: 0.1.0
+appVersion: "v0.1.0"
+kubeVersion: ">=1.25.0"
+keywords:
+  - llm
+  - gateway
+  - caching

@@ -6,6 +6,8 @@ This directory is the detailed reference for the Echo Gate LLM gateway. The root
 | Document | What it covers |
 | --- | --- |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | System components, module map, the full request lifecycle, the multi-level cache pipeline, background workers, and multi-tenant isolation. |
+| [MULTI_REGION_CACHE_FEDERATION.md](MULTI_REGION_CACHE_FEDERATION.md) | Multi-region cache federation design: local-first read → provider, async replication of high-value entries via Celery, trust boundary, and the Qdrant schema seams. |
+| [EXTENSION_SEAMS.md](EXTENSION_SEAMS.md) | Open-core extension seams: feature flags, IdentityProvider, MeteringSink, storage factory, and the conditional billing surface. |
 | [API_REFERENCE.md](API_REFERENCE.md) | Every HTTP endpoint: method, path, request/response shapes, headers, and error behavior. |
 | [CONFIGURATION.md](CONFIGURATION.md) | Every environment variable, its default, and how it changes behavior. |
 | [DATA_MODEL.md](DATA_MODEL.md) | Postgres tables, Row-Level Security policies, and the Qdrant cache collection schema. |

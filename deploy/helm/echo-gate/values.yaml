@@ -1,0 +1,46 @@
+# Echo Gate umbrella chart — enterprise self-Hosted.
+#
+# Install:
+#   helm dependency build deploy/helm/echo-gate
+#   helm install echo-gate deploy/helm/echo-gate -n echo-gate --create-namespace
+#
+# The gateway refuses to start without the inference platform (separate
+# service). Point config.inferenceBaseUrl at its Service, e.g.:
+#   --set echo-gate-api.config.inferenceBaseUrl=http://inference-platform.default.svc:7997
+# See inference-platform/deploy/helm/inference-platform/ for that chart.
+
+global:
+  imageRegistry: ""
+  imageTag: v0.1.0
+
+echoGateApi:
+  enabled: true
+
+# Backing stores. Bundled for single-node / on-prem eval; enterprise
+# deployments typically point at managed Postgres/Redis/Qdrant instead
+# (set *.enabled=false and override the API config URLs).
+postgres:
+  enabled: true
+  auth:
+    database: echo_gate
+    username: echo_gate_app
+    existingSecret: ""
+
+redis:
+  enabled: true
+
+qdrant:
+  enabled: true
+
+# Observability UI (Next.js, web/Dockerfile).
+web:
+  enabled: false
+  image:
+    repository: ghcr.io/chrisindark/echo-gate-web
+    tag: v0.1.0
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 3000
+  replicas: 1
+  apiBaseUrl: http://localhost:8000
