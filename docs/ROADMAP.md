@@ -572,12 +572,22 @@ cloud monorepo reusing core as a library (cleanest IP, worst sync cost).
 - [x] **Admin surface**: `/api/v1/admin/*` kept; `billing:*` routes
   (`api/app/modules/billing/billing_controller.py`) mount only when
   `features.is_enabled("billing")` (2026-11-05).
-- [ ] **Event bus / webhook sink**: emit typed events from background tasks
-  (`cache.miss`, `quota.exceeded`, `provider.failure`, `audit.failed`) to a
-  configurable sink. OSS defaults to webhook URLs per event type (zero
-  serving-path impact — emitted from existing background task paths); cloud
-  installs Stripe/PagerDuty/Slack sinks. Complements the metering export seam
-  above and unlocks the integration ecosystem.
+- [x] **Event bus / webhook sink** *(2026-11-05)*: typed events from background
+  tasks (`cache.miss`, `quota.exceeded`, `provider.failure`, `audit.failed`) to
+  a configurable sink. OSS defaults to per-type webhook URLs
+  (`EVENTS_WEBHOOK_*`); a type with no URL is dropped before any dispatch work,
+  and `EVENTS_ENABLED` is a kill switch, so the default build is unchanged.
+  Delivery prefers Celery and otherwise runs on a task/daemon thread, so webhook
+  I/O is never inline on a request path; failures are logged and ignored
+  (fail-open). Payloads exclude prompt/response text and strip credential-shaped
+  keys recursively. Cloud replaces the sink with a Stripe/PagerDuty/Slack
+  fan-out via `events.set_event_sink()`. Wiring: `_log_usage` (`cache.miss`),
+  `check_quota` refusals (`quota.exceeded`), `_call_provider_with_retry`
+  (`provider.failure`), `_background_cache_audit` (`audit.failed`). Tests:
+  `api/app/core/tests/test_events.py`,
+  `api/app/modules/llm/tests/test_event_emission_wiring.py`, plus audit wiring
+  cases in `cache_audit/tests/test_cache_audit.py`. Documented in
+  `docs/EXTENSION_SEAMS.md` and `docs/CONFIGURATION.md`.
 
 #### Cloud control plane (private repo / ee package):
 
@@ -611,14 +621,21 @@ raises suspicion and slows adoption.
 
 #### Self-hosting packaging:
 
-- [ ] `deploy/compose/` with profiles (`core` vs `ui`), one-liner quickstart
-  ending in `python -m app.scripts.create_admin_key create`.
-- [ ] Helm chart for enterprise self-hosted (cert-manager-friendly; values for
-  `PYTHON_ENV=production`, pinned image tags, run-migrations-on-deploy job).
-- [ ] Versioned releases: Git tags, GHCR image digests, `CHANGELOG.md`, semver
-  disciplined by the existing OpenAPI snapshot contract test.
-- [ ] Opt-in telemetry (`TELEMETRY_ENABLED`, default off; version + instance
-  id ping), documented in `docs/`.
+- [x] `deploy/compose/` with profiles (`core` vs `ui`), one-liner quickstart
+  ending in `python -m app.scripts.create_admin_key create` *(2026-11-05:
+  `deploy/compose/docker-compose.yml` + `setup.sh`)*.
+- [x] Helm chart for enterprise self-hosted (cert-manager-friendly; values for
+  `PYTHON_ENV=production`, pinned image tags, run-migrations-on-deploy job)
+  *(2026-11-05: `deploy/helm/echo-gate/` umbrella + `charts/echo-gate-api/`
+  sub-chart)*.
+- [x] Versioned releases: Git tags, GHCR image digests, `CHANGELOG.md`, semver
+  disciplined by the existing OpenAPI snapshot contract test *(2026-11-05:
+  `v0.1.0` sources in sync, `scripts/check_versions.py` gate, tag-triggered
+  GHCR build)*.
+- [x] Opt-in telemetry (`TELEMETRY_ENABLED`, default off; version + instance
+  id ping), documented in `docs/` *(2026-11-05:
+  `api/app/core/anonymous_telemetry.py`, `TELEMETRY_*` in
+  `docs/CONFIGURATION.md`)*.
 - [x] **Multi-region cache federation** (architecture-only, *2026-11-05*): design
   recorded in
   [`docs/MULTI_REGION_CACHE_FEDERATION.md`](MULTI_REGION_CACHE_FEDERATION.md)

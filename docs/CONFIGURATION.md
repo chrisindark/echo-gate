@@ -359,6 +359,32 @@ used.
 | `OTEL_SERVICE_NAME` | `echo-gate` | Service name attached to emitted traces and spans. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `""` | OTLP collector endpoint (e.g. Langfuse `/api/public/otel`, Datadog, Jaeger). When set, spans are exported; empty keeps tracing in-process only. |
 
+## Event bus (webhooks)
+
+Typed events are emitted from background-task paths only, so a slow or broken
+webhook can never add latency to a chat request. An event type with **no URL
+configured is dropped before any dispatch work happens** — the default build
+pays nothing for this feature. Delivery goes through Celery when the broker is
+online (task `app.core.events.deliver_event`, registered from
+`api/app/core/tasks.py`) and falls back to a task/daemon thread otherwise;
+failures are logged and ignored (fail-open).
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `EVENTS_ENABLED` | `true` | Kill switch for the whole bus. `false` drops every event even if URLs are set. |
+| `EVENTS_WEBHOOK_CACHE_MISS` | unset | Receives `cache.miss`: a request missed the cache and a provider served it. |
+| `EVENTS_WEBHOOK_QUOTA_EXCEEDED` | unset | Receives `quota.exceeded`: RPM/TPM/budget refused a caller. |
+| `EVENTS_WEBHOOK_PROVIDER_FAILURE` | unset | Receives `provider.failure`: an upstream attempt failed. |
+| `EVENTS_WEBHOOK_AUDIT_FAILED` | unset | Receives `audit.failed`: a sampled cache audit found a bad entry. |
+
+Delivery is `POST` with a JSON body shaped as
+`{"type": "...", "ts": <epoch seconds>, "payload": {...}}` and a 3-second
+timeout. Payloads carry operational metadata only — never prompt or response
+text — and credential-shaped keys (`api_key`, `authorization`, `cookie`, …) are
+stripped recursively. To fan out to PagerDuty/Slack/Stripe instead of raw
+webhooks, a cloud overlay installs its own sink with
+`app.core.events.set_event_sink()` (see `docs/EXTENSION_SEAMS.md`).
+
 ## Not read by anything
 
 `MIGRATION_DATABASE_URL` is consumed by Alembic's `env.py`/`alembic.ini`, not by

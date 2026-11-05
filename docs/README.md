@@ -12,6 +12,7 @@ This directory is the detailed reference for the Echo Gate LLM gateway. The root
 | [CONFIGURATION.md](CONFIGURATION.md) | Every environment variable, its default, and how it changes behavior. |
 | [DATA_MODEL.md](DATA_MODEL.md) | Postgres tables, Row-Level Security policies, and the Qdrant cache collection schema. |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Local setup, test/build/lint commands, migrations, scripts, and contribution conventions. |
+| [limitations.md](limitations.md) | Intentional architectural boundaries, deferred capabilities, and known gaps — the anti-hallucination guardrail for agents. |
 | [ROADMAP.md](ROADMAP.md) | Current plan of record: features already landed, and the planned work (resilience, cache-quality loop, serving performance, commercialization) in development order. |
 
 ## What Echo Gate is
@@ -52,4 +53,5 @@ Redis + Qdrant (cache write) · Postgres (trace + usage) · Celery (eval, evicti
   `gateway_requests`, `llm_usage`, and `qdrant` modules.
 - **UI:** independent Next.js app in `web/` (chat playground, traces, analytics).
 - **Known gaps** (documented, not yet fixed) are listed in
+  [limitations.md](limitations.md) and
   [ARCHITECTURE.md → Known gaps](ARCHITECTURE.md#known-gaps-and-discrepancies).

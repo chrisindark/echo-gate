@@ -90,6 +90,7 @@ celery_app = Celery(
     broker=broker_url,
     backend=result_backend_url,
     include=[
+        "app.core.tasks",
         "app.modules.llm_usage.tasks",
         "app.modules.gateway_requests.tasks",
         "app.modules.qdrant.tasks",

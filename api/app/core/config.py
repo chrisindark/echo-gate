@@ -537,6 +537,27 @@ class Config:
         )
         self.USE_NLI_MODEL = os.getenv("USE_NLI_MODEL", "true").lower() == "true"
 
+        # Event bus / webhook sink (extension seam, Phase 4).
+        #
+        # Typed events (`cache.miss`, `quota.exceeded`, `provider.failure`,
+        # `audit.failed`) are emitted from background-task paths only, and an
+        # event type with no webhook URL configured is dropped before any
+        # dispatch work, so the default build is unchanged. A cloud overlay
+        # replaces the sink wholesale via `app.core.events.set_event_sink()`.
+        self.EVENTS_ENABLED = os.getenv("EVENTS_ENABLED", "true").lower() == "true"
+        self.EVENTS_WEBHOOK_CACHE_MISS = os.getenv(
+            "EVENTS_WEBHOOK_CACHE_MISS", ""
+        ).strip()
+        self.EVENTS_WEBHOOK_QUOTA_EXCEEDED = os.getenv(
+            "EVENTS_WEBHOOK_QUOTA_EXCEEDED", ""
+        ).strip()
+        self.EVENTS_WEBHOOK_PROVIDER_FAILURE = os.getenv(
+            "EVENTS_WEBHOOK_PROVIDER_FAILURE", ""
+        ).strip()
+        self.EVENTS_WEBHOOK_AUDIT_FAILED = os.getenv(
+            "EVENTS_WEBHOOK_AUDIT_FAILED", ""
+        ).strip()
+
         # Evaluation & LLM Judge
         self.EVALUATION_BATCH_SIZE = int(os.getenv("EVALUATION_BATCH_SIZE", "50"))
         self.LLM_JUDGE_SERVICE = os.getenv("LLM_JUDGE_SERVICE", "google-genai")

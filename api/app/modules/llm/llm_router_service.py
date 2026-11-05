@@ -40,6 +40,11 @@ from app.core.degradation import (
     resolve_degradation_state,
 )
 from app.core.error_classification import classify_provider_error
+from app.core.events import (
+    emit_audit_failed,
+    emit_cache_miss,
+    emit_provider_failure,
+)
 from app.core.logger import log_latency
 from app.core.prompt_identity import (
     PROMPT_MODEL_PREFIX,
@@ -398,10 +403,34 @@ class LlmRouterService:
                     logger.error(
                         f"Fatal error {e.status_code} from {candidate.service}. Failing immediately."
                     )
+                    emit_provider_failure(
+                        provider=candidate.service,
+                        model=candidate.model,
+                        error_code=classify_provider_error(e, candidate.service).get(
+                            "error_code"
+                        ),
+                        status_code=e.status_code,
+                        detail=str(e.detail)[:500],
+                        tenant_id=request.tenant_id,
+                        final=True,
+                    )
                     raise e
 
                 primary_status = e.status_code if isinstance(e, HTTPException) else 500
                 primary_err = str(e.detail) if isinstance(e, HTTPException) else str(e)
+                # Event bus seam: one event per failed upstream attempt; `final`
+                # marks the attempt the caller ultimately fails on.
+                emit_provider_failure(
+                    provider=candidate.service,
+                    model=candidate.model,
+                    error_code=classify_provider_error(e, candidate.service).get(
+                        "error_code"
+                    ),
+                    status_code=primary_status,
+                    detail=primary_err[:500],
+                    tenant_id=request.tenant_id,
+                    final=idx >= len(candidates) - 1,
+                )
                 self._create_background_task(
                     self._log_usage(
                         request=request,
@@ -2283,6 +2312,13 @@ class LlmRouterService:
                     exact_hash,
                     exc_info=True,
                 )
+                emit_audit_failed(
+                    exact_hash=exact_hash,
+                    tenant_id=request.tenant_id,
+                    model=model,
+                    match_type=match_type,
+                    reason="fresh_completion_failed",
+                )
                 return
 
             fresh_provider_ms = round(
@@ -2385,8 +2421,32 @@ class LlmRouterService:
                 match_type,
                 point_id,
             )
+
+            # Event bus seam: a judged non-equivalent hit means the cache served
+            # a wrong answer, which is the alerting case this event exists for.
+            if is_equivalent is False:
+                emit_audit_failed(
+                    exact_hash=exact_hash,
+                    tenant_id=request.tenant_id,
+                    model=fresh_model or model,
+                    match_type=match_type,
+                    rerank_score=None
+                    if rerank_score is None
+                    else float(rerank_score),
+                    vector_similarity=None
+                    if vector_similarity is None
+                    else float(vector_similarity),
+                    evicted=evicted,
+                    reason="non_equivalent",
+                )
         except Exception:
             logger.exception("Cache audit evaluation failed for %s", exact_hash)
+            emit_audit_failed(
+                exact_hash=exact_hash,
+                tenant_id=request.tenant_id,
+                model=model,
+                reason="audit_error",
+            )
 
     async def _log_usage(
         self,
@@ -2493,6 +2553,30 @@ class LlmRouterService:
             logger.info(
                 f"LLM usage logged successfully for {exact_hash} (success={is_success})"
             )
+
+            # Event bus seam: the cache missed and a provider served this
+            # response. This runs inside an already-dispatched background task,
+            # so emission never touches client latency, and it covers the
+            # blocking and streaming paths in one place. Mock responses are
+            # excluded because they are test fixtures, not provider traffic.
+            if is_success and response is not None and not is_cache_hit:
+                if not is_mock_response(response):
+                    cache_info = (
+                        response.cache_info
+                        if isinstance(response.cache_info, dict)
+                        else {}
+                    )
+                    emit_cache_miss(
+                        exact_hash=exact_hash,
+                        tenant_id=request.tenant_id,
+                        user_id=request.user_id,
+                        provider=service_name,
+                        model=effective_model,
+                        intent=cache_info.get("intent"),
+                        source=cache_info.get("source") or "provider",
+                        cache_mode=config.CACHE_MODE,
+                        latency_ms=latency_ms,
+                    )
 
             # Record tokens for TPM limit
             if self.llm_quota_service and api_key and total_tokens > 0 and is_success:

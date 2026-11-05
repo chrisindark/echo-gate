@@ -520,6 +520,99 @@ class TestBackgroundCacheAuditExecution(unittest.IsolatedAsyncioTestCase):
         self.mock_redis.delete.assert_not_called()
         self.mock_audit_service.log_audit.assert_not_called()
 
+    async def test_non_equivalent_verdict_emits_audit_failed(self):
+        """A judged non-equivalent hit is the alerting case for `audit.failed`."""
+        req = _request()
+        cached = _response(content="Wrong answer.", point_id="point-bad-7")
+        fresh = ChatCompletionResponse(
+            id="chatcmpl-fresh",
+            created=1,
+            model="gpt-4o-mini",
+            choices=[
+                Choice(
+                    index=0,
+                    message=ChatMessage(role="assistant", content="Right answer."),
+                )
+            ],
+        )
+        self.mock_judge.evaluate_equivalence = AsyncMock(return_value=False)
+
+        with patch.object(
+            self.router,
+            "_call_provider_with_retry",
+            AsyncMock(return_value=(fresh, "openai", "gpt-4o-mini")),
+        ), patch(
+            "app.modules.llm.llm_router_service.emit_audit_failed"
+        ) as emit:
+            await self.router._background_cache_audit(
+                request=req,
+                cached_response=cached,
+                exact_hash="hash-bad",
+                service_name="openai",
+                model="gpt-4o-mini",
+            )
+
+        emit.assert_called_once()
+        kwargs = emit.call_args.kwargs
+        self.assertEqual(kwargs["exact_hash"], "hash-bad")
+        self.assertEqual(kwargs["reason"], "non_equivalent")
+        self.assertTrue(kwargs["evicted"])
+
+    async def test_equivalent_verdict_does_not_emit_audit_failed(self):
+        req = _request()
+        cached = _response(content="Same answer.", point_id="point-good-1")
+        fresh = ChatCompletionResponse(
+            id="chatcmpl-fresh",
+            created=1,
+            model="gpt-4o-mini",
+            choices=[
+                Choice(
+                    index=0,
+                    message=ChatMessage(role="assistant", content="Same answer."),
+                )
+            ],
+        )
+
+        with patch.object(
+            self.router,
+            "_call_provider_with_retry",
+            AsyncMock(return_value=(fresh, "openai", "gpt-4o-mini")),
+        ), patch(
+            "app.modules.llm.llm_router_service.emit_audit_failed"
+        ) as emit:
+            await self.router._background_cache_audit(
+                request=req,
+                cached_response=cached,
+                exact_hash="hash-good",
+                service_name="openai",
+                model="gpt-4o-mini",
+            )
+
+        emit.assert_not_called()
+
+    async def test_provider_failure_emits_audit_failed(self):
+        """Without a fresh completion there is no ground truth: report it."""
+        req = _request()
+        cached = _response(content="Cached answer.")
+
+        with patch.object(
+            self.router,
+            "_call_provider_with_retry",
+            AsyncMock(side_effect=RuntimeError("Provider timeout")),
+        ), patch(
+            "app.modules.llm.llm_router_service.emit_audit_failed"
+        ) as emit:
+            await self.router._background_cache_audit(
+                request=req,
+                cached_response=cached,
+                exact_hash="hash-err",
+                service_name="openai",
+                model="gpt-4o-mini",
+            )
+
+        emit.assert_called_once()
+        self.assertEqual(emit.call_args.kwargs["reason"], "fresh_completion_failed")
+
     async def test_generate_completion_spawns_cache_audit_on_semantic_hit(self):
         """In active mode, a semantic hit serves the cached answer and spawns _background_cache_audit."""
         req = _request()
