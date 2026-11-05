@@ -1,6 +1,25 @@
 name: echo-gate
+#
+# Echo Gate self-hosting compose.
+#
+# Profiles gate every service — nothing starts without a profile:
+#
+#   docker compose --profile core up -d     # gateway + infra + workers
+#   docker compose --profile ui up -d       # Next.js observability UI
+#   docker compose --profile core --profile ui up -d   # everything
+#
+# The gateway refuses to start without the inference platform (dense
+# embeddings, reranking, NLI over HTTP). That is a separate compose project
+# with its own lifecycle:
+#
+#   docker compose -f ../../inference-platform/deploy/compose/inference-native.yml up -d
+#
+# Or run ./setup.sh in this directory, which does the full bring-up
+# (inference, compose profiles, migrations, admin key).
+
 services:
   qdrant:
+    profiles: ["core"]
     image: qdrant/qdrant:latest
     ports:
       - "6333:6333"
@@ -11,6 +30,7 @@ services:
       - app-network
 
   redis:
+    profiles: ["core"]
     image: redis:7-alpine
     ports:
       - "6379:6379"
@@ -19,12 +39,13 @@ services:
       - app-network
 
   postgres:
+    profiles: ["core"]
     image: postgres:16-alpine
     ports:
       - "5432:5432"
     environment:
       - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
       - POSTGRES_DB=echo_gate
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -38,6 +59,7 @@ services:
       - app-network
 
   echo-gate:
+    profiles: ["core"]
     build:
       context: ../..
     ports:
@@ -46,7 +68,7 @@ services:
       # Dense embeddings, reranking, relevance and NLI come from the shared
       # inference platform, which is its own compose project so it can scale and
       # deploy independently:
-      #   docker compose -f inference-platform/deploy/compose/inference.yml up -d
+      #   docker compose -f inference-platform/deploy/compose/inference-native.yml up -d
       # Override with the engine's service name when both share a network.
       - INFERENCE_BASE_URL=${INFERENCE_BASE_URL:-http://host.docker.internal:7997}
       - QDRANT_URL=http://qdrant:6333
@@ -54,6 +76,12 @@ services:
       - CELERY_BROKER_URL=redis://redis:6379/1
       - DATABASE_URL=postgresql+psycopg://echo_gate_app:echo_gate_app@postgres:5432/echo_gate
       - DATABASE_URL_READ=postgresql+psycopg://echo_gate_app:echo_gate_app@postgres:5432/echo_gate
+      # Provider keys the user placed in .env workdir resolution.
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - CLAUDE_API_KEY=${CLAUDE_API_KEY:-}
     depends_on:
       qdrant:
         condition: service_started
@@ -66,13 +94,14 @@ services:
       - app-network
 
   celery_worker:
+    profiles: ["core"]
     build:
       context: ../..
     environment:
       # Dense embeddings, reranking, relevance and NLI come from the shared
       # inference platform, which is its own compose project so it can scale and
       # deploy independently:
-      #   docker compose -f inference-platform/deploy/compose/inference.yml up -d
+      #   docker compose -f inference-platform/deploy/compose/inference-native.yml up -d
       # Override with the engine's service name when both share a network.
       - INFERENCE_BASE_URL=${INFERENCE_BASE_URL:-http://host.docker.internal:7997}
       - QDRANT_URL=http://qdrant:6333
@@ -93,6 +122,7 @@ services:
       - app-network
 
   celery_beat:
+    profiles: ["core"]
     build:
       context: ../..
     environment:
@@ -105,6 +135,18 @@ services:
     # Beat only schedules; it never executes tasks, so it needs the broker
     # (to publish) and config, but no Qdrant/Postgres connection.
     command: poetry run celery -A app.worker.celery_app beat --loglevel=info
+    restart: always
+    networks:
+      - app-network
+
+  web:
+    profiles: ["ui"]
+    build:
+      context: ../../web
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+    ports:
+      - "3000:3000"
     restart: always
     networks:
       - app-network

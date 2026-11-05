@@ -39,9 +39,13 @@ FROM python:3.11-slim
 # PROJECT_NAME is set here because FastAPI asserts on an empty OpenAPI title at
 # import time; the image carries the default rather than depending on it being
 # injected at run time.
+# VERSION is stamped from the git tag at build time (docker build --build-arg VERSION=x.y.z);
+# scripts/check_versions.py asserts it stays in sync with pyproject/web/inference-platform.
+ARG VERSION=0.1.0
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PROJECT_NAME=echo-gate \
+    VERSION=$VERSION \
     HF_HOME=/workspace/.model_cache \
     BM25_MODEL_PATH=/workspace/.model_cache/bm25 \
     BM25_LOCAL_FILES_ONLY=true \

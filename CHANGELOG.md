@@ -5,10 +5,19 @@ All notable changes to Echo Gate are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 The public API surface is pinned by the OpenAPI snapshot contract test
-(`tests/test_openapi_snapshot.py`); breaking API changes are called out in the
+(`tests/contract/test_openapi_snapshot.py`); breaking API changes are called out in the
 changes' entry with a `[BREAKING]` marker.
 
 ## [Unreleased]
+
+## [v0.1.0] - 2026-11-05
+
+First tagged release. API surface pinned by the OpenAPI snapshot contract test
+(`tests/contract/test_openapi_snapshot.py`); image published to GHCR as
+`ghcr.io/chrisindark/echo-gate:v0.1.0` with `VERSION` stamped from the tag.
+Version sources (gateway `pyproject.toml`, `web/package.json`,
+`inference-platform/pyproject.toml`) validated in sync by
+`scripts/check_versions.py`.
 
 ### Added
 
@@ -231,7 +240,7 @@ changes' entry with a `[BREAKING]` marker.
 ## [0.1.0] - 2026-10-21
 
 Pre-release snapshot of the feature set; API surface locked via
-`tests/snapshots/openapi.json`.
+`tests/contract/snapshots/openapi.json`.
 
 ### Added
 

@@ -43,8 +43,8 @@ jobs:
       - name: Unit tests + OpenAPI contract snapshot
         run: poetry run pytest -q
         # The suite is offline (mocked Redis/Qdrant/Postgres). The snapshot
-        # test rewrites tests/snapshots/openapi.json when it drifts, so a
-        # failing step means an un-reviewed contract change.
+        # test rewrites tests/contract/snapshots/openapi.json when it drifts,
+        # so a failing step means an un-reviewed contract change.
 
   web:
     name: Web UI (next lint + build)

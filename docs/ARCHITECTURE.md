@@ -522,8 +522,10 @@ Registered Beat tasks:
 | `app.modules.gateway_requests.tasks.evaluate_pending_requests` | every 1 min | Evaluate `PENDING` traces with the judge/cross-encoder to flag false-positive cache hits. |
 | `delete_expired_vectors` (qdrant) | every 5 min | Delete expired points from the Qdrant cache collection. |
 
-`deploy/compose/docker-compose.yml` starts both a `celery_worker` and a `celery_beat` service,
-so scheduled tasks run under `docker compose -f deploy/compose/docker-compose.yml up`.
+`deploy/compose/docker-compose.yml` (under the `core` profile) starts both a
+`celery_worker` and a `celery_beat` service, so scheduled tasks run under
+`docker compose --profile core -f deploy/compose/docker-compose.yml up`. The
+`ui` profile runs the Next.js observability UI from `web/Dockerfile`.
 
 ## Health and observability
 
@@ -562,9 +564,7 @@ outage.
 
 These are real today; documented rather than silently changed.
 
-1. **Analytics page is read-only.** The Next.js analytics page renders tables and
-   cards rather than charts (no charting library is installed).
-
 Former gaps (conversation router unmounted, README model drift, anonymous
-shared rate-limit bucket, `.env.example` key drift, scheduled-task mismatch)
-have been resolved; the record lives in `docs/ROADMAP.md`.
+shared rate-limit bucket, `.env.example` key drift, scheduled-task mismatch,
+analytics charting — Recharts landed in `web/`) have been resolved; the
+record lives in `docs/ROADMAP.md`.

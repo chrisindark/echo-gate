@@ -46,6 +46,23 @@ class Config:
             "OTEL_EXPORTER_OTLP_ENDPOINT", ""
         ).strip()
 
+        # Anonymous usage telemetry (opt-in, default off).
+        # When TELEMETRY_ENABLED is true and TELEMETRY_ENDPOINT is set, the
+        # gateway pings that URL on startup and then daily with only:
+        #   version, an anonymous instance id, and deployment mode.
+        # No prompts, responses, tenant data, or IPs ever leave the host.
+        # Ping failures are logged and ignored — telemetry can never affect
+        # request serving (fail-open).
+        self.TELEMETRY_ENABLED = os.getenv("TELEMETRY_ENABLED", "false").lower() == "true"
+        self.TELEMETRY_ENDPOINT = os.getenv("TELEMETRY_ENDPOINT", "").strip()
+        self.TELEMETRY_INTERVAL_SECONDS = int(
+            os.getenv("TELEMETRY_INTERVAL_SECONDS", "86400")
+        )
+        self.TELEMETRY_INSTANCE_ID = os.getenv("TELEMETRY_INSTANCE_ID", "").strip()
+        self.TELEMETRY_DEPLOYMENT_MODE = os.getenv(
+            "TELEMETRY_DEPLOYMENT_MODE", "self-hosted"
+        ).strip()
+
         # Urls
         self.OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
         self.REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
