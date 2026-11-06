@@ -89,9 +89,7 @@ class Config:
             os.getenv("TELEMETRY_ENABLED", "false").lower() == "true"
         )
         self.TELEMETRY_ENDPOINT = os.getenv("TELEMETRY_ENDPOINT", "").strip()
-        self.TELEMETRY_INTERVAL_SECONDS = _int_env(
-            "TELEMETRY_INTERVAL_SECONDS", 86400
-        )
+        self.TELEMETRY_INTERVAL_SECONDS = _int_env("TELEMETRY_INTERVAL_SECONDS", 86400)
         self.TELEMETRY_INSTANCE_ID = os.getenv("TELEMETRY_INSTANCE_ID", "").strip()
         self.TELEMETRY_DEPLOYMENT_MODE = os.getenv(
             "TELEMETRY_DEPLOYMENT_MODE", "self-hosted"
@@ -275,9 +273,8 @@ class Config:
         # stretch them (and the eviction sweep protects the valuable ones)
         # instead of every entry dying on the same flat clock.
         self.CACHE_RETENTION_ENABLED = (
-            (os.getenv("CACHE_RETENTION_ENABLED", "true") or "true").strip().lower()
-            == "true"
-        )
+            os.getenv("CACHE_RETENTION_ENABLED", "true") or "true"
+        ).strip().lower() == "true"
         self.CACHE_RETENTION_MAX_TTL_SECONDS = _int_env(
             "CACHE_RETENTION_MAX_TTL_SECONDS", 30 * 24 * 60 * 60
         )
@@ -289,9 +286,7 @@ class Config:
         )
         # 0 disables capacity-based eviction; any positive value caps the
         # collection by deleting the lowest-retention-value points first.
-        self.CACHE_RETENTION_MAX_POINTS = _int_env(
-            "CACHE_RETENTION_MAX_POINTS", 0
-        )
+        self.CACHE_RETENTION_MAX_POINTS = _int_env("CACHE_RETENTION_MAX_POINTS", 0)
 
         # Prompt Token Optimization Pipeline (Phase 5 / P3)
         # Opt-in pre-processing pipeline for chat completion requests to reduce
@@ -319,8 +314,10 @@ class Config:
             "PROMPT_OPTIMIZATION_CCR_KEEP_LAST_N_TURNS", 5
         )
         self.PROMPT_OPTIMIZATION_CCR_STRATEGY = (
-            os.getenv("PROMPT_OPTIMIZATION_CCR_STRATEGY", "condense") or "condense"
-        ).strip().lower()
+            (os.getenv("PROMPT_OPTIMIZATION_CCR_STRATEGY", "condense") or "condense")
+            .strip()
+            .lower()
+        )
         self.PROMPT_OPTIMIZATION_HEADROOM_ENABLED = _bool_env(
             "PROMPT_OPTIMIZATION_HEADROOM_ENABLED", False
         )

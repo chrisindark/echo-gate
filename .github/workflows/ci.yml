@@ -2,17 +2,21 @@ name: CI
 
 on:
   push:
-    branches: [main, staging]
+    branches: [master, staging]
   pull_request:
-    branches: [main]
+    branches: [master, staging]
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   backend:
-    name: Backend (ruff + pytest + OpenAPI snapshot)
+    name: Backend (ruff + pytest + coverage + OpenAPI snapshot)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,7 +24,7 @@ jobs:
       - name: Install Poetry
         uses: snok/install-poetry@v1
         with:
-          version: "1.8.3"
+          version: "2.4.1"
           virtualenvs-in-project: true
 
       - name: Set up Python
@@ -32,6 +36,9 @@ jobs:
       - name: Install dependencies
         run: poetry install --with dev --no-interaction
 
+      - name: Doc capability drift check
+        run: python scripts/check_doc_capabilities.py
+
       - name: Syntax / import check
         run: poetry run python -m compileall api/app
 
@@ -40,11 +47,23 @@ jobs:
           poetry run ruff check api/app tests
           poetry run ruff format --check api/app tests
 
-      - name: Unit tests + OpenAPI contract snapshot
-        run: poetry run pytest -q
+      - name: Unit tests + coverage ratchet + OpenAPI contract snapshot
+        run: |
+          poetry run pytest -q --cov=app --cov-report=term --cov-report=xml:coverage.xml --cov-report=html:coverage/html --cov-fail-under=70
         # The suite is offline (mocked Redis/Qdrant/Postgres). The snapshot
         # test rewrites tests/contract/snapshots/openapi.json when it drifts,
         # so a failing step means an un-reviewed contract change.
+        # Coverage floor is ratcheted at >= 70%.
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/html
+
+      - name: Dependency vulnerability audit (Python)
+        run: poetry run pip-audit || true
 
   web:
     name: Web UI (next lint + build)
@@ -70,3 +89,28 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Dependency vulnerability audit (Node)
+        run: npm audit --audit-level=high || true
+
+  secret-scan:
+    name: Secret scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: always

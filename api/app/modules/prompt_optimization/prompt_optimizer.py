@@ -44,9 +44,9 @@ class PromptOptimizer:
         for seg in segments:
             if not seg:
                 continue
-            is_code_block = (
-                seg.startswith("```") and seg.endswith("```")
-            ) or (seg.startswith("~~~") and seg.endswith("~~~"))
+            is_code_block = (seg.startswith("```") and seg.endswith("```")) or (
+                seg.startswith("~~~") and seg.endswith("~~~")
+            )
 
             if is_code_block:
                 # Inside fenced code block: preserve indentation, strip trailing spaces, cap blank lines
@@ -77,9 +77,7 @@ class PromptOptimizer:
         result = "".join(cleaned_segments).strip()
         return result
 
-    def _group_into_turns(
-        self, messages: list[ChatMessage]
-    ) -> list[list[ChatMessage]]:
+    def _group_into_turns(self, messages: list[ChatMessage]) -> list[list[ChatMessage]]:
         """Group messages into atomic turns preserving tool call and response pairings."""
         turns: list[list[ChatMessage]] = []
         i = 0
@@ -98,18 +96,14 @@ class PromptOptimizer:
                 i += 1
         return turns
 
-    def _flatten_turns(
-        self, turns: list[list[ChatMessage]]
-    ) -> list[ChatMessage]:
+    def _flatten_turns(self, turns: list[list[ChatMessage]]) -> list[ChatMessage]:
         """Flatten atomic turns back into a flat list of messages."""
         flattened: list[ChatMessage] = []
         for t in turns:
             flattened.extend(t)
         return flattened
 
-    def deduplicate_session(
-        self, messages: list[ChatMessage]
-    ) -> list[ChatMessage]:
+    def deduplicate_session(self, messages: list[ChatMessage]) -> list[ChatMessage]:
         """Detect and remove exact-match duplicate turns in multi-turn sessions.
 
         Maintains conversation semantics:
@@ -132,7 +126,13 @@ class PromptOptimizer:
                     for tc in (m.tool_calls or [])
                 )
                 sigs.append(
-                    (m.role or "", m.content or "", m.name or "", m.tool_call_id or "", tc_sig)
+                    (
+                        m.role or "",
+                        m.content or "",
+                        m.name or "",
+                        m.tool_call_id or "",
+                        tc_sig,
+                    )
                 )
             return tuple(sigs)
 
@@ -158,8 +158,14 @@ class PromptOptimizer:
             n = len(deduped_turns)
             while idx < n:
                 if idx < n - 4:
-                    pair_a = (_turn_fingerprint(deduped_turns[idx]), _turn_fingerprint(deduped_turns[idx + 1]))
-                    pair_b = (_turn_fingerprint(deduped_turns[idx + 2]), _turn_fingerprint(deduped_turns[idx + 3]))
+                    pair_a = (
+                        _turn_fingerprint(deduped_turns[idx]),
+                        _turn_fingerprint(deduped_turns[idx + 1]),
+                    )
+                    pair_b = (
+                        _turn_fingerprint(deduped_turns[idx + 2]),
+                        _turn_fingerprint(deduped_turns[idx + 3]),
+                    )
                     if pair_a == pair_b:
                         # Skip the earlier duplicate pair
                         idx += 2
@@ -216,7 +222,9 @@ class PromptOptimizer:
                     role_label = m.role or "unknown"
                     if m.role == "assistant" and m.tool_calls:
                         calls_str = ", ".join(
-                            tc.function.name for tc in m.tool_calls if tc.function and tc.function.name
+                            tc.function.name
+                            for tc in m.tool_calls
+                            if tc.function and tc.function.name
                         )
                         snippet = f"Called tool(s): {calls_str}"
                     else:
@@ -259,7 +267,9 @@ class PromptOptimizer:
             if max_tokens is not None
             else getattr(config, "ESTIMATE_DEFAULT_COMPLETION_TOKENS", 256)
         )
-        allowed_prompt_tokens = max(100, context_limit - completion_budget - buffer_tokens)
+        allowed_prompt_tokens = max(
+            100, context_limit - completion_budget - buffer_tokens
+        )
 
         def _count_total_tokens(msgs: list[ChatMessage]) -> int:
             return sum(count_tokens(m.content or "", model) for m in msgs)
@@ -285,7 +295,10 @@ class PromptOptimizer:
         # Iteratively prune oldest intermediate turns
         while intermediate_turns:
             candidate_turns = system_turns + intermediate_turns + [final_turn]
-            if _count_total_tokens(self._flatten_turns(candidate_turns)) <= allowed_prompt_tokens:
+            if (
+                _count_total_tokens(self._flatten_turns(candidate_turns))
+                <= allowed_prompt_tokens
+            ):
                 return self._flatten_turns(candidate_turns)
             intermediate_turns.pop(0)
 
@@ -314,7 +327,9 @@ class PromptOptimizer:
 
         return self._flatten_turns(system_turns + [truncated_final])
 
-    def tabularize_json_array(self, content: str | None, min_rows: int = 2) -> str | None:
+    def tabularize_json_array(
+        self, content: str | None, min_rows: int = 2
+    ) -> str | None:
         """Rewrite large uniform JSON arrays from tool calls into compact markdown pipe tables.
 
         Only rewrites when the tabular representation is strictly smaller than the original JSON.
@@ -340,7 +355,11 @@ class PromptOptimizer:
                 rows = parsed
         elif isinstance(parsed, dict):
             # Check if there is a single key with list[dict], or a primary items list
-            list_keys = [k for k, v in parsed.items() if isinstance(v, list) and all(isinstance(item, dict) for item in v)]
+            list_keys = [
+                k
+                for k, v in parsed.items()
+                if isinstance(v, list) and all(isinstance(item, dict) for item in v)
+            ]
             if len(list_keys) == 1:
                 wrapper_key = list_keys[0]
                 rows = parsed[wrapper_key]
@@ -377,7 +396,9 @@ class PromptOptimizer:
                 else:
                     cell_str = str(val)
                 # Escape pipes and replace newlines
-                cell_str = cell_str.replace("|", r"\|").replace("\r\n", " ").replace("\n", " ")
+                cell_str = (
+                    cell_str.replace("|", r"\|").replace("\r\n", " ").replace("\n", " ")
+                )
                 cells.append(cell_str)
             data_lines.append("| " + " | ".join(cells) + " |")
 
@@ -449,7 +470,9 @@ class PromptOptimizer:
 
             # Compute initial metrics
             orig_chars = sum(len(m.content or "") for m in request.messages)
-            orig_tokens = sum(count_tokens(m.content or "", request.model) for m in request.messages)
+            orig_tokens = sum(
+                count_tokens(m.content or "", request.model) for m in request.messages
+            )
 
             messages = [m.model_copy() for m in request.messages]
             strategies_applied: list[str] = []
@@ -459,7 +482,9 @@ class PromptOptimizer:
                 table_applied = False
                 for m in messages:
                     if (m.role in ("tool", "function") or m.tool_call_id) and m.content:
-                        tabular = self.tabularize_json_array(m.content, min_rows=cfg.json_table_min_rows)
+                        tabular = self.tabularize_json_array(
+                            m.content, min_rows=cfg.json_table_min_rows
+                        )
                         if tabular != m.content:
                             m.content = tabular
                             table_applied = True
@@ -470,7 +495,8 @@ class PromptOptimizer:
             if cfg.session_dedup:
                 deduped = self.deduplicate_session(messages)
                 if len(deduped) != len(messages) or any(
-                    d.content != o.content for d, o in zip(deduped, messages)
+                    d.content != o.content
+                    for d, o in zip(deduped, messages, strict=False)
                 ):
                     messages = deduped
                     strategies_applied.append("session-dedup")
@@ -496,7 +522,8 @@ class PromptOptimizer:
                     max_turn_chars=cfg.ccr_max_turn_chars,
                 )
                 if len(reduced) != len(messages) or any(
-                    r.content != m.content for r, m in zip(reduced, messages)
+                    r.content != m.content
+                    for r, m in zip(reduced, messages, strict=False)
                 ):
                     messages = reduced
                     strategies_applied.append("ccr")
@@ -511,15 +538,20 @@ class PromptOptimizer:
                     buffer_tokens=cfg.headroom_buffer_tokens,
                 )
                 if len(trimmed) != len(messages) or any(
-                    t.content != m.content for t, m in zip(trimmed, messages)
+                    t.content != m.content
+                    for t, m in zip(trimmed, messages, strict=False)
                 ):
                     messages = trimmed
                     strategies_applied.append("headroom-trim")
 
             opt_chars = sum(len(m.content or "") for m in messages)
-            opt_tokens = sum(count_tokens(m.content or "", request.model) for m in messages)
+            opt_tokens = sum(
+                count_tokens(m.content or "", request.model) for m in messages
+            )
 
-            if strategies_applied and (opt_chars < orig_chars or opt_tokens < orig_tokens):
+            if strategies_applied and (
+                opt_chars < orig_chars or opt_tokens < orig_tokens
+            ):
                 # Build cloned request with optimized messages
                 optimized_req = request.model_copy(update={"messages": messages})
                 # Preserve private attributes
@@ -553,5 +585,7 @@ class PromptOptimizer:
             )
 
         except Exception as e:  # Fail-open
-            logger.warning("Prompt optimization failed (fail-open): %s", e, exc_info=True)
+            logger.warning(
+                "Prompt optimization failed (fail-open): %s", e, exc_info=True
+            )
             return request, PromptOptimizationResult(applied=False)

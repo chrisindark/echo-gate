@@ -558,9 +558,7 @@ def test_delete_conversation_and_cascade_messages():
 
         # Verify conversation and cascaded messages are gone
         with SessionLocal() as session:
-            assert (
-                session.query(Conversation).filter_by(id=conv_id).first() is None
-            )
+            assert session.query(Conversation).filter_by(id=conv_id).first() is None
             assert (
                 session.query(Message).filter_by(conversation_id=conv_id).count() == 0
             )

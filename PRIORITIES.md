@@ -19,13 +19,13 @@
 ### P1 — Production Hardening & Operational Observability
 - [x] **Multi-Region Cache Federation Design** *(2026-11-05)*: `docs/MULTI_REGION_CACHE_FEDERATION.md` — each region runs its own full cache stack serving local-first (Redis exact → Qdrant exact → fast-path → hybrid RRF → provider, no cross-region reads on the serving path); high-value entries (value-aware `retention_value` ≥ threshold, `cacheable` only, `GLOBAL`/`TENANT` scope only) replicate asynchronously via Celery (`replicate_cache_entry` + daily high-water sweep) over an admin-scoped ingestion endpoint; Qdrant payload gains additive `region_origin`/`federation_version` with new env knobs (`CACHE_FEDERATION_*`, all default-off) so the schema never adds region-incompatible assumptions. Architecture-only (no behavior change) per plan.
 - [x] **Helm Chart for Enterprise Self-Hosted** *(2026-11-05)*: `deploy/helm/echo-gate/` umbrella + `charts/echo-gate-api/` sub-chart (API/worker/beat/migration-Job/Service/Ingress/HPA/PDB/SA). Bundled Postgres/Redis/Qdrant via Bitnami OCI sub-charts (disable for managed services), optional web UI, secret mounting via `existingSecret`/`extraEnvFromSecrets` (cert-manager pattern, no provider keys in values.yaml), Ingress TLS via cert-manager Secret, and a run-migrations-on-deploy Job running `alembic upgrade head` as owner. Pinned images via `global.imageTag`/`appVersion` defaults; readiness gates on `/api/v1/health/ready` (Postgres-only), roll-up on `/api/v1/health/deps`.
-- [ ] **CI Quality, Security & Contract Gates (Cross-Repo Parity)**:
+- [x] **CI Quality, Security & Contract Gates (Cross-Repo Parity)** *(2026-11-06)*:
   - **Branch Target Fix**: Align `.github/workflows/ci.yml` branch triggers from `main` to `[master, staging]` for push and PR so CI actually runs on `master`.
   - **Doc Capability Drift Guard**: Wire `python scripts/check_doc_capabilities.py` into `.github/workflows/ci.yml` backend quality gate.
-  - **Coverage Ratchet Gate**: Configure `pytest-cov` reporting with minimum coverage floor check (`--cov-fail-under` or script) and PR artifact upload, mirroring `chain-mcp`.
+  - **Coverage Ratchet Gate**: Configure `pytest-cov` reporting with minimum coverage floor check (`--cov-fail-under=70` in `pyproject.toml` and CI step) and PR HTML report artifact upload.
   - **Secret Scanning Gate**: Add `gitleaks/gitleaks-action@v2` (`fetch-depth: 0`) to `ci.yml` to prevent credential/API key leaks (Groq, OpenAI, Gemini, Postgres/Redis/Qdrant credentials).
   - **Dependency Review & Audit**: Add `actions/dependency-review-action@v4` on PRs and automated vulnerability audits (`pip-audit` for Poetry, `npm audit` for `web/`).
-  - **Scheduled Security Cron**: Add a weekly scheduled security scan workflow (`cron: '0 8 * * 1'`) to catch newly published CVEs against idle dependencies.
+  - **Scheduled Security Cron**: Add weekly scheduled security scan workflow (`.github/workflows/security.yml`, `cron: '0 8 * * 1'`) to catch newly published CVEs against idle dependencies.
   - **Dependabot Automation (Auto-Merge Disabled)**: Add `.github/workflows/dependabot-automation.yml` for automated metadata extraction and security labelling on dependency bumps; keep auto-merge commented out/disabled pending manual review.
 
 ### P2 — Commercial Seams & Extensions
