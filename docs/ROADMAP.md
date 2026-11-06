@@ -661,13 +661,14 @@ Expanding Echo Gate's gateway surface, prompt efficiency, and safety guardrails,
 
 - [ ] **1. Prompt Token Optimization Pipeline**
   - **Motivation**: Shaving input tokens before upstream LLM dispatch directly lowers inference costs, reduces TTFT (time-to-first-token), and prevents cache corpus bloat.
-  - **Lossless & Rule-Based Compaction**:
-    - Whitespace & boilerplate compaction: collapse repetitive spaces, tabs, and duplicate newline runs across prompt turns.
-    - Tool-result tabularization (`json-table`): rewrite large uniform JSON arrays returned from tool calls into compact markdown/pipe-delimited tables, dropping redundant key names.
-    - Turn deduplication (`session-dedup`): detect exact-match duplicate message turns in lengthy multi-turn sessions.
-  - **Context Window & Headroom Management**:
-    - Conversation context reduction (`ccr`): retain system prompt and last $N$ turns while compressing intermediate turns.
-    - Headroom trimmer: dynamically prune oldest turns to guarantee prompt fit within the selected model's context window minus completion tokens.
+  - [x] **Lossless & Rule-Based Compaction** *(2026-11-06)*:
+    - Whitespace & boilerplate compaction: collapse repetitive spaces, tabs, and duplicate newline runs across prompt turns (preserving markdown code blocks and inline code).
+    - Tool-result tabularization (`json-table`): rewrite large uniform JSON arrays returned from tool calls into compact markdown/pipe-delimited tables, dropping redundant key names (with size-reduction invariant).
+    - Turn deduplication (`session-dedup`): detect exact-match duplicate message turns in lengthy multi-turn sessions (preserving atomic tool turns and active user prompt).
+  - [x] **Context Window & Headroom Management** *(2026-11-06)*:
+    - Conversation context reduction (`ccr`): retain system prompt and last $N$ turns while compressing or omitting intermediate turns with notice.
+    - Headroom trimmer: dynamically prune oldest intermediate turns to guarantee prompt fit within the selected model's context window minus completion tokens.
+    - Configured via request body `prompt_optimization` or header `X-EchoGate-Prompt-Optimization: ccr,headroom-trim` and `X-EchoGate-Prompt-Optimization-CCR-Turns`. Tested in unit and integration suites.
   - **Lossy Prompt Compression**:
     - Offload token-pruning models (e.g. LLMLingua-2 token classifier) to `inference-platform/` over HTTP to strictly preserve Echo Gate's architectural invariant of zero in-process ML models.
 

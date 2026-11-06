@@ -31,6 +31,38 @@ def _bounded_float_env(name: str, default: float, lower: float, upper: float) ->
     return min(upper, max(lower, value))
 
 
+def _int_env(name: str, default: int) -> int:
+    """Read an integer env var with fallback for empty or non-digit input."""
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return int(raw.strip())
+    except (TypeError, ValueError):
+        logger.warning("Invalid int for %s=%r; using default %s", name, raw, default)
+        return default
+
+
+def _float_env(name: str, default: float) -> float:
+    """Read a float env var with fallback for empty or invalid input."""
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return float(raw.strip())
+    except (TypeError, ValueError):
+        logger.warning("Invalid float for %s=%r; using default %s", name, raw, default)
+        return default
+
+
+def _bool_env(name: str, default: bool) -> bool:
+    """Read a boolean env var with fallback for empty or unset input."""
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    return raw.strip().lower() in ("true", "1", "yes", "on")
+
+
 class Config:
     def __init__(self):
         self.load()
@@ -57,8 +89,8 @@ class Config:
             os.getenv("TELEMETRY_ENABLED", "false").lower() == "true"
         )
         self.TELEMETRY_ENDPOINT = os.getenv("TELEMETRY_ENDPOINT", "").strip()
-        self.TELEMETRY_INTERVAL_SECONDS = int(
-            os.getenv("TELEMETRY_INTERVAL_SECONDS", "86400")
+        self.TELEMETRY_INTERVAL_SECONDS = _int_env(
+            "TELEMETRY_INTERVAL_SECONDS", 86400
         )
         self.TELEMETRY_INSTANCE_ID = os.getenv("TELEMETRY_INSTANCE_ID", "").strip()
         self.TELEMETRY_DEPLOYMENT_MODE = os.getenv(
@@ -205,6 +237,7 @@ class Config:
         )
         self.ALLOWED_MODELS_JSON = os.getenv("ALLOWED_MODELS_JSON")
         self.MODEL_ALIASES_JSON = os.getenv("MODEL_ALIASES_JSON")
+        self.MODEL_CONTEXT_WINDOWS_JSON = os.getenv("MODEL_CONTEXT_WINDOWS_JSON")
 
         # Streaming
         self.STREAM_MAX_CONTENT_BYTES = int(
@@ -224,16 +257,16 @@ class Config:
         self.QDRANT_SPARSE_SEARCH_HIGH_THRESHOLD = float(
             os.getenv("QDRANT_SPARSE_SEARCH_HIGH_THRESHOLD", "0.33")
         )
-        self.QDRANT_SEARCH_LIMIT = int(os.getenv("QDRANT_SEARCH_LIMIT", "10"))
-        self.DEFAULT_CACHE_TTL_SECONDS = int(
-            os.getenv("DEFAULT_CACHE_TTL_SECONDS", str(1 * 24 * 60 * 60))
+        self.QDRANT_SEARCH_LIMIT = _int_env("QDRANT_SEARCH_LIMIT", 10)
+        self.DEFAULT_CACHE_TTL_SECONDS = _int_env(
+            "DEFAULT_CACHE_TTL_SECONDS", 1 * 24 * 60 * 60
         )
 
         # Response cost estimation (`POST /api/v1/chat/estimate`).
         # Completion tokens are unknowable before generation, so the estimate
         # assumes `max_tokens` when the caller sets it and this budget when not.
-        self.ESTIMATE_DEFAULT_COMPLETION_TOKENS = int(
-            os.getenv("ESTIMATE_DEFAULT_COMPLETION_TOKENS", "256")
+        self.ESTIMATE_DEFAULT_COMPLETION_TOKENS = _int_env(
+            "ESTIMATE_DEFAULT_COMPLETION_TOKENS", 256
         )
 
         # Value-aware cache retention.
@@ -242,21 +275,57 @@ class Config:
         # stretch them (and the eviction sweep protects the valuable ones)
         # instead of every entry dying on the same flat clock.
         self.CACHE_RETENTION_ENABLED = (
-            os.getenv("CACHE_RETENTION_ENABLED", "true").lower() == "true"
+            (os.getenv("CACHE_RETENTION_ENABLED", "true") or "true").strip().lower()
+            == "true"
         )
-        self.CACHE_RETENTION_MAX_TTL_SECONDS = int(
-            os.getenv("CACHE_RETENTION_MAX_TTL_SECONDS", str(30 * 24 * 60 * 60))
+        self.CACHE_RETENTION_MAX_TTL_SECONDS = _int_env(
+            "CACHE_RETENTION_MAX_TTL_SECONDS", 30 * 24 * 60 * 60
         )
-        self.CACHE_RETENTION_PROTECT_THRESHOLD = float(
-            os.getenv("CACHE_RETENTION_PROTECT_THRESHOLD", "5.0")
+        self.CACHE_RETENTION_PROTECT_THRESHOLD = _float_env(
+            "CACHE_RETENTION_PROTECT_THRESHOLD", 5.0
         )
-        self.CACHE_RETENTION_GRACE_PERIOD_SECONDS = int(
-            os.getenv("CACHE_RETENTION_GRACE_PERIOD_SECONDS", str(3 * 24 * 60 * 60))
+        self.CACHE_RETENTION_GRACE_PERIOD_SECONDS = _int_env(
+            "CACHE_RETENTION_GRACE_PERIOD_SECONDS", 3 * 24 * 60 * 60
         )
         # 0 disables capacity-based eviction; any positive value caps the
         # collection by deleting the lowest-retention-value points first.
-        self.CACHE_RETENTION_MAX_POINTS = int(
-            os.getenv("CACHE_RETENTION_MAX_POINTS", "0")
+        self.CACHE_RETENTION_MAX_POINTS = _int_env(
+            "CACHE_RETENTION_MAX_POINTS", 0
+        )
+
+        # Prompt Token Optimization Pipeline (Phase 5 / P3)
+        # Opt-in pre-processing pipeline for chat completion requests to reduce
+        # token footprint before semantic cache key generation and upstream LLM dispatch.
+        self.PROMPT_OPTIMIZATION_ENABLED = _bool_env(
+            "PROMPT_OPTIMIZATION_ENABLED", False
+        )
+        self.PROMPT_OPTIMIZATION_WHITESPACE = _bool_env(
+            "PROMPT_OPTIMIZATION_WHITESPACE", True
+        )
+        self.PROMPT_OPTIMIZATION_SESSION_DEDUP = _bool_env(
+            "PROMPT_OPTIMIZATION_SESSION_DEDUP", True
+        )
+        self.PROMPT_OPTIMIZATION_JSON_TABLE = _bool_env(
+            "PROMPT_OPTIMIZATION_JSON_TABLE", True
+        )
+        self.PROMPT_OPTIMIZATION_JSON_TABLE_MIN_ROWS = _int_env(
+            "PROMPT_OPTIMIZATION_JSON_TABLE_MIN_ROWS", 2
+        )
+        # Phase B: Context & Headroom Management
+        self.PROMPT_OPTIMIZATION_CCR_ENABLED = _bool_env(
+            "PROMPT_OPTIMIZATION_CCR_ENABLED", False
+        )
+        self.PROMPT_OPTIMIZATION_CCR_KEEP_LAST_N_TURNS = _int_env(
+            "PROMPT_OPTIMIZATION_CCR_KEEP_LAST_N_TURNS", 5
+        )
+        self.PROMPT_OPTIMIZATION_CCR_STRATEGY = (
+            os.getenv("PROMPT_OPTIMIZATION_CCR_STRATEGY", "condense") or "condense"
+        ).strip().lower()
+        self.PROMPT_OPTIMIZATION_HEADROOM_ENABLED = _bool_env(
+            "PROMPT_OPTIMIZATION_HEADROOM_ENABLED", False
+        )
+        self.PROMPT_OPTIMIZATION_HEADROOM_BUFFER = _int_env(
+            "PROMPT_OPTIMIZATION_HEADROOM_BUFFER", 100
         )
 
         # Cache mode gate: `disabled` (no cache), `shadow` (serve every request

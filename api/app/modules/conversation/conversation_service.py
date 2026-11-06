@@ -53,6 +53,39 @@ class ConversationService:
             query = query.filter(Conversation.tenant_id == tenant_id)
         return query.first()
 
+    def update_conversation(
+        self,
+        conversation_id: str,
+        user_id: str,
+        title: str,
+        tenant_id: str | None = None,
+    ) -> Conversation | None:
+        conv = self.get_conversation(
+            conversation_id, user_id=user_id, tenant_id=tenant_id
+        )
+        if not conv:
+            return None
+        conv.title = title
+        conv.updated_at = datetime.now(UTC)
+        self.db.commit()
+        self.db.refresh(conv)
+        return conv
+
+    def delete_conversation(
+        self,
+        conversation_id: str,
+        user_id: str,
+        tenant_id: str | None = None,
+    ) -> bool:
+        conv = self.get_conversation(
+            conversation_id, user_id=user_id, tenant_id=tenant_id
+        )
+        if not conv:
+            return False
+        self.db.delete(conv)
+        self.db.commit()
+        return True
+
     def record_turn(
         self,
         conversation: Conversation,

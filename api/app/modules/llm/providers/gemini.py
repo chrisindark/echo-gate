@@ -33,6 +33,19 @@ from app.modules.chat.chat_schema import (
 
 logger = logging.getLogger(__name__)
 
+_THOUGHT_SIGNATURES: dict[str, bytes] = {}
+MAX_THOUGHT_SIGNATURES = 2048
+
+
+def _store_thought_signature(call_id: str, sig: bytes | None) -> None:
+    if not sig or not call_id:
+        return
+    if len(_THOUGHT_SIGNATURES) >= MAX_THOUGHT_SIGNATURES:
+        keys = list(_THOUGHT_SIGNATURES.keys())[:512]
+        for k in keys:
+            _THOUGHT_SIGNATURES.pop(k, None)
+    _THOUGHT_SIGNATURES[call_id] = sig
+
 
 class GeminiProvider:
     def _prepare_gemini_payload(
@@ -61,7 +74,7 @@ class GeminiProvider:
                 part = types.Part.from_function_response(
                     name=fn_name, response=resp_payload
                 )
-                contents.append(types.Content(role="tool", parts=[part]))
+                contents.append(types.Content(role="user", parts=[part]))
             else:
                 role = "user" if msg.role == "user" else "model"
                 parts = []
@@ -81,12 +94,14 @@ class GeminiProvider:
                                 args = {"value": args}
                         except Exception:
                             args = {}
-                        parts.append(
-                            types.Part.from_function_call(
-                                name=tc.function.name,
-                                args=args,
-                            )
+                        part = types.Part.from_function_call(
+                            name=tc.function.name,
+                            args=args,
                         )
+                        sig = _THOUGHT_SIGNATURES.get(tc.id or "")
+                        if sig:
+                            part.thought_signature = sig
+                        parts.append(part)
                 if not parts:
                     parts.append(types.Part.from_text(text=""))
                 contents.append(types.Content(role=role, parts=parts))
@@ -217,9 +232,23 @@ class GeminiProvider:
             )
 
             tool_calls = []
+            candidate_fc_parts = []
+            if (
+                response.candidates
+                and response.candidates[0].content
+                and response.candidates[0].content.parts
+            ):
+                for p in response.candidates[0].content.parts:
+                    if getattr(p, "function_call", None):
+                        candidate_fc_parts.append(p)
+
             if response.function_calls:
-                for fc in response.function_calls:
-                    call_id = fc.id or f"call_{uuid.uuid4().hex}"
+                for idx, fc in enumerate(response.function_calls):
+                    call_id = getattr(fc, "id", None) or f"call_{uuid.uuid4().hex}"
+                    if idx < len(candidate_fc_parts):
+                        sig = getattr(candidate_fc_parts[idx], "thought_signature", None)
+                        if sig:
+                            _store_thought_signature(call_id, sig)
                     try:
                         args_str = json.dumps(fc.args or {})
                     except Exception:
@@ -385,16 +414,21 @@ class GeminiProvider:
                     )
 
                 function_calls = []
-                if getattr(response, "function_calls", None):
-                    function_calls = response.function_calls
-                elif (
+                if (
                     response.candidates
                     and response.candidates[0].content
                     and response.candidates[0].content.parts
                 ):
                     for part in response.candidates[0].content.parts:
                         if getattr(part, "function_call", None):
-                            function_calls.append(part.function_call)
+                            fc = part.function_call
+                            function_calls.append(fc)
+                            call_id = getattr(fc, "id", None) or f"call_{uuid.uuid4().hex}"
+                            sig = getattr(part, "thought_signature", None)
+                            if sig:
+                                _store_thought_signature(call_id, sig)
+                elif getattr(response, "function_calls", None):
+                    function_calls = response.function_calls
 
                 if function_calls:
                     had_tool_calls = True

@@ -99,6 +99,13 @@ def _create_test_app():
                 usage=Usage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
             )
 
+        async def generate_stream(self, request, api_key=None, **kwargs):
+            full_resp = await self.generate_completion(request, api_key)
+            from app.modules.chat.chat_schema import response_to_stream_chunks
+
+            for chunk in response_to_stream_chunks(full_resp):
+                yield chunk
+
     class StubQuota:
         async def check_quota(self, **kwargs):
             captured["quota_calls"].append(kwargs)
@@ -467,3 +474,160 @@ def test_multi_turn_history_accumulates():
             "Turn 2 user",
             "Assistant reply",
         ]
+
+
+# --- 5. Conversation Update, Delete & Streaming ------------------------------
+
+
+def test_update_conversation_title():
+    """PATCH /api/v1/conversations/{id} updates title."""
+    app, _, _, _ = _create_test_app()
+
+    with TestClient(app) as client:
+        headers = {"X-Session-ID": "sess-update"}
+        create_res = client.post(
+            "/api/v1/conversations", json={"title": "Old Title"}, headers=headers
+        )
+        assert create_res.status_code == 200
+        conv_id = create_res.json()["response"]["id"]
+
+        patch_res = client.patch(
+            f"/api/v1/conversations/{conv_id}",
+            json={"title": "New Updated Title"},
+            headers=headers,
+        )
+        assert patch_res.status_code == 200
+        assert patch_res.json()["response"]["title"] == "New Updated Title"
+
+        # Verify via GET
+        get_res = client.get(f"/api/v1/conversations/{conv_id}", headers=headers)
+        assert get_res.status_code == 200
+        assert get_res.json()["response"]["title"] == "New Updated Title"
+
+
+def test_update_conversation_not_found_or_forbidden():
+    """PATCH returns 404 for non-existent or other caller's conversation."""
+    app, _, _, _ = _create_test_app()
+
+    with TestClient(app) as client:
+        # Caller A creates a conversation
+        create_res = client.post(
+            "/api/v1/conversations",
+            json={"title": "User A Title"},
+            headers={"X-Session-ID": "caller-a"},
+        )
+        conv_id = create_res.json()["response"]["id"]
+
+        # Caller B tries to patch Caller A's conversation
+        patch_res = client.patch(
+            f"/api/v1/conversations/{conv_id}",
+            json={"title": "Malicious Title"},
+            headers={"X-Session-ID": "caller-b"},
+        )
+        assert patch_res.status_code == 404
+
+
+def test_delete_conversation_and_cascade_messages():
+    """DELETE /api/v1/conversations/{id} deletes conversation and cascades messages."""
+    app, _, _, SessionLocal = _create_test_app()
+
+    with TestClient(app) as client:
+        headers = {"X-Session-ID": "sess-delete"}
+        create_res = client.post(
+            "/api/v1/conversations", json={"title": "To Delete"}, headers=headers
+        )
+        conv_id = create_res.json()["response"]["id"]
+
+        # Post a chat turn so messages exist
+        client.post(
+            f"/api/v1/conversations/{conv_id}/chat",
+            json={"model": "qwen3:8b", "message": "Message to be deleted"},
+            headers=headers,
+        )
+
+        with SessionLocal() as session:
+            assert (
+                session.query(Message).filter_by(conversation_id=conv_id).count() == 2
+            )
+
+        # Delete conversation
+        del_res = client.delete(f"/api/v1/conversations/{conv_id}", headers=headers)
+        assert del_res.status_code == 200
+        assert del_res.json()["response"]["deleted"] is True
+        assert del_res.json()["response"]["id"] == conv_id
+
+        # Verify conversation and cascaded messages are gone
+        with SessionLocal() as session:
+            assert (
+                session.query(Conversation).filter_by(id=conv_id).first() is None
+            )
+            assert (
+                session.query(Message).filter_by(conversation_id=conv_id).count() == 0
+            )
+
+        # Confirm GET returns 404
+        get_res = client.get(f"/api/v1/conversations/{conv_id}", headers=headers)
+        assert get_res.status_code == 404
+
+
+def test_delete_conversation_not_found_or_forbidden():
+    """DELETE returns 404 for non-existent or other caller's conversation."""
+    app, _, _, _ = _create_test_app()
+
+    with TestClient(app) as client:
+        create_res = client.post(
+            "/api/v1/conversations",
+            json={"title": "User A Title"},
+            headers={"X-Session-ID": "caller-a"},
+        )
+        conv_id = create_res.json()["response"]["id"]
+
+        del_res = client.delete(
+            f"/api/v1/conversations/{conv_id}",
+            headers={"X-Session-ID": "caller-b"},
+        )
+        assert del_res.status_code == 404
+
+
+def test_chat_in_conversation_streaming():
+    """POST /api/v1/conversations/{id}/chat with stream=True streams SSE and persists turn."""
+    app, captured, _, SessionLocal = _create_test_app()
+
+    with TestClient(app) as client:
+        headers = {"X-Session-ID": "sess-stream"}
+        create_res = client.post(
+            "/api/v1/conversations", json={"title": "Streaming Chat"}, headers=headers
+        )
+        conv_id = create_res.json()["response"]["id"]
+
+        # Call streaming chat
+        chat_res = client.post(
+            f"/api/v1/conversations/{conv_id}/chat",
+            json={
+                "model": "qwen3:8b",
+                "message": "Stream this question",
+                "stream": True,
+            },
+            headers=headers,
+        )
+        assert chat_res.status_code == 200
+        assert "text/event-stream" in chat_res.headers.get("content-type", "")
+
+        # Read streaming body
+        body_text = chat_res.text
+        assert "data: " in body_text
+        assert "data: [DONE]" in body_text
+
+        # Verify messages were atomically persisted to database
+        with SessionLocal() as session:
+            db_msgs = (
+                session.query(Message)
+                .filter_by(conversation_id=conv_id)
+                .order_by(Message.created_at)
+                .all()
+            )
+            assert len(db_msgs) == 2
+            assert db_msgs[0].role == "user"
+            assert db_msgs[0].content == "Stream this question"
+            assert db_msgs[1].role == "assistant"
+            assert db_msgs[1].content == "Assistant reply"

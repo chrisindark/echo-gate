@@ -97,11 +97,29 @@ default in `config.py`. Copy `api/app/.env.example` to `api/app/.env.local` (or
 | `BULKHEAD_ACQUIRE_TIMEOUT_SECONDS` | `0.0` | Maximum wait in seconds before shedding load with HTTP 429. |
 | `ALLOWED_MODELS_JSON` | unset | JSON string of `{provider: [models...]}` to override/extend allowed models dynamically. |
 | `MODEL_ALIASES_JSON` | unset | JSON string of `{alias: [{service, model}, ...]}` mapping logical aliases (e.g. `fast`, `cheap`) to ranked provider/model pairs. |
+| `MODEL_CONTEXT_WINDOWS_JSON` | unset | JSON string of `{model_or_prefix: context_tokens}` (e.g. `{"gpt-4o-mini": 128000, "gemini-3.5-flash-lite": 1048576, "qwen3:8b": 32768}`). Used by the prompt optimization headroom trimmer to dynamically calculate prompt budget. |
 | `STREAM_MAX_CONTENT_BYTES` | `2097152` | Guardrail memory limit (bytes) on streaming response accumulator before skipping cache persistence. |
 
 Retries apply only to timeouts/connection errors and HTTP 408/429/500/502/503/504
 (`app/core/retry.py`). HTTP 400/401/403/500 are fatal and short-circuit the
 fallback entirely.
+
+## Prompt token optimization pipeline
+
+Pre-processing pipeline applied to chat completion requests before cache key generation and upstream dispatch. Can be enabled globally or opted into per request via the `prompt_optimization` body parameter or the `X-EchoGate-Prompt-Optimization` header.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PROMPT_OPTIMIZATION_ENABLED` | `false` | Default global gate for the optimization pipeline when requests omit explicit opt-in flags. |
+| `PROMPT_OPTIMIZATION_WHITESPACE` | `true` | When optimization runs, collapse runs of spaces and tabs into single spaces and cap runs of 3+ newlines to 2. Preserves indentation and newlines within markdown code blocks (``` and ~~~) and protects inline code snippets. |
+| `PROMPT_OPTIMIZATION_SESSION_DEDUP` | `true` | When optimization runs, detect and deduplicate consecutive identical message turns in multi-turn threads (preserving tool call-response pairings and the active user turn). |
+| `PROMPT_OPTIMIZATION_JSON_TABLE` | `true` | When optimization runs, serialize large uniform JSON arrays returned from tool calls into compact markdown pipe tables. Only applied if the resulting table strictly reduces overall character length. |
+| `PROMPT_OPTIMIZATION_JSON_TABLE_MIN_ROWS` | `2` | Minimum number of uniform array objects required before converting tool JSON to a markdown table. |
+| `PROMPT_OPTIMIZATION_CCR_ENABLED` | `false` | Global default for Conversation Context Reduction (CCR). Preserves the initial system prompt and recent $N$ conversational turns while condensing or dropping intermediate turns. |
+| `PROMPT_OPTIMIZATION_CCR_KEEP_LAST_N_TURNS` | `5` | Number of recent turns to retain in full fidelity when CCR is active. Can be overridden per request via `X-EchoGate-Prompt-Optimization-CCR-Turns`. |
+| `PROMPT_OPTIMIZATION_CCR_STRATEGY` | `condense` | Strategy for intermediate turns in CCR: `condense` (summarizes turns into a compact briefing marker) or `drop` (omits turns with a context reduction notice). |
+| `PROMPT_OPTIMIZATION_HEADROOM_ENABLED` | `false` | Global default for dynamic headroom trimming. Prunes oldest conversational turns to guarantee the prompt fits within the target model's context window limit minus completion tokens. |
+| `PROMPT_OPTIMIZATION_HEADROOM_BUFFER` | `100` | Safety buffer tokens retained below the target context window ceiling to prevent token truncation at provider edges. |
 
 ## Cost estimation
 
@@ -358,6 +376,11 @@ used.
 | `OTEL_ENABLED` | `true` | Enable OpenTelemetry tracing instrumentation. When `OTEL_EXPORTER_OTLP_ENDPOINT` is unset, acts as zero-overhead NoOp. |
 | `OTEL_SERVICE_NAME` | `echo-gate` | Service name attached to emitted traces and spans. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `""` | OTLP collector endpoint (e.g. Langfuse `/api/public/otel`, Datadog, Jaeger). When set, spans are exported; empty keeps tracing in-process only. |
+| `TELEMETRY_ENABLED` | `false` | Opt-in anonymous usage telemetry gate. When `true` and `TELEMETRY_ENDPOINT` is set, the gateway pings metadata (version, anonymous instance ID, deployment mode) at startup and periodically. Fail-open; no prompts, responses, keys, or IPs ever leave the host. |
+| `TELEMETRY_ENDPOINT` | `""` | Target URL for anonymous telemetry pings. |
+| `TELEMETRY_INTERVAL_SECONDS` | `86400` | Telemetry ping interval in seconds (default 24 hours). |
+| `TELEMETRY_INSTANCE_ID` | `""` | Optional persistent instance identifier; automatically generated and cached if empty. |
+| `TELEMETRY_DEPLOYMENT_MODE` | `self-hosted` | Deployment classification tag attached to telemetry pings (e.g. `self-hosted`, `docker`, `helm`). |
 
 ## Event bus (webhooks)
 

@@ -105,6 +105,7 @@ from app.modules.llm.model_registry import ModelTarget, model_registry
 from app.modules.llm_quota.llm_quota_service import LlmQuotaService
 from app.modules.llm_usage.llm_usage_schema import LlmUsageLogCreate
 from app.modules.llm_usage.llm_usage_service import LlmUsageService
+from app.modules.prompt_optimization.prompt_optimizer import PromptOptimizer
 from app.modules.qdrant.llm_cache_collection_service import LlmCacheCollectionService
 from app.modules.qdrant.qdrant_schema import CacheScope
 from app.modules.qdrant.retention_policy import (
@@ -171,6 +172,7 @@ class LlmRouterService:
         shadow_cache_service: ShadowCacheService | None = None,
         judge_service: JudgeService | None = None,
         cache_audit_service: CacheAuditService | None = None,
+        prompt_optimizer: PromptOptimizer | None = None,
     ) -> None:
         self.llm_provider_service = llm_provider_service
         self.embedding_service = embedding_service
@@ -185,6 +187,7 @@ class LlmRouterService:
         self.shadow_cache_service = shadow_cache_service
         self.judge_service = judge_service
         self.cache_audit_service = cache_audit_service
+        self.prompt_optimizer = prompt_optimizer or PromptOptimizer()
         self._background_tasks: set[asyncio.Task[Any]] = set()
         self._embedding_cache: OrderedDict[
             str, tuple[list[float] | None, dict[str, list] | None]
@@ -2742,6 +2745,7 @@ class LlmRouterService:
         read anywhere below (Redis, Qdrant exact, semantic search) is reported on
         the response instead of only in the logs.
         """
+        request, opt_result = self.prompt_optimizer.optimize(request)
         service_name = request.service_name or config.DEFAULT_LLM_SERVICE
         span_attrs = {
             GEN_AI_SYSTEM: service_name,
@@ -2759,6 +2763,8 @@ class LlmRouterService:
                 response = await self._generate_completion_impl(
                     request, api_key, timeout_budget_ms
                 )
+                if opt_result.applied:
+                    response._prompt_optimization_result = opt_result
                 served_from_cache = bool((response.cache_info or {}).get("matched"))
                 degradation = resolve_degradation_state(
                     getattr(response, "_degradation_state", None),
@@ -3077,6 +3083,7 @@ class LlmRouterService:
         hit counting, auditing, and usage/trace logging mirror the serving path,
         because this *is* the serving path for these requests.
         """
+        request, opt_result = self.prompt_optimizer.optimize(request)
         if config.CACHE_MODE == "shadow":
             # Shadow mode never reads the cache, so there is nothing to serve.
             return None
@@ -3148,6 +3155,8 @@ class LlmRouterService:
                     api_key=api_key,
                 )
             )
+        if opt_result.applied:
+            response._prompt_optimization_result = opt_result
         return response
 
     async def generate_stream(
@@ -3167,6 +3176,7 @@ class LlmRouterService:
         `X-Cache-Prefer: instant` miss already ran the lookup pipeline, so the
         stream does not pay for it a second time.
         """
+        request, opt_result = self.prompt_optimizer.optimize(request)
         service_name = request.service_name or config.DEFAULT_LLM_SERVICE
         span_attrs = {
             GEN_AI_SYSTEM: service_name,
@@ -3184,6 +3194,8 @@ class LlmRouterService:
                 ):
                     if first:
                         first = False
+                        if opt_result.applied:
+                            chunk._prompt_optimization_result = opt_result
                         provider_state = getattr(chunk, "_degradation_state", None)
                         chunk._degradation_state = resolve_degradation_state(
                             provider_state,

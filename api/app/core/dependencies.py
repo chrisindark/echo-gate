@@ -19,6 +19,7 @@ from app.modules.llm.llm_router_service import LlmRouterService
 from app.modules.llm_quota.llm_quota_rule_service import LlmQuotaRuleService
 from app.modules.llm_quota.llm_quota_service import LlmQuotaService
 from app.modules.llm_usage.llm_usage_service import LlmUsageService
+from app.modules.prompt_optimization.prompt_optimizer import PromptOptimizer
 from app.modules.qdrant.llm_cache_collection_service import LlmCacheCollectionService
 from app.modules.qdrant.qdrant_client_service import QdrantClientService
 from app.modules.redis.redis_service import RedisService
@@ -52,6 +53,7 @@ class DependencyContainer:
     _cache_audit_service: CacheAuditService | None = None
     _intent_calibration_service: IntentCalibrationService | None = None
     _inference_client: InferenceClient | None = None
+    _prompt_optimizer: PromptOptimizer | None = None
 
     @classmethod
     async def initialize(cls) -> None:
@@ -210,6 +212,7 @@ class DependencyContainer:
                 shadow_cache_service=cls.get_shadow_cache_service(),
                 judge_service=cls.get_judge_service(),
                 cache_audit_service=cls.get_cache_audit_service(),
+                prompt_optimizer=cls.get_prompt_optimizer(),
             )
         return cls._llm_router_service
 
@@ -301,6 +304,12 @@ class DependencyContainer:
             )
         return cls._intent_calibration_service
 
+    @classmethod
+    def get_prompt_optimizer(cls) -> PromptOptimizer:
+        if cls._prompt_optimizer is None:
+            cls._prompt_optimizer = PromptOptimizer()
+        return cls._prompt_optimizer
+
 
 # FastAPI Depends compatible functions
 def get_embedding_service() -> EmbeddingService:
@@ -375,5 +384,9 @@ async def get_intent_calibration_service() -> IntentCalibrationService:
     return await DependencyContainer.get_intent_calibration_service()
 
 
+def get_prompt_optimizer() -> PromptOptimizer:
+    return DependencyContainer.get_prompt_optimizer()
+
+
 # Re-exported for FastAPI Depends wiring in controllers.
-__all__ = ["get_api_key_service"]
+__all__ = ["get_api_key_service", "get_prompt_optimizer"]
