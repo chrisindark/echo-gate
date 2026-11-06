@@ -82,10 +82,29 @@ Echo Gate accepts OpenAI-compatible `chat/completions` requests and routes them 
 - **Rate & Token Limits**: Enforces Tokens-Per-Minute (TPM) quota rules per API key, provider, and model.
 - **Multi-Tenant Isolation (Postgres RLS)**: Every request resolves an API key to a tenant/user and the gateway binds that identity to the database transaction. Row-Level Security policies on the traces, usage, quota, and conversation tables make cross-tenant reads and writes impossible at the storage layer.
 
-### 6. Observability UI (Next.js 16)
+### 6. Prompt Token Optimization Pipeline
+
+- **Pre-Dispatch Rule-Based Compression**:
+  - **Lossless Whitespace Compaction**: Collapses excessive spaces and redundant newlines while protecting markdown code fences (``` and ~~~) and inline backticks.
+  - **Tool-Result Tabularization (`json-table`)**: Converts large uniform JSON arrays returned from tool calls into compact markdown pipe tables with a strict character-reduction invariant.
+  - **Session Turn Deduplication (`session-dedup`)**: Prunes consecutive identical turns in multi-turn dialogues while preserving atomic tool turn pairs and the active user prompt.
+- **Context & Headroom Management**:
+  - **Conversation Context Reduction (`ccr`)**: Retains initial system prompt and recent $N$ turns while condensing (briefing marker) or dropping intermediate turns.
+  - **Dynamic Headroom Trimmer (`headroom_trim`)**: Dynamically trims oldest turns to fit within target model context limits minus completion tokens and safety buffer.
+  - Controllable via request body (`prompt_optimization`) or headers (`X-EchoGate-Prompt-Optimization`, `X-EchoGate-Prompt-Optimization-CCR-Turns`), reporting savings via `X-EchoGate-Prompt-Savings`.
+
+### 7. Stateful Multi-Turn Conversations
+
+- **Persistent Conversation Management**:
+  - Complete RESTful lifecycle API (`/api/v1/conversations`) for thread creation, retrieval, listing, renaming (`PATCH`), and cascade deletion (`DELETE`).
+  - PostgreSQL Row-Level Security (RLS) ensures strict tenant and user isolation across all threads and message histories.
+  - **Atomic Turn Persistence**: Both user message and assistant reply are saved atomically (rolls back on provider failures).
+  - **Streaming Parity (`stream: true`)**: Real-time SSE event dispatch (`text/event-stream`) alongside background message accumulation and persistent database write upon stream completion.
+
+### 8. Observability UI (Next.js 16)
 
 - Independent frontend located in `web/` (Next.js 16, React 19, Tailwind CSS, Radix UI Themes):
-  - **Chat Playground (`/`)**: Interactive chat interface with real-time streaming, cache hit indicators, provider and model selectors, and configuration toggles.
+  - **Chat Playground (`/`)**: Interactive chat interface with persistent multi-turn conversations, collapsible sidebar (thread history grouped by date, rename, delete), real-time SSE streaming, collapsible thinking blocks, prompt optimization savings badges, provider/model selectors, and configuration toggles.
   - **Traces Dashboard (`/traces`)**: Real-time table of all gateway traffic with routing decisions, cache statuses, and latencies.
   - **Trace Detail View (`/traces/[id]`)**: Interactive waterfall visualization displaying the exact lifecycle latency of each pipeline stage, extracted intent metadata, and judge scores.
   - **Analytics Dashboard (`/analytics`)**: Visual summaries of KPIs, cache hit rates, cost and latency saved, model breakdowns, and time-series trends, plus a cache-readiness indicator backed by shadow-mode telemetry.
@@ -99,7 +118,7 @@ Echo Gate accepts OpenAI-compatible `chat/completions` requests and routes them 
 | --- | --- |
 | ![Trace Detail](docs/assets/screenshots/trace-detail.png) | ![Analytics Dashboard](docs/assets/screenshots/analytics-dashboard.png) |
 
-### 7. Background Worker (Celery)
+### 9. Background Worker (Celery)
 
 - **Cache Eviction**: Periodically purges expired vector points from Qdrant (`delete_expired_vectors`).
 - **Asynchronous Evaluation Pipeline**: Background worker (`evaluate_pending_requests`) evaluates pending request logs with cross-encoders and NLI models to identify false-positive cache hits without degrading hot-path serving latency.
@@ -114,6 +133,12 @@ Echo Gate accepts OpenAI-compatible `chat/completions` requests and routes them 
                         └───────────────────────┬────────────────────────┘
                                                 │
                                        [Auth / Quota Guard]
+                                                │
+                                                ▼
+                         ┌──────────────────────────────────────────────┐
+                         │   Prompt Token Optimization Pipeline (Opt)   │
+                         │   (Whitespace / Tables / Dedup / CCR / Trim) │
+                         └──────────────────────┬───────────────────────┘
                                                 │
                                                 ▼
                                     ┌───────────────────────┐

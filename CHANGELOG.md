@@ -12,6 +12,16 @@ changes' entry with a `[BREAKING]` marker.
 
 ### Added
 
+- **Prompt Token Optimization Pipeline (Phases A & B)**:
+  - Opt-in pre-dispatch compression engine (`api/app/modules/prompt_optimization/`) reducing token footprint before semantic cache key generation and upstream LLM dispatch.
+  - Lossless rule-based compression: excessive whitespace collapse with markdown code fence (``` and ~~~) and inline code protection; session turn deduplication (`session-dedup`) preserving atomic tool pairs and active prompt; and tool JSON array tabularization (`json-table`) into markdown pipe tables with strict size-reduction invariant.
+  - Context window and headroom management: Conversation Context Reduction (`ccr`) retaining initial system prompt and recent $N$ turns while condensing (briefing marker) or dropping intermediate turns; dynamic headroom trimming (`headroom-trim`) against target model context limit minus completion tokens with safety buffer and `MODEL_CONTEXT_WINDOWS_JSON` lookup.
+  - Telemetry response headers: `X-EchoGate-Prompt-Optimization: applied` and `X-EchoGate-Prompt-Savings: tokens=...,chars=...`. Request controls via body parameter `prompt_optimization` or headers `X-EchoGate-Prompt-Optimization` and `X-EchoGate-Prompt-Optimization-CCR-Turns`.
+- **Stateful Multi-Turn Conversations API & Web Playground**:
+  - Full CRUD lifecycle endpoints under `/api/v1/conversations`: create, get, list with pagination, update title (`PATCH /{conversation_id}`), and cascade delete (`DELETE /{conversation_id}`) with PostgreSQL Row-Level Security (RLS) isolation.
+  - Conversational chat endpoint (`POST /api/v1/conversations/{conversation_id}/chat`): appends user message to thread history, executes completion via `LlmRouterService` with prompt optimization and caching, and atomically commits both user turn and assistant response.
+  - Real-time streaming (`stream: true`) with SSE chunks (`ChatCompletionChunk`) and background completion accumulation for atomic thread persistence.
+  - Multi-turn conversation sidebar in the Next.js 16 Web Playground (`web/`) with date grouping (Today, Yesterday, Previous 7 Days, Older), rename, delete, thread restoration (`?c=<id>`), expandable thinking / reasoning accordion, and real-time prompt savings telemetry.
 - **Event bus / webhook sink**: the gateway now emits four typed events from
   background-task paths — `cache.miss` (a provider served a request that missed
   the cache), `quota.exceeded` (RPM/TPM/budget refusal), `provider.failure` (one

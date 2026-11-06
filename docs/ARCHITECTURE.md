@@ -65,6 +65,7 @@ api/app/
     admin/                    admin API key model/service (scoped operator identity;
                               minted only by app/scripts/create_admin_key.py)
     conversation/             conversation/message model/service/controller (RLS-scoped conversations & chat history)
+    prompt_optimization/      lossless compaction (whitespace, json-table, session-dedup), CCR, and headroom trimming
   worker/
     celery_app.py             Celery app, beat schedule, worker event-loop wiring
   scripts/                    One-off tools (seed, migrate embeddings, test runner)
@@ -86,9 +87,18 @@ controller fills in identity from the middleware and calls
 `LlmRouterService.generate_completion(request, api_key=...)`.
 
 `generate_completion` runs these stages, recording a latency value for each.
-Steps 1–3 are gated by `CACHE_MODE` (only `active` reaches them) and, within
-`active`, by their `USE_*` flag; see [Shadow cache mode](#shadow-cache-mode):
+Stage 0 performs pre-dispatch prompt optimization. Steps 1–3 are gated by
+`CACHE_MODE` (only `active` reaches them) and, within `active`, by their `USE_*`
+flag; see [Shadow cache mode](#shadow-cache-mode):
 
+0. **Prompt token optimization** — `self.prompt_optimizer.optimize(request)`.
+   When enabled globally (`PROMPT_OPTIMIZATION_ENABLED`) or requested per call
+   (`prompt_optimization` body parameter or `X-EchoGate-Prompt-Optimization` header),
+   reduces input token footprint before semantic cache key generation and upstream
+   dispatch via whitespace collapse, session deduplication, tool JSON array
+   tabularization, CCR, and headroom trimming. Because optimization runs *before*
+   exact and semantic hashing, compressed prompts achieve higher cache hit rates
+   and save tokens upstream.
 1. **Redis exact match** — `_get_redis_exact_match`. A versioned SHA-256 cache key
    over every request field that affects the answer (service, model, temperature,
    messages, tools, `response_format`, `stop`, `max_tokens`, penalties, scope IDs).
@@ -469,6 +479,60 @@ wants the answer can opt out with `X-Cache-Prefer: instant`:
   provider with `skip_cache_lookup=True`, so the lookups that already missed are
   not repeated (embedding + intent classification are the expensive part).
 - `shadow` mode never serves an instant hit, because it never reads the cache.
+
+## Prompt token optimization pipeline
+
+The optimization pipeline (`app/modules/prompt_optimization/prompt_optimizer.py`) is an opt-in pre-processing stage that compresses prompt tokens prior to semantic cache key generation, vector indexing, and upstream LLM dispatch. Because it runs *before* exact and semantic cache hashing, compacted prompts achieve higher cache hit rates and lower time-to-first-token (TTFT).
+
+Optimization can be triggered globally via `PROMPT_OPTIMIZATION_ENABLED=true` or opted into per request via the `prompt_optimization` body parameter or the `X-EchoGate-Prompt-Optimization` HTTP header.
+
+### 1. Lossless & Rule-Based Compaction
+
+- **Whitespace Compaction (`whitespace`)**: Collapses excessive horizontal runs of spaces and tabs to single spaces and clamps runs of 3+ newlines to 2. Markdown code fences (``` and ~~~) are parsed and protected so indentation and code structure remain intact; inline code backticks are similarly preserved.
+- **Session Turn Deduplication (`session-dedup`)**: Identifies and removes consecutive identical turns in multi-turn conversational histories while preserving compound tool call-response pairings and the active user prompt.
+- **Tool-Result Tabularization (`json-table`)**: Rewrites large uniform JSON arrays returned from tool calls into compact markdown pipe tables, stripping repetitive key strings across objects. Enforces a strict size-reduction invariant: if the formatted markdown table is not strictly smaller in characters than the original JSON string, the transformation is aborted.
+
+### 2. Context Window & Headroom Management
+
+- **Conversation Context Reduction (`ccr`)**: For long multi-turn sessions exceeding the retention window, CCR retains the initial system prompt and recent $N$ conversational turns (`ccr_keep_last_n_turns`, default 5) in full fidelity, while intermediate turns are either condensed into a compact briefing marker (`ccr_strategy="condense"`) or dropped with a context reduction notice (`ccr_strategy="drop"`).
+- **Dynamic Headroom Trimmer (`headroom_trim`)**: Dynamically computes the target model's context window limit (configured via `MODEL_CONTEXT_WINDOWS_JSON` or built-in model defaults) minus the requested `max_tokens` (or completion token estimate) and a configurable safety buffer (`headroom_buffer_tokens`, default 100). If the accumulated prompt exceeds this token budget, the oldest intermediate turns are pruned to ensure the prompt fits safely within the provider's token limits without runtime truncation errors.
+
+### 3. Optimization Telemetry
+
+When prompt optimization applies modifications that save tokens or characters:
+- The response header `X-EchoGate-Prompt-Optimization` is set to `applied`.
+- The response header `X-EchoGate-Prompt-Savings` reports the savings as `tokens=<saved_tokens>,chars=<saved_chars>` (e.g. `tokens=12,chars=48`).
+
+## Stateful conversations architecture
+
+The conversation module (`app/modules/conversation/`) provides persistent multi-turn thread management and chat execution across all supported LLM providers.
+
+### 1. Storage & Multi-Tenant Isolation
+
+Conversations and their messages are persisted in PostgreSQL:
+- `conversations`: Primary thread record storing `id`, `user_id`, `tenant_id`, `title`, and timestamps.
+- `messages`: Individual conversational turns storing `id`, `conversation_id`, `role`, `content`, and `created_at`.
+
+Both tables enforce PostgreSQL Row-Level Security (RLS) under the non-owner role. Requests authenticate via `X-API-Key` (resolving tenant and user identity) or anonymous session fingerprints. Cross-tenant or unauthorized reads/writes fail closed with HTTP 404.
+
+### 2. Atomic Turn Lifecycle & Streaming
+
+When a client sends a message via `POST /api/v1/conversations/{conversation_id}/chat`:
+- Historical messages are loaded from the database in chronological sequence.
+- The new user message is appended to the message list.
+- If prompt optimization is active, the assembled thread is optimized.
+- **Non-Streaming (`stream: false`)**: The completion is resolved via `LlmRouterService`. Both the user message and assistant reply are persisted atomically to PostgreSQL within the active transaction. If upstream provider execution fails, the turn rolls back.
+- **Streaming (`stream: true`)**: Real-time SSE chunks (`ChatCompletionChunk`) are yielded to the client immediately. Concurrently, an in-memory streaming accumulator gathers the full assistant reply. Upon stream conclusion (`data: [DONE]`), the assembled response and user prompt are committed to the database.
+
+### 3. Web UI Integration
+
+The Next.js 16 frontend (`web/src/app/page.tsx`) features a collapsible conversation sidebar (`web/src/components/conversation-sidebar.tsx`) supporting:
+- Grouped chronological threads (Today, Yesterday, Previous 7 Days, Older).
+- Inline conversation title renaming (`PATCH /api/v1/conversations/{id}`).
+- Conversation deletion with cascade message removal (`DELETE /api/v1/conversations/{id}`).
+- Deep-linking and thread restoration via query parameter `?c=<conversation_id>`.
+- Expandable thinking / reasoning blocks for reasoning-capable models.
+- Real-time prompt optimization savings badges and cache status indicators.
 
 ## Multi-tenancy (Postgres RLS)
 

@@ -60,6 +60,26 @@
       "export": "app",
       "test": "tests/contract/test_openapi_snapshot.py",
       "testNeedle": "test_openapi_document_matches_committed_snapshot"
+    },
+    {
+      "id": "prompt-token-optimization",
+      "readmeCapability": "Prompt Token Optimization Pipeline",
+      "doc": "README.md",
+      "claim": "Prompt Token Optimization Pipeline",
+      "source": "api/app/modules/prompt_optimization/prompt_optimizer.py",
+      "export": "PromptOptimizer",
+      "test": "api/app/modules/prompt_optimization/tests/test_prompt_optimizer.py",
+      "testNeedle": "test_collapse_horizontal_and_vertical_whitespace"
+    },
+    {
+      "id": "stateful-conversations",
+      "readmeCapability": "Stateful Multi-Turn Conversations",
+      "doc": "README.md",
+      "claim": "Stateful Multi-Turn Conversations",
+      "source": "api/app/modules/conversation/conversation_service.py",
+      "export": "ConversationService",
+      "test": "api/app/modules/conversation/tests/test_conversation.py",
+      "testNeedle": "test_chat_in_conversation_streaming"
     }
   ]
 }

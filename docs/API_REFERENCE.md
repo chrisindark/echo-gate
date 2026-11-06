@@ -31,10 +31,10 @@ The chat completion endpoint is the exception: it returns a bare
 
 | Header | Used by | Effect |
 | --- | --- | --- |
-| `X-API-Key` | analytics, gateway-requests, chat | Resolved server-side to a `tenant_id`/`user_id`; establishes the Postgres RLS context. **Required** by analytics and gateway-requests; **optional but validated** on chat. |
+| `X-API-Key` | analytics, gateway-requests, chat, conversations | Resolved server-side to a `tenant_id`/`user_id`; establishes the Postgres RLS context. **Required** by analytics and gateway-requests; **optional but validated** on chat and conversations. |
 | `X-Admin-Key` | `/api/v1/admin/*` | Scoped operator credential. Required by every admin route; see [Admin authentication](#admin-authentication--x-admin-key). |
-| `X-Session-ID` | chat | Binds the request to a session cache scope. |
-| `X-Conversation-ID` | chat | Binds the request to a conversation cache scope. |
+| `X-Session-ID` / `X-EchoGate-Session-ID` | chat | Binds the request to a session cache scope. |
+| `X-Conversation-ID` / `X-EchoGate-Conversation-ID` | chat | Binds the request to a conversation cache scope. |
 | `X-Request-ID` / `X-Correlation-ID` | all | Accepted and echoed back for tracing. |
 
 `X-API-Key` is the **only** source of tenant and user identity. `tenant_id` and
@@ -50,6 +50,19 @@ tenant's cached answers.
 
 The chat controller accepts `session_id` and `conversation_id` in the JSON body as
 well as the matching headers; body values win.
+
+### Control and optimization headers
+
+| Header | Direction | Used by | Effect |
+| --- | --- | --- | --- |
+| `X-EchoGate-Prompt-Optimization` / `X-Prompt-Optimization` | Request | chat, conversations | `true` (enables default optimization pipeline), `false` (disables), or comma-separated strategies: `whitespace`, `session-dedup`, `json-table`, `ccr`, `headroom-trim`. |
+| `X-EchoGate-Prompt-Optimization-CCR-Turns` | Request | chat, conversations | Integer (default `5`): number of recent turns to preserve in full fidelity when CCR is active. |
+| `X-Timeout-Budget-Ms` / `X-EchoGate-Timeout-Budget-Ms` | Request | chat, conversations | Millisecond timeout budget for upstream generation. |
+| `X-Cache-Prefer` | Request | chat (`stream: true`) | When set to `instant`, an exact/semantic cache hit is served immediately as a single JSON response (`ChatCompletionResponse`) instead of replaying SSE chunks. |
+| `X-EchoGate-Prompt-Optimization` | Response | chat, conversations | Emitted with value `applied` when prompt optimization modified the prompt and saved tokens or characters. |
+| `X-EchoGate-Prompt-Savings` | Response | chat, conversations | Emitted when optimization was applied: `tokens=<saved_tokens>,chars=<saved_chars>` (e.g. `tokens=12,chars=48`). |
+| `X-EchoGate-Gateway-Degradation` | Response | chat, conversations | Gateway resilience indicator: `none`, `fallback`, `cache_degraded`, or other degradation state. |
+| `X-Cache` | Response | chat | `HIT` or `MISS`. |
 
 ### Chat authentication
 
@@ -223,6 +236,24 @@ The main gateway endpoint. OpenAI-compatible request; returns a
 | `thinking_budget` | int | `null` | Maximum token budget for reasoning (e.g. 1024-16384). Cache key. |
 | `tools` | array | `null` | OpenAI tool schema. **Presence bypasses the semantic cache.** |
 | `tool_choice` | string/object | `null` | Cache key. |
+| `prompt_optimization` | bool/object | `null` | Opt-in prompt token optimization. Pass `true`/`false`, or a `PromptOptimizationConfig` object (see below). When omitted, falls back to `PROMPT_OPTIMIZATION_*` server settings or `X-EchoGate-Prompt-Optimization` header. |
+
+#### `PromptOptimizationConfig` object
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `enabled` | bool | `true` | Gate for running prompt optimization on this request. |
+| `whitespace` | bool | `true` | Collapse runs of spaces/tabs to single space, cap duplicate newlines to 2; preserves indentation and content within markdown code blocks (``` / ~~~) and inline code backticks. |
+| `session_dedup` | bool | `true` | Detect and prune consecutive identical turns in multi-turn threads (preserving tool call-response pairings and active user prompt). |
+| `json_table` | bool | `true` | Rewrite large uniform JSON arrays returned from tool calls into compact markdown pipe tables. |
+| `json_table_min_rows` | int | `2` | Minimum uniform items required before tabularizing JSON arrays. |
+| `ccr` | bool | `false` | Conversation Context Reduction: preserve initial system prompt and recent turns while condensing or dropping intermediate turns. |
+| `ccr_keep_last_n_turns` | int | `5` | Number of recent turns to preserve in full fidelity when CCR is active. |
+| `ccr_strategy` | string | `"condense"` | Strategy for older turns: `"condense"` (compact briefing marker) or `"drop"` (omit with reduction notice). |
+| `ccr_max_turn_chars` | int | `150` | Maximum character length per summarized turn when condensing. |
+| `headroom_trim` | bool | `false` | Dynamically prune oldest conversational turns to guarantee the prompt fits within the target model context limit minus completion tokens. |
+| `headroom_buffer_tokens` | int | `100` | Safety token buffer subtracted below the target context window ceiling. |
+| `headroom_target_tokens` | int | `null` | Explicit token ceiling override (bypasses model context limit lookup). |
 
 **Response** (`ChatCompletionResponse`):
 
@@ -830,18 +861,38 @@ Mounted in `app/main.py`
 
 | Method | Path | Description |
 | --- | --- | --- |
-| `POST` | `/api/v1/conversations` | Create a conversation (body: `{"title": ...}`). |
-| `GET` | `/api/v1/conversations` | List the caller's conversations (`skip`, `limit`). |
-| `GET` | `/api/v1/conversations/{conversation_id}` | One conversation with its messages. |
-| `POST` | `/api/v1/conversations/{conversation_id}/chat` | Append the user message to history, generate a completion with the full history, persist the assistant reply. |
+| `POST` | `/api/v1/conversations` | Create a conversation (body: `{"title": "..."}`). |
+| `GET` | `/api/v1/conversations` | List caller's conversations (query params: `skip`, `limit`). |
+| `GET` | `/api/v1/conversations/{conversation_id}` | Retrieve one conversation with its complete message history. |
+| `PATCH` | `/api/v1/conversations/{conversation_id}` | Update conversation title (body: `{"title": "..."}`). |
+| `DELETE` | `/api/v1/conversations/{conversation_id}` | Delete a conversation and cascade delete its messages (`{"id": "...", "deleted": true}`). |
+| `POST` | `/api/v1/conversations/{conversation_id}/chat` | Append user message to history, execute completion with full history, and persist turn. |
 
-Responses wrap in `BaseAPIResponse[ConversationResponse | ...]`. The chat route
-calls the router service, so caching, tracing, and usage logging apply exactly
-as on `/api/v1/chat/completions`. Rows live in the RLS-scoped `conversations`
-and `messages` tables: the tenant/user resolved from `X-API-Key` is stamped on
-writes and filters every read
-(see [DATA_MODEL.md](DATA_MODEL.md)). Accessing another user's
-conversation returns `404` (ownership is checked server-side).
+Responses wrap in `BaseAPIResponse[ConversationResponse | ...]`, except non-streaming `POST /{conversation_id}/chat` which returns `ChatCompletionResponse` directly (or SSE chunks when streaming). The chat route calls `LlmRouterService`, so caching, prompt token optimization, tracing, rate limiting, and usage logging apply exactly as on `/api/v1/chat/completions`. Rows live in the RLS-scoped `conversations` and `messages` tables: the tenant/user resolved from `X-API-Key` (or session identity for anonymous callers) is stamped on writes and filters every read (see [DATA_MODEL.md](DATA_MODEL.md)). Accessing another user's conversation returns `404` (ownership is enforced server-side).
+
+### `POST /api/v1/conversations/{conversation_id}/chat`
+
+Executes a chat turn in a persistent multi-turn thread. Enforces optional API key authentication (`api_key_auth_optional_guard`) and quota enforcement (`llm_quota_guard`).
+
+**Request body** (`ChatCompletionRequestWithConversation`):
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `service_name` | string | `"ollama"` | LLM provider (`ollama`, `gemini`/`google-genai`, `openai`, `groq`, `openrouter`). |
+| `model` | string | required | Target model name (validated against provider's allowlist). |
+| `message` | string | required | New user prompt message content to append to conversation history. |
+| `temperature` | float | `1.0` | Sampling temperature. |
+| `max_tokens` | int | `null` | Maximum completion tokens. |
+| `stream` | bool | `false` | When `true`, returns Server-Sent Events (`text/event-stream`). |
+| `thinking` | bool | `false` | Enable extended thinking / reasoning mode where supported. |
+| `thinking_budget` | int | `null` | Token budget for model reasoning. |
+| `response_format` | object | `null` | Structured outputs schema or json object request. |
+| `prompt_optimization` | bool/object | `null` | Per-request prompt optimization overrides (`PromptOptimizationConfig` or boolean). |
+
+**Turn persistence & streaming lifecycle**:
+- **Atomic persistence**: Both the user prompt turn and the assistant response turn are saved in the database. If provider dispatch fails, the user message is rolled back.
+- **Streaming support (`stream: true`)**: Streams SSE `ChatCompletionChunk` events. Content chunks are yielded to the client in real-time, while an accumulator gathers the full assistant message. Upon stream completion (`data: [DONE]`), the assembled reply is committed to the database.
+- **Prompt optimization integration**: Pre-dispatch optimization runs across the accumulated conversation history (whitespace collapse, tool table formatting, session turn dedup, CCR, headroom trimming). Emits `X-EchoGate-Prompt-Optimization: applied` and `X-EchoGate-Prompt-Savings: tokens=...,chars=...` headers.
 
 ---
 
