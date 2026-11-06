@@ -8,9 +8,10 @@ import {
   Database,
   GaugeCircle,
   Menu,
-  MessageSquare,
+  MessagesSquare,
   Search,
   Settings,
+  Terminal,
   X,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -25,7 +26,8 @@ export function AppSidebar() {
   const { apiKey } = useApiKey();
 
   const routes = [
-    { name: 'Chat', path: '/', icon: MessageSquare },
+    { name: 'Playground', path: '/', icon: Terminal },
+    { name: 'Conversations', path: '/conversations', icon: MessagesSquare },
     { name: 'Analytics', path: '/analytics', icon: BarChart3 },
     { name: 'Traces', path: '/traces', icon: Activity },
     { name: 'Quota', path: '/quota', icon: GaugeCircle },

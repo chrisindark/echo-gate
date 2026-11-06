@@ -526,13 +526,15 @@ When a client sends a message via `POST /api/v1/conversations/{conversation_id}/
 
 ### 3. Web UI Integration
 
-The Next.js 16 frontend (`web/src/app/page.tsx`) features a collapsible conversation sidebar (`web/src/components/conversation-sidebar.tsx`) supporting:
+The Next.js 16 frontend provides a dedicated Conversations interface at `/conversations` (`web/src/app/conversations/page.tsx`) with a collapsible conversation sidebar (`web/src/components/conversation-sidebar.tsx`) supporting:
 - Grouped chronological threads (Today, Yesterday, Previous 7 Days, Older).
 - Inline conversation title renaming (`PATCH /api/v1/conversations/{id}`).
 - Conversation deletion with cascade message removal (`DELETE /api/v1/conversations/{id}`).
 - Deep-linking and thread restoration via query parameter `?c=<conversation_id>`.
 - Expandable thinking / reasoning blocks for reasoning-capable models.
 - Real-time prompt optimization savings badges and cache status indicators.
+
+Alongside Conversations, the root route `/` (`web/src/app/page.tsx`) provides a standalone single-turn Playground for prompt engineering, structured schema validation, parameter tuning, and raw trace replay via `?hash=<exact_hash>`.
 
 ## Multi-tenancy (Postgres RLS)
 

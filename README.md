@@ -104,7 +104,8 @@ Echo Gate accepts OpenAI-compatible `chat/completions` requests and routes them 
 ### 8. Observability UI (Next.js 16)
 
 - Independent frontend located in `web/` (Next.js 16, React 19, Tailwind CSS, Radix UI Themes):
-  - **Chat Playground (`/`)**: Interactive chat interface with persistent multi-turn conversations, collapsible sidebar (thread history grouped by date, rename, delete), real-time SSE streaming, collapsible thinking blocks, prompt optimization savings badges, provider/model selectors, and configuration toggles.
+  - **Playground (`/`)**: Interactive single-turn completion testing sandbox with parameter tuning (temperature, top_p, max tokens), structured-output schema presets (`text` / `json_object` / `json_schema`), prompt optimization toggle, thinking blocks, and historical trace loading via `?hash=<exact_hash>`.
+  - **Conversations (`/conversations`)**: Dedicated stateful multi-turn chat interface with collapsible thread history sidebar (grouped by date, rename, delete), real-time SSE streaming, collapsible thinking blocks, and prompt optimization telemetry. Supports deep-linking via `?c=<conversation_id>`.
   - **Traces Dashboard (`/traces`)**: Real-time table of all gateway traffic with routing decisions, cache statuses, and latencies.
   - **Trace Detail View (`/traces/[id]`)**: Interactive waterfall visualization displaying the exact lifecycle latency of each pipeline stage, extracted intent metadata, and judge scores.
   - **Analytics Dashboard (`/analytics`)**: Visual summaries of KPIs, cache hit rates, cost and latency saved, model breakdowns, and time-series trends, plus a cache-readiness indicator backed by shadow-mode telemetry.
