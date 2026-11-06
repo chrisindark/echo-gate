@@ -1,0 +1,58 @@
+# syntax=docker/dockerfile:1
+
+# --- Dependency stage ---
+FROM python:3.11-slim AS deps
+
+ENV PIP_NO_CACHE_DIR=1
+WORKDIR /build
+
+RUN pip install "poetry==2.4.1" "poetry-plugin-export==1.10.1"
+RUN python -m venv /opt/venv
+
+COPY pyproject.toml poetry.lock ./
+
+# Export and install dependencies + watchfiles for live process reloads in development
+RUN poetry export --only main --format requirements.txt \
+        --output /tmp/requirements.txt --without-hashes ; \
+    /opt/venv/bin/pip install --no-cache-dir -r /tmp/requirements.txt watchfiles
+
+# --- Development runtime stage ---
+FROM python:3.11-slim
+
+ARG VERSION=0.1.0-dev
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PROJECT_NAME=echo-gate \
+    VERSION=$VERSION \
+    HF_HOME=/workspace/.model_cache \
+    BM25_MODEL_PATH=/workspace/.model_cache/bm25 \
+    BM25_LOCAL_FILES_ONLY=true \
+    PYTHONPATH=/workspace/api \
+    PATH="/opt/venv/bin:$PATH"
+
+WORKDIR /workspace
+
+# Copy the pre-built venv (includes uvicorn, celery, alembic, watchfiles, etc.)
+COPY --from=deps /opt/venv /opt/venv
+
+# Pre-stage BM25 sparse model into container cache
+RUN python - <<'PY'
+import shutil
+from pathlib import Path
+
+from fastembed import SparseTextEmbedding
+
+model = SparseTextEmbedding(model_name="Qdrant/bm25", cache_dir="/workspace/.model_cache/fastembed")
+resolved = Path(model.model._model_dir)
+staged = Path("/workspace/.model_cache/bm25")
+shutil.copytree(resolved, staged, dirs_exist_ok=True)
+print(f"staged BM25 from {resolved} -> {staged}")
+PY
+
+# Copy project files (in dev, volumes in docker-compose.dev.yml bind mount /workspace/api)
+COPY . .
+
+EXPOSE 8000
+
+# Default command runs uvicorn with live reload watching /workspace/api
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/workspace/api"]

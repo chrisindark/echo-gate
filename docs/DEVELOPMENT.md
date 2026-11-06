@@ -96,6 +96,42 @@ INFERENCE_BASE_URL=http://localhost:7997 uv run --project inference-platform \
   python evals/check.py
 ```
 
+### Docker Environments: Development vs Production
+
+Echo Gate provides dedicated Docker configurations for local development (with hot reload) and production:
+
+| Target | Compose File | Backend Dockerfile | Web Dockerfile | Features |
+|---|---|---|---|---|
+| **Development** | `docker-compose.dev.yml` | `Dockerfile.dev` | `web/Dockerfile.dev` | Host directory bind mounts, `uvicorn --reload`, `watchfiles` auto-restarting Celery on `.py` edits, Next.js Fast Refresh HMR, isolated data volumes (`postgres_dev_data`, `qdrant_dev_data`). |
+| **Production** | `docker-compose.yml` (or `deploy/compose/docker-compose.yml`) | `Dockerfile` | `web/Dockerfile` | Multi-stage slim builds, baked-in artifacts, no dev tools, standard `celery` and `uvicorn` production commands. |
+
+#### Running the Development Environment (Hot Reload)
+
+```bash
+# Start all services with live reload
+docker compose -f docker-compose.dev.yml up --build
+
+# Run database migrations in dev
+docker compose -f docker-compose.dev.yml run --rm \
+  -e "MIGRATION_DATABASE_URL=postgresql+psycopg://postgres:postgres@postgres:5432/echo_gate" \
+  echo-gate alembic upgrade head
+```
+
+- Any change to `api/` on your host instantly reloads FastAPI (`uvicorn --reload`).
+- Any `.py` change automatically restarts the Celery worker process via `watchfiles`.
+- Any edit to `web/` immediately updates the frontend in the browser via Next.js Fast Refresh.
+- You can also run with native Docker Compose Watch: `docker compose -f docker-compose.dev.yml watch`.
+
+#### Running Production Compose
+
+```bash
+# Using deploy/compose/setup.sh (brings up inference engine, migrations, and creates admin key)
+cd deploy/compose && ./setup.sh
+
+# Or directly with Docker Compose
+docker compose --profile core --profile ui up -d --build
+```
+
 ### Container image
 
 ```bash

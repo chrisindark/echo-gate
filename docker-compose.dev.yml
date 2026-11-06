@@ -1,0 +1,6 @@
+name: echo-gate-dev
+
+# Echo Gate development compose configuration with live hot reload.
+# Extends deploy/compose/docker-compose.dev.yml.
+include:
+  - path: deploy/compose/docker-compose.dev.yml

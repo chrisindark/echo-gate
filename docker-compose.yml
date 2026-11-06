@@ -1,0 +1,6 @@
+name: echo-gate
+
+# Echo Gate production compose configuration.
+# Extends deploy/compose/docker-compose.yml.
+include:
+  - path: deploy/compose/docker-compose.yml

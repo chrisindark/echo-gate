@@ -82,7 +82,7 @@ echo "==> [3/4] Running database migrations"
 ${COMPOSE} "${PROFILES[@]}" run --rm \
   -e "PYTHON_ENV=production" \
   -e "MIGRATION_DATABASE_URL=postgresql+psycopg://postgres:postgres@postgres:5432/echo_gate" \
-  echo-gate poetry run alembic upgrade head
+  echo-gate alembic upgrade head
 
 echo "==> [4/4] Creating admin API key"
 KEY_ARGS=(create --name "${KEY_NAME}" --scopes "${KEY_SCOPES}")
@@ -94,7 +94,7 @@ fi
 ${COMPOSE} "${PROFILES[@]}" run --rm \
   -e "PYTHON_ENV=production" \
   -e "MIGRATION_DATABASE_URL=postgresql+psycopg://postgres:postgres@postgres:5432/echo_gate" \
-  echo-gate poetry run python -m app.scripts.create_admin_key "${KEY_ARGS[@]}"
+  echo-gate python -m app.scripts.create_admin_key "${KEY_ARGS[@]}"
 
 echo ""
 echo "Echo Gate is up."

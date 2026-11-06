@@ -21,18 +21,22 @@ import {
   Clock,
   Code2,
   Copy,
+  MessagesSquare,
+  PanelLeftClose,
   PanelLeftOpen,
   Send,
   Settings2,
   Sparkles,
   Square,
   Tag,
+  X,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ConversationSidebar } from '@/components/conversation-sidebar';
 import { useApiKey } from '@/context/api-key-context';
 import { API_ROOT } from '@/lib/api';
+import { PROVIDERS } from '@/lib/providers';
 import {
   ConversationItem,
   createConversation,
@@ -106,40 +110,6 @@ const SCHEMA_PRESETS = [
   },
 ];
 
-const PROVIDERS = {
-  ollama: [
-    'qwen3:8b',
-    'llama3.2:3b',
-    'deepseek-r1:8b',
-    'phi4:14b',
-    'mistral:7b',
-    'deepseek-coder:6.7b',
-  ],
-  'google-genai': [
-    'gemini-2.5-flash',
-    'gemini-2.5-pro',
-    'gemini-2.0-flash',
-    'gemini-2.0-flash-lite',
-  ],
-  openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1-mini', 'o3-mini'],
-  groq: [
-    'llama-3.3-70b-versatile',
-    'llama-3.1-8b-instant',
-    'mixtral-8x7b-32768',
-  ],
-  openrouter: [
-    'anthropic/claude-3.5-sonnet',
-    'openai/gpt-4o',
-    'meta-llama/llama-3.3-70b-instruct',
-  ],
-  claude: [
-    'claude-3-7-sonnet-20250219',
-    'claude-3-5-sonnet-20241022',
-    'claude-3-5-haiku-20241022',
-  ],
-  mock: ['mock-model'],
-};
-
 interface CacheInfoType {
   cache_hit?: boolean;
   source?: string;
@@ -180,9 +150,8 @@ export default function ChatPage() {
   const [loadingConversations, setLoadingConversations] = useState(false);
 
   // Settings state
-  const [provider, setProvider] =
-    useState<keyof typeof PROVIDERS>('google-genai');
-  const [model, setModel] = useState(PROVIDERS['google-genai'][1]);
+  const [provider, setProvider] = useState<keyof typeof PROVIDERS>('ollama');
+  const [model, setModel] = useState(PROVIDERS.ollama[0]);
   const [temperature, setTemperature] = useState<number>(0.7);
   const [maxTokens, setMaxTokens] = useState<number>(8192);
   const [stream, setStream] = useState<boolean>(true);
@@ -727,305 +696,75 @@ export default function ChatPage() {
         loading={loadingConversations}
       />
 
-      {/* 2. Parameters Settings Drawer */}
-      <AnimatePresence>
-        {isSettingsOpen && (
-          <motion.aside
-            initial={{ width: 0, opacity: 0 }}
-            animate={{ width: 320, opacity: 1 }}
-            exit={{ width: 0, opacity: 0 }}
-            className="flex flex-col border-r border-border bg-card shrink-0 h-full overflow-y-auto absolute left-0 z-40 md:relative md:z-auto"
-          >
-            <div className="p-6 pt-16 space-y-6">
-              <div>
-                <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2 mb-4">
-                  <Settings2 className="w-4 h-4" /> Parameters
-                </h2>
-
-                <div className="space-y-4">
-                  <Flex direction="column" gap="1">
-                    <Text as="label" size="2" weight="bold">
-                      Provider
-                    </Text>
-                    <Select.Root
-                      value={provider}
-                      onValueChange={(val) => {
-                        const newProvider = val as keyof typeof PROVIDERS;
-                        setProvider(newProvider);
-                        setModel(PROVIDERS[newProvider][0]);
-                      }}
-                    >
-                      <Select.Trigger className="w-full" />
-                      <Select.Content>
-                        {Object.keys(PROVIDERS).map((p) => (
-                          <Select.Item key={p} value={p}>
-                            {p}
-                          </Select.Item>
-                        ))}
-                      </Select.Content>
-                    </Select.Root>
-                  </Flex>
-
-                  <Flex direction="column" gap="1">
-                    <Text as="label" size="2" weight="bold">
-                      Model
-                    </Text>
-                    <Select.Root value={model} onValueChange={setModel}>
-                      <Select.Trigger className="w-full" />
-                      <Select.Content>
-                        {PROVIDERS[provider].map((m) => (
-                          <Select.Item key={m} value={m}>
-                            {m}
-                          </Select.Item>
-                        ))}
-                      </Select.Content>
-                    </Select.Root>
-                  </Flex>
-
-                  <Box>
-                    <Flex justify="between" mb="1">
-                      <Text as="label" size="2" weight="bold">
-                        Temperature
-                      </Text>
-                      <Text size="1" color="gray">
-                        {temperature}
-                      </Text>
-                    </Flex>
-                    <Slider
-                      min={0}
-                      max={2}
-                      step={0.1}
-                      value={[temperature]}
-                      onValueChange={(val) => setTemperature(val[0])}
-                    />
-                  </Box>
-
-                  <Flex direction="column" gap="1">
-                    <Text as="label" size="2" weight="bold">
-                      Max Tokens
-                    </Text>
-                    <TextField.Root
-                      type="number"
-                      value={maxTokens.toString()}
-                      onChange={(e) => setMaxTokens(parseInt(e.target.value))}
-                    />
-                  </Flex>
-
-                  <Flex align="center" gap="2" pt="1">
-                    <Checkbox
-                      checked={stream}
-                      onCheckedChange={(val) => setStream(Boolean(val))}
-                      id="stream-check"
-                    />
-                    <Text
-                      as="label"
-                      size="2"
-                      weight="bold"
-                      htmlFor="stream-check"
-                      className="cursor-pointer select-none"
-                    >
-                      Stream Responses (SSE)
-                    </Text>
-                  </Flex>
-
-                  <Flex align="center" gap="2" pt="1">
-                    <Checkbox
-                      checked={promptOptimization}
-                      onCheckedChange={(val) =>
-                        setPromptOptimization(Boolean(val))
-                      }
-                      id="opt-check"
-                    />
-                    <Text
-                      as="label"
-                      size="2"
-                      weight="bold"
-                      htmlFor="opt-check"
-                      className="cursor-pointer select-none flex items-center gap-1.5"
-                    >
-                      <Sparkles className="w-4 h-4 text-amber-400" />
-                      Prompt Token Optimization
-                    </Text>
-                  </Flex>
-
-                  <Flex align="center" gap="2" pt="1">
-                    <Checkbox
-                      checked={thinking}
-                      onCheckedChange={(val) => setThinking(Boolean(val))}
-                      id="thinking-check"
-                    />
-                    <Text
-                      as="label"
-                      size="2"
-                      weight="bold"
-                      htmlFor="thinking-check"
-                      className="cursor-pointer select-none flex items-center gap-1.5"
-                    >
-                      <Brain className="w-4 h-4 text-violet-400" />
-                      Thinking / Reasoning Mode
-                    </Text>
-                  </Flex>
-
-                  {thinking && (
-                    <div className="pl-6 space-y-2 pt-1 pb-1">
-                      <Flex justify="between">
-                        <Text size="1" color="gray">
-                          Reasoning Budget (Tokens)
-                        </Text>
-                        <Text size="1" weight="bold">
-                          {thinkingBudget}
-                        </Text>
-                      </Flex>
-                      <Slider
-                        value={[thinkingBudget]}
-                        onValueChange={(val) => setThinkingBudget(val[0])}
-                        min={1024}
-                        max={16384}
-                        step={512}
-                      />
-                    </div>
-                  )}
-
-                  <Flex direction="column" gap="1" pt="2">
-                    <Text as="label" size="2" weight="bold">
-                      Response Format
-                    </Text>
-                    <Select.Root
-                      value={responseFormatType}
-                      onValueChange={(val) =>
-                        setResponseFormatType(
-                          val as 'text' | 'json_object' | 'json_schema'
-                        )
-                      }
-                    >
-                      <Select.Trigger className="w-full" />
-                      <Select.Content>
-                        <Select.Item value="text">Text (Default)</Select.Item>
-                        <Select.Item value="json_object">
-                          JSON Object
-                        </Select.Item>
-                        <Select.Item value="json_schema">
-                          Strict JSON Schema
-                        </Select.Item>
-                      </Select.Content>
-                    </Select.Root>
-                  </Flex>
-
-                  {responseFormatType === 'json_schema' && (
-                    <div className="space-y-3 pt-2">
-                      <Flex direction="column" gap="1">
-                        <Text as="label" size="2" weight="bold">
-                          Schema Preset
-                        </Text>
-                        <Select.Root
-                          value={schemaName}
-                          onValueChange={(val) => {
-                            setSchemaName(val);
-                            const preset = SCHEMA_PRESETS.find(
-                              (p) => p.schemaName === val
-                            );
-                            if (preset) {
-                              setSchemaContent(
-                                JSON.stringify(preset.schema, null, 2)
-                              );
-                              setSchemaError(null);
-                            }
-                          }}
-                        >
-                          <Select.Trigger className="w-full" />
-                          <Select.Content>
-                            {SCHEMA_PRESETS.map((preset) => (
-                              <Select.Item
-                                key={preset.schemaName}
-                                value={preset.schemaName}
-                              >
-                                {preset.name}
-                              </Select.Item>
-                            ))}
-                          </Select.Content>
-                        </Select.Root>
-                      </Flex>
-
-                      <Flex align="center" gap="2">
-                        <Checkbox
-                          checked={strictSchema}
-                          onCheckedChange={(val) =>
-                            setStrictSchema(Boolean(val))
-                          }
-                          id="strict-schema-check"
-                        />
-                        <Text
-                          as="label"
-                          size="2"
-                          htmlFor="strict-schema-check"
-                          className="cursor-pointer select-none"
-                        >
-                          Strict Schema Enforcement
-                        </Text>
-                      </Flex>
-
-                      <Flex direction="column" gap="1">
-                        <Flex justify="between" align="center">
-                          <Text as="label" size="2" weight="bold">
-                            JSON Schema
-                          </Text>
-                          <button
-                            type="button"
-                            onClick={formatSchema}
-                            className="text-[11px] text-primary hover:underline cursor-pointer"
-                          >
-                            Prettify
-                          </button>
-                        </Flex>
-                        <TextArea
-                          value={schemaContent}
-                          onChange={(e) => handleSchemaChange(e.target.value)}
-                          rows={8}
-                          className="font-mono text-xs"
-                          placeholder="Enter valid JSON Schema..."
-                        />
-                        {schemaError ? (
-                          <span className="text-[11px] text-red-400">
-                            ⚠ {schemaError}
-                          </span>
-                        ) : (
-                          <span className="text-[11px] text-emerald-400 flex items-center gap-1">
-                            ✓ Valid JSON Schema
-                          </span>
-                        )}
-                      </Flex>
-                    </div>
-                  )}
-                </div>
-              </div>
+      {/* Main Chat View */}
+      <main className="flex-1 flex flex-col h-full relative bg-background overflow-hidden min-w-0">
+        {/* Conversations Top Bar */}
+        <header className="h-14 border-b border-border bg-card/40 backdrop-blur-xs px-4 md:px-6 flex items-center justify-between shrink-0 select-none">
+          <div className="flex items-center gap-3 min-w-0">
+            <button
+              type="button"
+              onClick={() =>
+                setIsConversationSidebarOpen(!isConversationSidebarOpen)
+              }
+              className={cn(
+                'p-1.5 rounded-lg border transition-colors flex items-center gap-1.5 text-xs font-medium cursor-pointer',
+                isConversationSidebarOpen
+                  ? 'bg-muted border-border/80 text-foreground'
+                  : 'bg-card border-border/80 hover:bg-muted text-foreground'
+              )}
+              title={
+                isConversationSidebarOpen
+                  ? 'Collapse Conversations'
+                  : 'Show Conversations'
+              }
+            >
+              {isConversationSidebarOpen ? (
+                <PanelLeftClose className="w-4 h-4 text-primary" />
+              ) : (
+                <PanelLeftOpen className="w-4 h-4" />
+              )}
+              <span className="hidden sm:inline">Chats</span>
+            </button>
+            <div className="flex items-center gap-2 min-w-0">
+              <MessagesSquare className="w-4 h-4 text-primary shrink-0" />
+              <span className="font-semibold text-sm text-foreground truncate max-w-[180px] sm:max-w-xs md:max-w-md">
+                {conversations.find((c) => c.id === activeConversationId)?.title ||
+                  'New Conversation'}
+              </span>
             </div>
-          </motion.aside>
-        )}
-      </AnimatePresence>
+          </div>
 
-      {/* 3. Main Chat View */}
-      <main className="flex-1 flex flex-col h-full relative bg-background overflow-hidden">
-        {/* Top Floating Buttons */}
-        {!isConversationSidebarOpen && (
-          <button
-            onClick={() => setIsConversationSidebarOpen(true)}
-            title="Open Conversations"
-            className="fixed top-4 left-16 z-20 p-2 bg-card border border-border rounded-md shadow-sm hover:bg-muted transition-colors text-foreground"
-          >
-            <PanelLeftOpen className="w-5 h-5" />
-          </button>
-        )}
+          <div className="flex items-center gap-2">
+            <div className="hidden sm:flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span className="font-mono px-2 py-0.5 rounded bg-muted/60 border border-border/60 text-[11px] text-foreground font-medium">
+                {provider} / {model}
+              </span>
+              {promptOptimization && (
+                <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-medium flex items-center gap-1">
+                  <Sparkles className="w-3 h-3" /> Opt
+                </span>
+              )}
+            </div>
 
-        <button
-          onClick={() => setIsSettingsOpen(!isSettingsOpen)}
-          title="Toggle Parameters"
-          className="fixed top-4 right-4 z-20 p-2 bg-card border border-border rounded-md shadow-sm hover:bg-muted transition-colors text-foreground"
-        >
-          <Settings2 className="w-5 h-5" />
-        </button>
+            <button
+              type="button"
+              onClick={() => setIsSettingsOpen(!isSettingsOpen)}
+              className={cn(
+                'px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-all flex items-center gap-1.5 cursor-pointer',
+                isSettingsOpen
+                  ? 'bg-primary text-primary-foreground border-primary shadow-xs'
+                  : 'bg-card border-border/80 hover:bg-muted text-foreground'
+              )}
+              title="Toggle Parameters"
+            >
+              <Settings2 className="w-4 h-4" />
+              <span className="hidden sm:inline">Parameters</span>
+            </button>
+          </div>
+        </header>
 
         {/* Message Feed */}
-        <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 pb-36">
+        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 pb-36">
           {messages.length === 0 && !loading && (
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
@@ -1390,6 +1129,296 @@ export default function ChatPage() {
           </div>
         </div>
       </main>
+
+      {/* Parameters Inspector (Right Panel) */}
+      <AnimatePresence>
+        {isSettingsOpen && (
+          <motion.aside
+            initial={{ width: 0, opacity: 0 }}
+            animate={{ width: 320, opacity: 1 }}
+            exit={{ width: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="flex flex-col border-l border-border bg-card shrink-0 h-full overflow-hidden absolute right-0 z-40 md:relative md:z-auto shadow-xl md:shadow-none"
+          >
+            <div className="h-14 border-b border-border px-4 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2 font-semibold text-sm text-foreground">
+                <Settings2 className="w-4 h-4 text-primary" />
+                <span>Parameters</span>
+              </div>
+              <button
+                onClick={() => setIsSettingsOpen(false)}
+                className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                title="Close parameters"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
+              <div>
+
+                <div className="space-y-4">
+                  <Flex direction="column" gap="1">
+                    <Text as="label" size="2" weight="bold">
+                      Provider
+                    </Text>
+                    <Select.Root
+                      value={provider}
+                      onValueChange={(val) => {
+                        const newProvider = val as keyof typeof PROVIDERS;
+                        setProvider(newProvider);
+                        setModel(PROVIDERS[newProvider][0]);
+                      }}
+                    >
+                      <Select.Trigger className="w-full" />
+                      <Select.Content>
+                        {Object.keys(PROVIDERS).map((p) => (
+                          <Select.Item key={p} value={p}>
+                            {p}
+                          </Select.Item>
+                        ))}
+                      </Select.Content>
+                    </Select.Root>
+                  </Flex>
+
+                  <Flex direction="column" gap="1">
+                    <Text as="label" size="2" weight="bold">
+                      Model
+                    </Text>
+                    <Select.Root value={model} onValueChange={setModel}>
+                      <Select.Trigger className="w-full" />
+                      <Select.Content>
+                        {PROVIDERS[provider].map((m) => (
+                          <Select.Item key={m} value={m}>
+                            {m}
+                          </Select.Item>
+                        ))}
+                      </Select.Content>
+                    </Select.Root>
+                  </Flex>
+
+                  <Box>
+                    <Flex justify="between" mb="1">
+                      <Text as="label" size="2" weight="bold">
+                        Temperature
+                      </Text>
+                      <Text size="1" color="gray">
+                        {temperature}
+                      </Text>
+                    </Flex>
+                    <Slider
+                      min={0}
+                      max={2}
+                      step={0.1}
+                      value={[temperature]}
+                      onValueChange={(val) => setTemperature(val[0])}
+                    />
+                  </Box>
+
+                  <Flex direction="column" gap="1">
+                    <Text as="label" size="2" weight="bold">
+                      Max Tokens
+                    </Text>
+                    <TextField.Root
+                      type="number"
+                      value={maxTokens.toString()}
+                      onChange={(e) => setMaxTokens(parseInt(e.target.value))}
+                    />
+                  </Flex>
+
+                  <Flex align="center" gap="2" pt="1">
+                    <Checkbox
+                      checked={stream}
+                      onCheckedChange={(val) => setStream(Boolean(val))}
+                      id="stream-check"
+                    />
+                    <Text
+                      as="label"
+                      size="2"
+                      weight="bold"
+                      htmlFor="stream-check"
+                      className="cursor-pointer select-none"
+                    >
+                      Stream Responses (SSE)
+                    </Text>
+                  </Flex>
+
+                  <Flex align="center" gap="2" pt="1">
+                    <Checkbox
+                      checked={promptOptimization}
+                      onCheckedChange={(val) =>
+                        setPromptOptimization(Boolean(val))
+                      }
+                      id="opt-check"
+                    />
+                    <Text
+                      as="label"
+                      size="2"
+                      weight="bold"
+                      htmlFor="opt-check"
+                      className="cursor-pointer select-none flex items-center gap-1.5"
+                    >
+                      <Sparkles className="w-4 h-4 text-amber-400" />
+                      Prompt Token Optimization
+                    </Text>
+                  </Flex>
+
+                  <Flex align="center" gap="2" pt="1">
+                    <Checkbox
+                      checked={thinking}
+                      onCheckedChange={(val) => setThinking(Boolean(val))}
+                      id="thinking-check"
+                    />
+                    <Text
+                      as="label"
+                      size="2"
+                      weight="bold"
+                      htmlFor="thinking-check"
+                      className="cursor-pointer select-none flex items-center gap-1.5"
+                    >
+                      <Brain className="w-4 h-4 text-violet-400" />
+                      Thinking / Reasoning Mode
+                    </Text>
+                  </Flex>
+
+                  {thinking && (
+                    <div className="pl-6 space-y-2 pt-1 pb-1">
+                      <Flex justify="between">
+                        <Text size="1" color="gray">
+                          Reasoning Budget (Tokens)
+                        </Text>
+                        <Text size="1" weight="bold">
+                          {thinkingBudget}
+                        </Text>
+                      </Flex>
+                      <Slider
+                        value={[thinkingBudget]}
+                        onValueChange={(val) => setThinkingBudget(val[0])}
+                        min={1024}
+                        max={16384}
+                        step={512}
+                      />
+                    </div>
+                  )}
+
+                  <Flex direction="column" gap="1" pt="2">
+                    <Text as="label" size="2" weight="bold">
+                      Response Format
+                    </Text>
+                    <Select.Root
+                      value={responseFormatType}
+                      onValueChange={(val) =>
+                        setResponseFormatType(
+                          val as 'text' | 'json_object' | 'json_schema'
+                        )
+                      }
+                    >
+                      <Select.Trigger className="w-full" />
+                      <Select.Content>
+                        <Select.Item value="text">Text (Default)</Select.Item>
+                        <Select.Item value="json_object">
+                          JSON Object
+                        </Select.Item>
+                        <Select.Item value="json_schema">
+                          Strict JSON Schema
+                        </Select.Item>
+                      </Select.Content>
+                    </Select.Root>
+                  </Flex>
+
+                  {responseFormatType === 'json_schema' && (
+                    <div className="space-y-3 pt-2">
+                      <Flex direction="column" gap="1">
+                        <Text as="label" size="2" weight="bold">
+                          Schema Preset
+                        </Text>
+                        <Select.Root
+                          value={schemaName}
+                          onValueChange={(val) => {
+                            setSchemaName(val);
+                            const preset = SCHEMA_PRESETS.find(
+                              (p) => p.schemaName === val
+                            );
+                            if (preset) {
+                              setSchemaContent(
+                                JSON.stringify(preset.schema, null, 2)
+                              );
+                              setSchemaError(null);
+                            }
+                          }}
+                        >
+                          <Select.Trigger className="w-full" />
+                          <Select.Content>
+                            {SCHEMA_PRESETS.map((preset) => (
+                              <Select.Item
+                                key={preset.schemaName}
+                                value={preset.schemaName}
+                              >
+                                {preset.name}
+                              </Select.Item>
+                            ))}
+                          </Select.Content>
+                        </Select.Root>
+                      </Flex>
+
+                      <Flex align="center" gap="2">
+                        <Checkbox
+                          checked={strictSchema}
+                          onCheckedChange={(val) =>
+                            setStrictSchema(Boolean(val))
+                          }
+                          id="strict-schema-check"
+                        />
+                        <Text
+                          as="label"
+                          size="2"
+                          htmlFor="strict-schema-check"
+                          className="cursor-pointer select-none"
+                        >
+                          Strict Schema Enforcement
+                        </Text>
+                      </Flex>
+
+                      <Flex direction="column" gap="1">
+                        <Flex justify="between" align="center">
+                          <Text as="label" size="2" weight="bold">
+                            JSON Schema
+                          </Text>
+                          <button
+                            type="button"
+                            onClick={formatSchema}
+                            className="text-[11px] text-primary hover:underline cursor-pointer"
+                          >
+                            Prettify
+                          </button>
+                        </Flex>
+                        <TextArea
+                          value={schemaContent}
+                          onChange={(e) => handleSchemaChange(e.target.value)}
+                          rows={8}
+                          className="font-mono text-xs"
+                          placeholder="Enter valid JSON Schema..."
+                        />
+                        {schemaError ? (
+                          <span className="text-[11px] text-red-400">
+                            ⚠ {schemaError}
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-emerald-400 flex items-center gap-1">
+                            ✓ Valid JSON Schema
+                          </span>
+                        )}
+                      </Flex>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </motion.aside>
+        )}
+      </AnimatePresence>
+
+
     </div>
   );
 }

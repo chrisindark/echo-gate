@@ -297,8 +297,10 @@ class TestTerminalFailureRetryAfter(unittest.IsolatedAsyncioTestCase):
                 "CIRCUIT_BREAKER_RECOVERY_TIMEOUT_SECONDS",
                 "RETRY_AFTER_DEFAULT_SECONDS",
                 "LLM_MAX_RETRIES",
+                "FALLBACK_LLM_SERVICE",
             )
         }
+        config.FALLBACK_LLM_SERVICE = "google-genai"
         config.USE_FALLBACK_LLM = "false"
         config.USE_REDIS_EXACT_MATCHING = "false"
         # Pin the cache mode so the per-layer flags above are what decides
