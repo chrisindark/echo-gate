@@ -407,6 +407,64 @@ class TestPromptOptimizationIntegration(unittest.TestCase):
         contents = [m.content for m in optimized_req.messages]
         self.assertNotIn("Question 1 (to prune)", contents)
 
+    def test_compress_header_opt_in(self):
+        mock_response = ChatCompletionResponse(
+            id="chatcmpl-comp",
+            object="chat.completion",
+            created=1234567890,
+            model="gpt-4o-mini",
+            choices=[
+                Choice(
+                    index=0,
+                    message=ChatMessage(role="assistant", content="Answer"),
+                    finish_reason="stop",
+                )
+            ],
+            usage=Usage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+            cache_info={"matched": False},
+        )
+        self.router._generate_completion_impl = AsyncMock(return_value=mock_response)
+
+        long_content = "This is a very detailed explanation with verbose redundant text that can be compressed."
+        payload = {
+            "service_name": "openai",
+            "model": "gpt-4o-mini",
+            "messages": [
+                {"role": "assistant", "content": long_content},
+                {"role": "user", "content": "Follow up"},
+            ],
+        }
+
+        self.router.prompt_optimizer._inference_client = AsyncMock()
+        self.router.prompt_optimizer._inference_client.compress = AsyncMock(
+            return_value=[
+                {
+                    "index": 0,
+                    "original_text": long_content,
+                    "compressed_text": "detailed explanation compressed.",
+                    "original_tokens": 15,
+                    "compressed_tokens": 4,
+                }
+            ]
+        )
+
+        headers = {
+            "Authorization": "Bearer test-api-key",
+            EchoGateHeaders.PROMPT_OPTIMIZATION: "compress",
+        }
+        resp = self.client.post(
+            "/api/v1/chat/completions", json=payload, headers=headers
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            resp.headers.get(EchoGateHeaders.PROMPT_OPTIMIZATION), "applied"
+        )
+        call_args = self.router._generate_completion_impl.call_args[0]
+        optimized_req: ChatCompletionRequest = call_args[0]
+        self.assertEqual(
+            optimized_req.messages[0].content, "detailed explanation compressed."
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

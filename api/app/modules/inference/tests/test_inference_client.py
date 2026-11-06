@@ -149,6 +149,32 @@ class _ClientTestCase(unittest.IsolatedAsyncioTestCase):
         logits = await client.classify([("prompt", "answer")])
         self.assertEqual(logits, [[-3.7, 0.25, -3.78]])
 
+    async def test_compress_async_and_sync(self):
+        def handler(request):
+            return httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "index": 0,
+                            "original_text": "A very long verbose prompt",
+                            "compressed_text": "long verbose prompt",
+                            "original_tokens": 5,
+                            "compressed_tokens": 3,
+                        }
+                    ]
+                },
+            )
+
+        client = _client(handler)
+        res = await client.compress(["A very long verbose prompt"], rate=0.6)
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0]["compressed_text"], "long verbose prompt")
+
+        res_sync = client.compress_sync(["A very long verbose prompt"], rate=0.6)
+        self.assertEqual(len(res_sync), 1)
+        self.assertEqual(res_sync[0]["compressed_text"], "long verbose prompt")
+
     async def test_server_error_is_retried_then_surfaces_as_unavailable(self):
         calls = []
 

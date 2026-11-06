@@ -324,6 +324,18 @@ class Config:
         self.PROMPT_OPTIMIZATION_HEADROOM_BUFFER = _int_env(
             "PROMPT_OPTIMIZATION_HEADROOM_BUFFER", 100
         )
+        # Phase C: Lossy Prompt Compression (offloaded to inference-platform)
+        self.PROMPT_OPTIMIZATION_COMPRESS_ENABLED = _bool_env(
+            "PROMPT_OPTIMIZATION_COMPRESS_ENABLED", False
+        )
+        self.PROMPT_OPTIMIZATION_COMPRESS_RATE = _bounded_float_env(
+            "PROMPT_OPTIMIZATION_COMPRESS_RATE", 0.5, 0.05, 0.95
+        )
+        self.PROMPT_OPTIMIZATION_COMPRESS_METHOD = (
+            (os.getenv("PROMPT_OPTIMIZATION_COMPRESS_METHOD", "lexical") or "lexical")
+            .strip()
+            .lower()
+        )
 
         # Cache mode gate: `disabled` (no cache), `shadow` (serve every request
         # from the provider while the full cache pipeline runs out of band), or
@@ -545,12 +557,16 @@ class Config:
         self.INFERENCE_NLI_URL = (
             os.getenv("INFERENCE_NLI_URL") or os.getenv("INFERENCE_CLASSIFY_URL") or ""
         ).rstrip("/")
+        self.INFERENCE_COMPRESS_URL = os.getenv("INFERENCE_COMPRESS_URL", "").rstrip(
+            "/"
+        )
         self.INFERENCE_ENABLED = bool(
             self.INFERENCE_BASE_URL
             or self.INFERENCE_EMBED_URL
             or self.INFERENCE_RERANK_URL
             or self.INFERENCE_RELEVANCE_URL
             or self.INFERENCE_NLI_URL
+            or self.INFERENCE_COMPRESS_URL
         )
         self.INFERENCE_TIMEOUT_SECONDS = _bounded_float_env(
             "INFERENCE_TIMEOUT_SECONDS", 5.0, 0.1, 120.0
@@ -575,6 +591,12 @@ class Config:
         )
         self.INFERENCE_NLI_TIMEOUT_SECONDS = _bounded_float_env(
             "INFERENCE_NLI_TIMEOUT_SECONDS", self.INFERENCE_TIMEOUT_SECONDS, 0.1, 120.0
+        )
+        self.INFERENCE_COMPRESS_TIMEOUT_SECONDS = _bounded_float_env(
+            "INFERENCE_COMPRESS_TIMEOUT_SECONDS",
+            self.INFERENCE_TIMEOUT_SECONDS,
+            0.1,
+            120.0,
         )
         self.INFERENCE_MAX_RETRIES = int(
             _bounded_float_env("INFERENCE_MAX_RETRIES", 1, 0, 5)

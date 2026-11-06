@@ -581,6 +581,122 @@ class TestFullOptimizationPipeline(unittest.TestCase):
             self.assertFalse(result.applied)
             self.assertEqual(optimized_req, request)
 
+    def test_compress_sync_applies_lossy_compression(self):
+        from unittest.mock import MagicMock
+
+        mock_client = MagicMock()
+        mock_client.compress_sync.return_value = [
+            {
+                "index": 0,
+                "original_text": "This is a very long and detailed explanation that should be compressed.",
+                "compressed_text": "detailed explanation compressed.",
+                "original_tokens": 12,
+                "compressed_tokens": 3,
+            }
+        ]
+        optimizer = PromptOptimizer(inference_client=mock_client)
+        request = ChatCompletionRequest(
+            service_name="openai",
+            model="gpt-4o-mini",
+            messages=[
+                ChatMessage(role="system", content="System instruction."),
+                ChatMessage(
+                    role="assistant",
+                    content="This is a very long and detailed explanation that should be compressed.",
+                ),
+                ChatMessage(role="user", content="Next question."),
+            ],
+            prompt_optimization=PromptOptimizationConfig(
+                enabled=True,
+                whitespace=False,
+                session_dedup=False,
+                json_table=False,
+                ccr=False,
+                headroom_trim=False,
+                compress=True,
+                compress_rate=0.5,
+            ),
+        )
+        optimized_req, result = optimizer.optimize(request)
+        self.assertTrue(result.applied)
+        self.assertIn("compress", result.strategies)
+        self.assertEqual(
+            optimized_req.messages[1].content, "detailed explanation compressed."
+        )
+
+    def test_compress_async_applies_lossy_compression(self):
+        import asyncio
+        from unittest.mock import AsyncMock
+
+        mock_client = AsyncMock()
+        mock_client.compress.return_value = [
+            {
+                "index": 0,
+                "original_text": "This is a very long and detailed explanation that should be compressed.",
+                "compressed_text": "detailed explanation compressed.",
+                "original_tokens": 12,
+                "compressed_tokens": 3,
+            }
+        ]
+        optimizer = PromptOptimizer(inference_client=mock_client)
+        request = ChatCompletionRequest(
+            service_name="openai",
+            model="gpt-4o-mini",
+            messages=[
+                ChatMessage(role="system", content="System instruction."),
+                ChatMessage(
+                    role="assistant",
+                    content="This is a very long and detailed explanation that should be compressed.",
+                ),
+                ChatMessage(role="user", content="Next question."),
+            ],
+            prompt_optimization=PromptOptimizationConfig(
+                enabled=True,
+                whitespace=False,
+                session_dedup=False,
+                json_table=False,
+                ccr=False,
+                headroom_trim=False,
+                compress=True,
+                compress_rate=0.5,
+            ),
+        )
+        optimized_req, result = asyncio.run(optimizer.optimize_async(request))
+        self.assertTrue(result.applied)
+        self.assertIn("compress", result.strategies)
+        self.assertEqual(
+            optimized_req.messages[1].content, "detailed explanation compressed."
+        )
+
+    def test_compress_fail_open_on_client_error(self):
+        from unittest.mock import MagicMock
+
+        mock_client = MagicMock()
+        mock_client.compress_sync.side_effect = RuntimeError("Inference down")
+        optimizer = PromptOptimizer(inference_client=mock_client)
+        long_content = (
+            "This is a very long and detailed explanation that should be compressed."
+        )
+        request = ChatCompletionRequest(
+            service_name="openai",
+            model="gpt-4o-mini",
+            messages=[
+                ChatMessage(role="assistant", content=long_content),
+            ],
+            prompt_optimization=PromptOptimizationConfig(
+                enabled=True,
+                whitespace=False,
+                session_dedup=False,
+                json_table=False,
+                ccr=False,
+                headroom_trim=False,
+                compress=True,
+            ),
+        )
+        optimized_req, result = optimizer.optimize(request)
+        self.assertFalse(result.applied)
+        self.assertEqual(optimized_req.messages[0].content, long_content)
+
 
 if __name__ == "__main__":
     unittest.main()

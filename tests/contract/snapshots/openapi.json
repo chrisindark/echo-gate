@@ -5469,6 +5469,39 @@
             "title": "Ccr Strategy",
             "type": "string"
           },
+          "compress": {
+            "default": false,
+            "description": "Lossy prompt compression via token pruning or extractive semantic ranking offloaded to inference-platform.",
+            "title": "Compress",
+            "type": "boolean"
+          },
+          "compress_method": {
+            "default": "lexical",
+            "description": "Compression method: 'lexical' (token pruning) or 'extractive' (sentence ranking).",
+            "title": "Compress Method",
+            "type": "string"
+          },
+          "compress_rate": {
+            "default": 0.5,
+            "description": "Target compression ratio (fraction of content to retain).",
+            "maximum": 0.95,
+            "minimum": 0.05,
+            "title": "Compress Rate",
+            "type": "number"
+          },
+          "compress_target_tokens": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Target token count ceiling; overrides rate if specified.",
+            "title": "Compress Target Tokens"
+          },
           "enabled": {
             "default": true,
             "description": "Whether prompt optimization is enabled for this request.",

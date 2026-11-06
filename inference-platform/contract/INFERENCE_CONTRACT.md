@@ -438,6 +438,50 @@ Three habits make it survivable in production:
   `embed` role's vectors, or the LLM classifier the product already has, will beat
   it. Zero-shot's advantage is that it needs no data, not that it is accurate.
 
+## `POST /compress`
+
+Lossy prompt compression: offload token/sentence pruning to the shared inference
+layer to shrink prompt footprints before semantic caching or provider dispatch,
+preserving the non-negotiable invariant of zero in-process models in the gateway.
+
+Supports two methods:
+- `lexical`: token-level pruning removing redundant filler words and low-information
+  stopwords while preserving markdown code blocks, numbers, and identifiers.
+- `extractive`: sentence-level centroid / embedding extraction retaining top
+  sentences in their original chronological order.
+
+```json
+{
+  "input": "Long prompt text to compress...",
+  "rate": 0.5,
+  "method": "lexical"
+}
+```
+
+Response:
+```json
+{
+  "method": "lexical",
+  "rate": 0.5,
+  "target_tokens": null,
+  "data": [
+    {
+      "index": 0,
+      "original_text": "Long prompt text to compress...",
+      "compressed_text": "Prompt text compress...",
+      "original_tokens": 5,
+      "compressed_tokens": 3,
+      "compression_ratio": 0.6
+    }
+  ],
+  "usage": {
+    "original_tokens": 5,
+    "compressed_tokens": 3,
+    "tokens_saved": 2
+  }
+}
+```
+
 ## Consumer obligations
 
 - Send `role` or `model` on every request; never rely on a server-side default.

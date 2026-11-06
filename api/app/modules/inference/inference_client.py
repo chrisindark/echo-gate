@@ -104,6 +104,7 @@ class InferenceClient:
         rerank_url: str | None = None,
         relevance_url: str | None = None,
         nli_url: str | None = None,
+        compress_url: str | None = None,
     ) -> None:
         self.base_url = (base_url or config.INFERENCE_BASE_URL).rstrip("/")
         self.embed_url = (embed_url or config.INFERENCE_EMBED_URL).rstrip("/")
@@ -112,6 +113,7 @@ class InferenceClient:
             "/"
         )
         self.nli_url = (nli_url or config.INFERENCE_NLI_URL).rstrip("/")
+        self.compress_url = (compress_url or config.INFERENCE_COMPRESS_URL).rstrip("/")
 
         self.enabled = bool(
             self.base_url
@@ -119,6 +121,7 @@ class InferenceClient:
             or self.rerank_url
             or self.relevance_url
             or self.nli_url
+            or self.compress_url
         )
         self.timeout = config.INFERENCE_TIMEOUT_SECONDS
         self.max_retries = config.INFERENCE_MAX_RETRIES
@@ -139,6 +142,8 @@ class InferenceClient:
             return self.relevance_url or self.rerank_url or self.base_url
         if role in ("nli", "classify"):
             return self.nli_url or self.base_url
+        if role == "compress":
+            return self.compress_url or self.base_url
         return self.base_url
 
     def timeout_for(self, role: str) -> float:
@@ -151,6 +156,8 @@ class InferenceClient:
             return config.INFERENCE_RELEVANCE_TIMEOUT_SECONDS
         if role in ("nli", "classify"):
             return config.INFERENCE_NLI_TIMEOUT_SECONDS
+        if role == "compress":
+            return config.INFERENCE_COMPRESS_TIMEOUT_SECONDS
         return self.timeout
 
     # -- backward-compatible client accessors -------------------------------
@@ -526,6 +533,77 @@ class InferenceClient:
             raise self._transport_error(exc, "classify", url) from exc
         self._raise_for(response, "classify")
         return self._extract_logits(response.json(), len(pairs))
+
+    # -- compress ----------------------------------------------------------
+
+    def _compress_payload(
+        self,
+        texts: str | list[str],
+        rate: float,
+        target_tokens: int | None,
+        method: str,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "input": texts,
+            "rate": rate,
+            "method": method,
+        }
+        if target_tokens is not None:
+            payload["target_tokens"] = target_tokens
+        return payload
+
+    async def compress(
+        self,
+        texts: str | list[str],
+        *,
+        rate: float = 0.5,
+        target_tokens: int | None = None,
+        method: str = "lexical",
+    ) -> list[dict[str, Any]]:
+        """Lossy prompt compression via shared inference platform (POST /compress)."""
+        if not texts:
+            return []
+        url = self.url_for("compress")
+        timeout = self.timeout_for("compress")
+        payload = self._compress_payload(texts, rate, target_tokens, method)
+
+        async def _call() -> list[dict[str, Any]]:
+            try:
+                response = await self._async_for(url, timeout).post(
+                    "/compress", json=payload
+                )
+            except (httpx.HTTPError, OSError) as exc:
+                raise self._transport_error(exc, "compress", url) from exc
+            self._raise_for(response, "compress")
+            return response.json().get("data", [])
+
+        return await execute_with_retry(
+            _call,
+            timeout_seconds=timeout,
+            max_retries=self.max_retries,
+            retry_predicate=_is_retryable,
+        )
+
+    def compress_sync(
+        self,
+        texts: str | list[str],
+        *,
+        rate: float = 0.5,
+        target_tokens: int | None = None,
+        method: str = "lexical",
+    ) -> list[dict[str, Any]]:
+        """Sync variant of compress."""
+        if not texts:
+            return []
+        url = self.url_for("compress")
+        timeout = self.timeout_for("compress")
+        payload = self._compress_payload(texts, rate, target_tokens, method)
+        try:
+            response = self._sync_for(url, timeout).post("/compress", json=payload)
+        except (httpx.HTTPError, OSError) as exc:
+            raise self._transport_error(exc, "compress", url) from exc
+        self._raise_for(response, "compress")
+        return response.json().get("data", [])
 
     # -- startup verification ----------------------------------------------
 
