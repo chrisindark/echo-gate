@@ -8,6 +8,9 @@ from typing import Any
 from pydantic import BaseModel, Field, PrivateAttr, model_validator
 
 from app.modules.llm.model_registry import model_registry
+from app.modules.prompt_optimization.prompt_optimization_schema import (
+    PromptOptimizationConfig,
+)
 
 
 class _AllowedModelsProxy(dict):
@@ -85,6 +88,7 @@ class ChatCompletionRequest(BaseModel):
     thinking_budget: int | None = None
     tools: list[Tool] | None = None
     tool_choice: str | dict[str, Any] | None = None
+    prompt_optimization: PromptOptimizationConfig | bool | None = None
 
     # Resolved identity. These are deliberately *not* body fields: they are set
     # by the chat controller from the tenant/user that ``X-API-Key`` resolved to,

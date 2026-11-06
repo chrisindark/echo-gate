@@ -70,12 +70,16 @@ services:
       # deploy independently:
       #   docker compose -f inference-platform/deploy/compose/inference-native.yml up -d
       # Override with the engine's service name when both share a network.
-      - INFERENCE_BASE_URL=${INFERENCE_BASE_URL:-http://host.docker.internal:7997}
+      - INFERENCE_BASE_URL=${INFERENCE_DOCKER_BASE_URL:-http://host.docker.internal:7997}
       - QDRANT_URL=http://qdrant:6333
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1
       - DATABASE_URL=postgresql+psycopg://echo_gate_app:echo_gate_app@postgres:5432/echo_gate
       - DATABASE_URL_READ=postgresql+psycopg://echo_gate_app:echo_gate_app@postgres:5432/echo_gate
+      - EMBEDDING_MODEL_NAME=${EMBEDDING_MODEL_NAME:-sentence-transformers/all-MiniLM-L6-v2}
+      - OLLAMA_URL=${OLLAMA_DOCKER_URL:-http://host.docker.internal:11434}
+      - LLM_PROVIDER_TIMEOUT_SECONDS=${LLM_PROVIDER_TIMEOUT_SECONDS:-120.0}
+      - USE_FALLBACK_LLM=${USE_FALLBACK_LLM:-false}
       # Provider keys the user placed in .env workdir resolution.
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
@@ -103,7 +107,7 @@ services:
       # deploy independently:
       #   docker compose -f inference-platform/deploy/compose/inference-native.yml up -d
       # Override with the engine's service name when both share a network.
-      - INFERENCE_BASE_URL=${INFERENCE_BASE_URL:-http://host.docker.internal:7997}
+      - INFERENCE_BASE_URL=${INFERENCE_DOCKER_BASE_URL:-http://host.docker.internal:7997}
       - QDRANT_URL=http://qdrant:6333
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1

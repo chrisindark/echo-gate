@@ -24,6 +24,9 @@ from app.modules.chat.chat_schema import (
     format_sse_event,
 )
 from app.modules.llm.llm_router_service import LlmRouterService
+from app.modules.prompt_optimization.prompt_optimization_schema import (
+    PromptOptimizationConfig,
+)
 
 
 class CacheSavePayload(BaseModel):
@@ -90,6 +93,39 @@ async def create_chat_completion(
         except ValueError:
             pass
 
+    opt_header = http_request.headers.get(
+        EchoGateHeaders.PROMPT_OPTIMIZATION
+    ) or http_request.headers.get("X-Prompt-Optimization")
+
+    if request.prompt_optimization is None and opt_header:
+        val = opt_header.strip().lower()
+        ccr_turns_header = http_request.headers.get(
+            EchoGateHeaders.PROMPT_OPTIMIZATION_CCR_TURNS
+        )
+        ccr_turns = (
+            int(ccr_turns_header.strip())
+            if ccr_turns_header and ccr_turns_header.strip().isdigit()
+            else 5
+        )
+        if val in ("true", "1", "yes", "on"):
+            request.prompt_optimization = PromptOptimizationConfig(
+                enabled=True,
+                ccr_keep_last_n_turns=ccr_turns,
+            )
+        elif val in ("false", "0", "no", "off"):
+            request.prompt_optimization = PromptOptimizationConfig(enabled=False)
+        else:
+            strategies = [s.strip().lower() for s in val.split(",")]
+            request.prompt_optimization = PromptOptimizationConfig(
+                enabled=True,
+                whitespace="whitespace" in strategies,
+                session_dedup="session-dedup" in strategies,
+                json_table="json-table" in strategies,
+                ccr="ccr" in strategies,
+                ccr_keep_last_n_turns=ccr_turns,
+                headroom_trim="headroom-trim" in strategies or "headroom" in strategies,
+            )
+
     if request.stream:
         # `X-Cache-Prefer: instant` lets a caller that only wants the answer skip
         # SSE parsing entirely: a cache hit is returned as one JSON body. A miss
@@ -110,6 +146,16 @@ async def create_chat_completion(
                 http_response.headers[EchoGateHeaders.GATEWAY_DEGRADATION] = (
                     getattr(instant_response, "_degradation_state", None) or "none"
                 )
+                instant_opt = getattr(
+                    instant_response, "_prompt_optimization_result", None
+                )
+                if instant_opt and instant_opt.applied:
+                    http_response.headers[EchoGateHeaders.PROMPT_OPTIMIZATION] = (
+                        "applied"
+                    )
+                    http_response.headers[EchoGateHeaders.PROMPT_SAVINGS] = (
+                        f"tokens={instant_opt.tokens_saved},chars={instant_opt.chars_saved}"
+                    )
                 return instant_response
             skip_cache_lookup = True
 
@@ -175,6 +221,13 @@ async def create_chat_completion(
         if hasattr(quota_status, "to_headers"):
             stream_headers.update(quota_status.to_headers())
 
+        first_opt = getattr(first_chunk, "_prompt_optimization_result", None)
+        if first_opt and first_opt.applied:
+            stream_headers[EchoGateHeaders.PROMPT_OPTIMIZATION] = "applied"
+            stream_headers[EchoGateHeaders.PROMPT_SAVINGS] = (
+                f"tokens={first_opt.tokens_saved},chars={first_opt.chars_saved}"
+            )
+
         return StreamingResponse(
             sse_event_generator(),
             media_type="text/event-stream",
@@ -191,6 +244,12 @@ async def create_chat_completion(
         )
     degradation = getattr(llm_response, "_degradation_state", None) or "none"
     http_response.headers[EchoGateHeaders.GATEWAY_DEGRADATION] = degradation
+    opt_res = getattr(llm_response, "_prompt_optimization_result", None)
+    if opt_res and opt_res.applied:
+        http_response.headers[EchoGateHeaders.PROMPT_OPTIMIZATION] = "applied"
+        http_response.headers[EchoGateHeaders.PROMPT_SAVINGS] = (
+            f"tokens={opt_res.tokens_saved},chars={opt_res.chars_saved}"
+        )
 
     return llm_response
 

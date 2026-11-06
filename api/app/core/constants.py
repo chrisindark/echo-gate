@@ -57,6 +57,9 @@ class EchoGateHeaders:
     ERROR_CODE = "X-EchoGate-Error-Code"
     RETRY_AFTER = "Retry-After"
     ACCEL_BUFFERING = "X-Accel-Buffering"
+    PROMPT_OPTIMIZATION = "X-EchoGate-Prompt-Optimization"
+    PROMPT_SAVINGS = "X-EchoGate-Prompt-Savings"
+    PROMPT_OPTIMIZATION_CCR_TURNS = "X-EchoGate-Prompt-Optimization-CCR-Turns"
 
     EXPOSED_CORS_HEADERS = (
         CACHE,
@@ -75,6 +78,9 @@ class EchoGateHeaders:
         PROVIDER_RESOLVED,
         ERROR_CODE,
         RETRY_AFTER,
+        PROMPT_OPTIMIZATION,
+        PROMPT_SAVINGS,
+        PROMPT_OPTIMIZATION_CCR_TURNS,
     )
 
 

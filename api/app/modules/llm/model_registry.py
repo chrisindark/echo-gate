@@ -67,6 +67,34 @@ DEFAULT_MODEL_ALIASES: dict[str, list[dict[str, str]]] = {
     ],
 }
 
+DEFAULT_MODEL_CONTEXT_WINDOWS: dict[str, int] = {
+    # OpenAI
+    "gpt-4o-mini": 128_000,
+    "gpt-4o": 128_000,
+    # Gemini
+    "gemini-3.1-flash-lite": 1_048_576,
+    "gemini-3.5-flash-lite": 1_048_576,
+    "gemini-3.8-flash": 1_048_576,
+    # Claude / Anthropic
+    "claude-3-7-sonnet-20250219": 200_000,
+    "claude-3-5-sonnet-20241022": 200_000,
+    "claude-3-5-haiku-20241022": 200_000,
+    "claude-3-opus-20240229": 200_000,
+    "claude-3-haiku-20240307": 200_000,
+    # Groq / OpenRouter / Ollama
+    "openai/gpt-oss-20b": 131_072,
+    "openai/gpt-oss-safeguard-20b": 131_072,
+    "qwen/qwen3.8-27b:free": 32_768,
+    "google/gemma-4-26b-a4b-it:free": 8_192,
+    "google/gemma-4-31b-it:free": 8_192,
+    "qwen3:8b": 32_768,
+    "qwen2.5-coder:14b": 32_768,
+    "qwen2.5-coder:1.5b": 32_768,
+    "qwen2.5-coder:3b": 32_768,
+    "qwen2.5-coder:7b": 32_768,
+}
+DEFAULT_FALLBACK_CONTEXT_WINDOW = 32_768
+
 
 @dataclass(frozen=True)
 class ModelTarget:
@@ -133,6 +161,21 @@ class DynamicModelRegistry:
                             ]
             except Exception as e:
                 logger.error("Failed to parse MODEL_ALIASES_JSON: %s", e)
+
+        # Load context window overrides
+        self._context_windows = dict(DEFAULT_MODEL_CONTEXT_WINDOWS)
+        env_cw = getattr(config, "MODEL_CONTEXT_WINDOWS_JSON", None)
+        if env_cw:
+            try:
+                parsed_cw = json.loads(env_cw)
+                if isinstance(parsed_cw, dict):
+                    for m, limit in parsed_cw.items():
+                        try:
+                            self._context_windows[m.strip().lower()] = int(limit)
+                        except (TypeError, ValueError):
+                            pass
+            except Exception as e:
+                logger.error("Failed to parse MODEL_CONTEXT_WINDOWS_JSON: %s", e)
 
     def get_allowed_models(self, service: str | None = None) -> list[str]:
         if service is None:
@@ -203,6 +246,19 @@ class DynamicModelRegistry:
         if allowed is not None and model not in allowed:
             return False
         return True
+
+    def get_context_window(self, model: str) -> int:
+        """Resolve maximum context window limit (in tokens) for a model or alias."""
+        norm = model.strip().lower()
+        if self.is_alias(norm):
+            targets = self.get_alias_targets(norm)
+            if targets:
+                return self.get_context_window(targets[0].model)
+        return self._context_windows.get(norm, DEFAULT_FALLBACK_CONTEXT_WINDOW)
+
+    def register_context_window(self, model: str, context_window: int) -> None:
+        """Register or override a context window limit at runtime."""
+        self._context_windows[model.strip().lower()] = context_window
 
 
 model_registry = DynamicModelRegistry()

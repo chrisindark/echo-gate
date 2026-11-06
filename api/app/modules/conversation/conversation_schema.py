@@ -1,6 +1,11 @@
 import datetime
+from typing import Any
 
 from pydantic import BaseModel
+
+from app.modules.prompt_optimization.prompt_optimization_schema import (
+    PromptOptimizationConfig,
+)
 
 
 class MessageCreate(BaseModel):
@@ -22,6 +27,15 @@ class ConversationCreate(BaseModel):
     title: str | None = "New Conversation"
 
 
+class ConversationUpdate(BaseModel):
+    title: str
+
+
+class ConversationDeleteResponse(BaseModel):
+    id: str
+    deleted: bool = True
+
+
 class ConversationResponse(BaseModel):
     id: str
     user_id: str
@@ -41,3 +55,9 @@ class ChatCompletionRequestWithConversation(BaseModel):
     model: str
     message: str
     temperature: float | None = 1.0
+    max_tokens: int | None = None
+    stream: bool = False
+    thinking: bool = False
+    thinking_budget: int | None = None
+    response_format: dict[str, Any] | None = None
+    prompt_optimization: PromptOptimizationConfig | bool | None = None

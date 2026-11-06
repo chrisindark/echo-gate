@@ -124,8 +124,13 @@ class TestSanitization(unittest.TestCase):
     def setUp(self):
         self.capture = _CaptureSink()
         events.set_event_sink(self.capture)
+        self._broker_patch = patch(
+            "app.core.helpers.is_celery_broker_online", return_value=False
+        )
+        self._broker_patch.start()
 
     def tearDown(self):
+        self._broker_patch.stop()
         events.set_event_sink(None)
 
     def test_credential_keys_are_stripped_recursively(self):
@@ -310,8 +315,13 @@ class TestTypedEmitters(unittest.TestCase):
     def setUp(self):
         self.sink = _CaptureSink()
         events.set_event_sink(self.sink)
+        self._broker_patch = patch(
+            "app.core.helpers.is_celery_broker_online", return_value=False
+        )
+        self._broker_patch.start()
 
     def tearDown(self):
+        self._broker_patch.stop()
         events.set_event_sink(None)
 
     def test_cache_miss(self):
