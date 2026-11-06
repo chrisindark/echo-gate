@@ -104,7 +104,8 @@ Echo Gate accepts OpenAI-compatible `chat/completions` requests and routes them 
 ### 8. Observability UI (Next.js 16)
 
 - Independent frontend located in `web/` (Next.js 16, React 19, Tailwind CSS, Radix UI Themes):
-  - **Chat Playground (`/`)**: Interactive chat interface with persistent multi-turn conversations, collapsible sidebar (thread history grouped by date, rename, delete), real-time SSE streaming, collapsible thinking blocks, prompt optimization savings badges, provider/model selectors, and configuration toggles.
+  - **Playground (`/`)**: Interactive single-turn completion testing sandbox with parameter tuning (temperature, top_p, max tokens), structured-output schema presets (`text` / `json_object` / `json_schema`), prompt optimization toggle, thinking blocks, and historical trace loading via `?hash=<exact_hash>`.
+  - **Conversations (`/conversations`)**: Dedicated stateful multi-turn chat interface with collapsible thread history sidebar (grouped by date, rename, delete), real-time SSE streaming, collapsible thinking blocks, and prompt optimization telemetry. Supports deep-linking via `?c=<conversation_id>`.
   - **Traces Dashboard (`/traces`)**: Real-time table of all gateway traffic with routing decisions, cache statuses, and latencies.
   - **Trace Detail View (`/traces/[id]`)**: Interactive waterfall visualization displaying the exact lifecycle latency of each pipeline stage, extracted intent metadata, and judge scores.
   - **Analytics Dashboard (`/analytics`)**: Visual summaries of KPIs, cache hit rates, cost and latency saved, model breakdowns, and time-series trends, plus a cache-readiness indicator backed by shadow-mode telemetry.
@@ -277,47 +278,83 @@ DEFAULT_LLM_SERVICE=ollama
 > `google-genai`. See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for the full
 > list, including the semantic-search thresholds and model settings.
 
-### 4. Start Infrastructure Containers
+### 4. Setup & Running Options
 
-Start PostgreSQL, Redis, and Qdrant (services are gated behind the `core` profile):
+Echo Gate provides three streamlined ways to run the gateway and its services:
+
+#### Option A: One-Command Production Bring-Up (Recommended for Self-Hosting)
+
+The repository root includes a setup script that brings up the inference engine, core infrastructure (PostgreSQL, Redis, Qdrant), Celery workers/scheduler, the FastAPI gateway, and the Next.js observability UI:
 
 ```bash
-docker compose --profile core -f deploy/compose/docker-compose.yml up -d postgres redis qdrant
+# Bring up all services + web UI, run migrations, and mint an admin key
+./setup.sh
+
+# Or run backend core only (without the web UI)
+./setup.sh --no-ui
 ```
 
-Or run the one-command self-hosting bring-up, which also starts the inference
-platform, runs migrations, and mints the first admin key:
+You can also run directly with Docker Compose using profiles (`core`, `ui`):
 
 ```bash
-./deploy/compose/setup.sh           # core + ui
-./deploy/compose/setup.sh --no-ui   # core only
+# Production stack with UI
+docker compose --profile core --profile ui up -d --build
+
+# Run database migrations in production container
+docker compose run --rm \
+  -e "MIGRATION_DATABASE_URL=postgresql+psycopg://postgres:postgres@postgres:5432/echo_gate" \
+  echo-gate alembic upgrade head
 ```
 
-### 5. Install Dependencies & Run Database Migrations
+#### Option B: Local Development with Hot Reload (Docker Compose)
+
+For local development inside containers without manually installing Python/Node dependencies on the host:
+- Edits in `api/` immediately reload FastAPI via `uvicorn --reload`.
+- Edits to `.py` files automatically reload the Celery worker via `watchfiles`.
+- Edits in `web/` trigger Next.js Turbopack Fast Refresh in the browser.
+- Data is stored in isolated volumes (`postgres_dev_data`, `qdrant_dev_data`).
 
 ```bash
-# Install backend dependencies
+# Start all development services with live host bind-mounts
+docker compose -f docker-compose.dev.yml up --build
+
+# Run database migrations against development container
+docker compose -f docker-compose.dev.yml run --rm \
+  -e "MIGRATION_DATABASE_URL=postgresql+psycopg://postgres:postgres@postgres:5432/echo_gate" \
+  echo-gate alembic upgrade head
+```
+
+#### Option C: Native Development Runner (`./dev.sh`)
+
+If developing directly on the host (e.g. leveraging Apple Silicon Metal GPU acceleration for the inference engine):
+
+```bash
+# 1. Start core databases via Docker
+docker compose --profile core up -d postgres redis qdrant
+
+# 2. Install backend dependencies and run migrations
 poetry install
-
-# Run database migrations (as the owner role, via MIGRATION_DATABASE_URL)
-# This also creates the non-owner application role and the RLS policies.
 poetry run alembic upgrade head
+
+# 3. Setup inference engine (once)
+(cd inference-platform && uv sync)
+
+# 4. Start inference, backend, and Next.js frontend in one command
+./dev.sh
 ```
 
-The baseline migration provisions a non-superuser `echo_gate_app` role and enables
-Row-Level Security on every tenant-scoped table. The gateway connects as that role,
-so queries are automatically restricted to the tenant resolved from the request's
-`X-API-Key`. Trusted background jobs (Celery) run in system mode and can operate
-across tenants.
-
-### 6. Create an API Key
+### 5. Create an API Key
 
 Every request's tenant context comes from an API key.
 
 First, mint an admin key using the CLI tool:
 
 ```bash
+# On host:
 poetry run python -m app.scripts.create_admin_key create --name "local-admin" --scopes "admin:*"
+
+# Or inside Docker:
+docker compose exec echo-gate python -m app.scripts.create_admin_key create --name "local-admin" --scopes "admin:*"
 ```
 
 Store the displayed admin key (`ega_...`). Then create a tenant API key:
@@ -329,40 +366,9 @@ curl -X POST http://localhost:8000/api/v1/admin/api-keys/ \
   -d '{"name": "local-dev", "tenant_id": "acme", "user_id": "dev"}'
 ```
 
-The response includes the plaintext `api_key` (shown once). Send it as
-`X-API-Key` on subsequent requests; the gateway maps it to the tenant/user and
-sets the Postgres RLS context. When no key is supplied the request is treated as
-the `anonymous` tenant.
+The response includes the plaintext `api_key` (shown once). Send it as `X-API-Key` on subsequent requests; the gateway maps it to the tenant/user and sets the Postgres RLS context. When no key is supplied, requests are treated under the `anonymous` tenant isolation bucket.
 
-### 7. Start the Services
-
-**API Gateway:**
-
-```bash
-poetry run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-**Celery Background Worker:**
-
-```bash
-poetry run celery -A app.worker.celery_app worker --loglevel=info
-```
-
-**Celery Beat (Optional - for scheduled tasks):**
-
-```bash
-poetry run celery -A app.worker.celery_app beat --loglevel=info
-```
-
-**Frontend UI:**
-
-```bash
-cd web
-npm install
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) to view the gateway dashboard, traces, and analytics.
+Open [http://localhost:3000](http://localhost:3000) to access the interactive Chat Playground, Multi-Turn Conversations, and Real-Time Trace Waterfall.
 
 ---
 

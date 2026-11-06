@@ -44,7 +44,8 @@ poetry run uvicorn app.main:app --port 8000 --reload
 ## Layout
 
 - `src/app/layout.tsx` — root layout and providers.
-- `src/app/page.tsx` — multi-turn chat playground with persistent conversation history, SSE streaming, turn-by-turn thinking blocks, prompt optimization savings, structured-output modes (`text` / `json_object` / `json_schema`), and semantic cache status badges. Supports `?c=<conversation_id>` to reload an active conversation thread or `?hash=<exact_hash>` to reload a stored trace.
+- `src/app/page.tsx` — single-turn completion playground with provider/model selectors, temperature/tokens sliders, structured-output modes (`text` / `json_object` / `json_schema` with presets), prompt optimization toggle, thinking blocks, and semantic cache status badges. Supports `?hash=<exact_hash>` to reload a stored trace.
+- `src/app/conversations/page.tsx` — stateful multi-turn conversational chat with persistent thread history, collapsible sidebar (grouped date categories, rename, delete), SSE streaming, thinking blocks, and prompt optimization telemetry. Supports `?c=<conversation_id>`.
 - `src/components/conversation-sidebar.tsx` — collapsible conversation history sidebar with grouped date categories (Today, Yesterday, etc.), New Chat, rename, and delete actions.
 - `src/lib/conversations.ts` — API client for `/api/v1/conversations`.
 - `src/app/traces/page.tsx` — gateway request trace table.

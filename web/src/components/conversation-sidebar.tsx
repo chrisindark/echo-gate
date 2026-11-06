@@ -7,7 +7,6 @@ import {
   MessageSquare,
   MessageSquarePlus,
   PanelLeftClose,
-  PanelLeftOpen,
   Plus,
   Trash2,
   X,
@@ -133,42 +132,29 @@ export function ConversationSidebar({
   const grouped = groupConversationsByDate(conversations, mountedTime);
 
   return (
-    <>
-      {/* Collapsed Toggle Button */}
-      {!isOpen && (
-        <button
-          onClick={onToggle}
-          title="Open Conversation History"
-          className="fixed top-4 left-16 z-30 p-2 bg-card border border-border rounded-md shadow-sm hover:bg-muted transition-colors text-foreground"
+    <AnimatePresence>
+      {isOpen && (
+        <motion.aside
+          initial={{ width: 0, opacity: 0 }}
+          animate={{ width: 280, opacity: 1 }}
+          exit={{ width: 0, opacity: 0 }}
+          transition={{ duration: 0.2 }}
+          className="flex flex-col border-r border-border bg-card shrink-0 h-full overflow-hidden relative z-20"
         >
-          <PanelLeftOpen className="w-5 h-5" />
-        </button>
-      )}
-
-      {/* Sidebar Drawer */}
-      <AnimatePresence>
-        {isOpen && (
-          <motion.aside
-            initial={{ width: 0, opacity: 0 }}
-            animate={{ width: 280, opacity: 1 }}
-            exit={{ width: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="flex flex-col border-r border-border bg-card shrink-0 h-full overflow-hidden relative z-30"
-          >
-            {/* Header */}
-            <div className="p-4 pt-16 flex items-center justify-between border-b border-border shrink-0">
-              <div className="flex items-center gap-2 font-semibold text-sm text-foreground">
-                <MessageSquare className="w-4 h-4 text-primary" />
-                <span>Conversations</span>
-              </div>
-              <button
-                onClick={onToggle}
-                title="Collapse Conversations"
-                className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <PanelLeftClose className="w-4 h-4" />
-              </button>
+          {/* Header */}
+          <div className="h-14 px-4 flex items-center justify-between border-b border-border shrink-0">
+            <div className="flex items-center gap-2 font-semibold text-sm text-foreground">
+              <MessageSquare className="w-4 h-4 text-primary" />
+              <span>Conversations</span>
             </div>
+            <button
+              onClick={onToggle}
+              title="Collapse Conversations"
+              className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+            >
+              <PanelLeftClose className="w-4 h-4" />
+            </button>
+          </div>
 
             {/* New Chat Button */}
             <div className="p-3 border-b border-border">
@@ -282,6 +268,5 @@ export function ConversationSidebar({
           </motion.aside>
         )}
       </AnimatePresence>
-    </>
-  );
-}
+    );
+  }
