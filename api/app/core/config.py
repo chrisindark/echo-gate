@@ -241,6 +241,16 @@ class Config:
         self.STREAM_MAX_CONTENT_BYTES = int(
             os.getenv("STREAM_MAX_CONTENT_BYTES", str(2 * 1024 * 1024))
         )
+        self.STREAM_CACHE_PACING_ENABLED = (
+            os.getenv("STREAM_CACHE_PACING_ENABLED", "true").lower()
+            in ("true", "1", "yes", "on")
+        )
+        self.STREAM_CACHE_PACING_DELAY_MS = float(
+            os.getenv("STREAM_CACHE_PACING_DELAY_MS", "8.0")
+        )
+        self.STREAM_CACHE_WORDS_PER_CHUNK = int(
+            os.getenv("STREAM_CACHE_WORDS_PER_CHUNK", "3")
+        )
 
         # Semantic Search & Cache Tuning
         self.USE_QDRANT_EXACT_MATCHING = os.getenv(

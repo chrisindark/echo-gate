@@ -698,7 +698,7 @@ Expanding Echo Gate's gateway surface, prompt efficiency, and safety guardrails,
     - Allow client callers to override gateway caching and retry behavior per request via body (`cache_enabled`, `cache_ttl`, `retries`) and headers (`X-EchoGate-Cache`, `X-EchoGate-Cache-TTL`, `X-EchoGate-Retries`).
     - Support `cache_enabled: false` (cache bypass / force refresh), custom `cache_ttl` in seconds (overriding retention policy calculation in Redis and Qdrant), and per-request `retries` bounds.
 
-- [ ] **5. Natural Streaming Playback for Cache Hits**
+- [x] **5. Natural Streaming Playback for Cache Hits** *(2026-11-07)*
   - **Smooth Token/Word Chunking**:
     - Replace monolithic single-frame SSE responses for streaming cache hits with natural word/token chunking and micro-interval pacing (`STREAM_CACHE_PACING_DELAY_MS`) to eliminate UI flickering and support typewriter rendering on streaming frontends.
     - Support `X-EchoGate-Stream-Pacing: off` client opt-out while preserving `ChatCompletionChunk` SSE contract.

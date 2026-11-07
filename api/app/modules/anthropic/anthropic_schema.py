@@ -101,6 +101,8 @@ class AnthropicMessagesRequest(BaseModel):
     cache_enabled: bool | None = None
     cache_ttl: int | None = Field(default=None, ge=0)
     retries: int | None = Field(default=None, ge=0, le=10)
+    stream_pacing: bool | None = None
+    stream_pacing_delay_ms: float | None = Field(default=None, ge=0.0, le=1000.0)
     service_name: str | None = None
     tenant_id: str | None = None
     user_id: str | None = None
