@@ -38,7 +38,10 @@ def cache_degradation_scope() -> Iterator[None]:
     try:
         yield
     finally:
-        _cache_degraded.reset(token)
+        try:
+            _cache_degraded.reset(token)
+        except ValueError:
+            pass
 
 
 def mark_cache_degraded(reason: str) -> None:

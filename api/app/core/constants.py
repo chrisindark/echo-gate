@@ -47,6 +47,7 @@ class EchoGateHeaders:
     CACHE_CONTROL = "X-EchoGate-Cache"
     CACHE_TTL = "X-EchoGate-Cache-TTL"
     RETRIES = "X-EchoGate-Retries"
+    STREAM_PACING = "X-EchoGate-Stream-Pacing"
     RATE_LIMIT_LIMIT_REQUESTS = "X-RateLimit-Limit-Requests"
     RATE_LIMIT_REMAINING_REQUESTS = "X-RateLimit-Remaining-Requests"
     RATE_LIMIT_RESET_REQUESTS = "X-RateLimit-Reset-Requests"
@@ -87,6 +88,7 @@ class EchoGateHeaders:
         CACHE_CONTROL,
         CACHE_TTL,
         RETRIES,
+        STREAM_PACING,
     )
 
 

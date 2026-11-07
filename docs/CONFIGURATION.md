@@ -99,6 +99,9 @@ default in `config.py`. Copy `api/app/.env.example` to `api/app/.env.local` (or
 | `MODEL_ALIASES_JSON` | unset | JSON string of `{alias: [{service, model}, ...]}` mapping logical aliases (e.g. `fast`, `cheap`) to ranked provider/model pairs. |
 | `MODEL_CONTEXT_WINDOWS_JSON` | unset | JSON string of `{model_or_prefix: context_tokens}` (e.g. `{"gpt-4o-mini": 128000, "gemini-3.5-flash-lite": 1048576, "qwen3:8b": 32768}`). Used by the prompt optimization headroom trimmer to dynamically calculate prompt budget. |
 | `STREAM_MAX_CONTENT_BYTES` | `2097152` | Guardrail memory limit (bytes) on streaming response accumulator before skipping cache persistence. |
+| `STREAM_CACHE_PACING_ENABLED` | `true` | When true, streams cache hits with natural word/token chunking and micro-interval pacing rather than a single monolithic chunk. |
+| `STREAM_CACHE_PACING_DELAY_MS` | `8.0` | Default inter-chunk playback delay (milliseconds) for streaming cache hits. Overridable per request via `X-EchoGate-Stream-Pacing` header or `stream_pacing_delay_ms` body field. |
+| `STREAM_CACHE_WORDS_PER_CHUNK` | `3` | Number of words/tokens grouped per natural streaming delta chunk on cache hits. |
 
 Retries apply only to timeouts/connection errors and HTTP 408/429/500/502/503/504
 (`app/core/retry.py`). HTTP 400/401/403/500 are fatal and short-circuit the
@@ -120,6 +123,9 @@ Pre-processing pipeline applied to chat completion requests before cache key gen
 | `PROMPT_OPTIMIZATION_CCR_STRATEGY` | `condense` | Strategy for intermediate turns in CCR: `condense` (summarizes turns into a compact briefing marker) or `drop` (omits turns with a context reduction notice). |
 | `PROMPT_OPTIMIZATION_HEADROOM_ENABLED` | `false` | Global default for dynamic headroom trimming. Prunes oldest conversational turns to guarantee the prompt fits within the target model's context window limit minus completion tokens. |
 | `PROMPT_OPTIMIZATION_HEADROOM_BUFFER` | `100` | Safety buffer tokens retained below the target context window ceiling to prevent token truncation at provider edges. |
+| `PROMPT_OPTIMIZATION_COMPRESS_ENABLED` | `false` | Global default for lossy prompt compression offloaded to `inference-platform/` over HTTP via `POST /compress`. |
+| `PROMPT_OPTIMIZATION_COMPRESS_RATE` | `0.5` | Target retention ratio (`0.05` to `0.95`) for lossy compression. |
+| `PROMPT_OPTIMIZATION_COMPRESS_METHOD` | `lexical` | Compression algorithm: `lexical` (token pruning) or `extractive` (sentence centroid ranking). |
 
 ## Cost estimation
 
