@@ -68,8 +68,8 @@ class Config:
         self.load()
 
     def load(self):
-        self.PROJECT_NAME = os.getenv("PROJECT_NAME", "")
-        self.VERSION = os.getenv("VERSION", "0.1.0")
+        self.PROJECT_NAME = os.getenv("PROJECT_NAME", "").strip() or "echo-gate"
+        self.VERSION = os.getenv("VERSION", "").strip() or "0.1.0"
 
         # Telemetry & Observability
         self.OTEL_ENABLED = os.getenv("OTEL_ENABLED", "true").lower() == "true"

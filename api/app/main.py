@@ -81,8 +81,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title=config.PROJECT_NAME,
-    version=config.VERSION,
+    title=config.PROJECT_NAME or "echo-gate",
+    version=config.VERSION or "0.1.0",
     description="A FastAPI-based proxy for LLMs with Semantic Caching.",
     lifespan=lifespan,
     # Declared so the OpenAPI contract documents the two credential headers.
@@ -202,8 +202,8 @@ def _custom_openapi() -> dict:
         return app.openapi_schema
 
     schema = get_openapi(
-        title=app.title,
-        version=app.version,
+        title=app.title or "echo-gate",
+        version=app.version or "0.1.0",
         description=app.description,
         routes=app.routes,
         tags=app.openapi_tags,
