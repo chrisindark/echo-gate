@@ -19,6 +19,7 @@ from app.modules.anthropic.anthropic_schema import (
     AnthropicMessagesRequest,
     AnthropicMessagesResponse,
 )
+from app.modules.chat.chat_schema import apply_request_directives
 from app.modules.llm.llm_router_service import LlmRouterService
 from app.modules.prompt_optimization.prompt_optimization_schema import (
     PromptOptimizationConfig,
@@ -73,6 +74,7 @@ async def _handle_messages_request(
                 compress="compress" in strategies,
             )
 
+    apply_request_directives(request, http_request.headers)
     chat_req = normalize_anthropic_to_chat_request(request)
     api_key = x_api_key or getattr(http_request.state, "api_key", None)
 
@@ -101,11 +103,12 @@ async def _handle_messages_request(
 
     # Propagate cache and optimization status headers
     cache_info = getattr(response, "cache_info", None) or {}
-    cache_status = (
-        "HIT"
-        if (isinstance(cache_info, dict) and cache_info.get("matched"))
-        else "MISS"
-    )
+    if chat_req.cache_enabled is False:
+        cache_status = "BYPASS"
+    elif isinstance(cache_info, dict) and cache_info.get("matched"):
+        cache_status = "HIT"
+    else:
+        cache_status = "MISS"
     http_response.headers[EchoGateHeaders.CACHE] = cache_status
 
     degradation = getattr(response, "_degradation_state", None) or "none"

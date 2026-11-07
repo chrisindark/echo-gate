@@ -1694,7 +1694,11 @@ class LlmRouterService:
                 (response.cache_info or {}).get("latency_breakdown") or {}
             ).get("provider_ms")
             latency_ms = int(round(provider_ms)) if provider_ms else 0
-            if base_ttl is not None:
+            if request.cache_ttl is not None:
+                ttl = request.cache_ttl
+                cacheable = ttl > 0
+                expires_at = now + ttl
+            elif base_ttl is not None:
                 if config.CACHE_RETENTION_ENABLED:
                     ttl = calculate_ttl_seconds(
                         base_ttl,
@@ -1996,15 +2000,20 @@ class LlmRouterService:
                 )
             use_redis_exact_matching = config.cache_layer_enabled("redis") or force
             if use_redis_exact_matching:
-                ttl = config.REDIS_TTL
-                await self._save_to_redis_cache(
-                    exact_hash,
-                    response,
-                    "Saving LLM generated response in Redis",
-                    ttl=ttl,
-                    save_to_redis=use_redis_exact_matching,
-                    point_id=point_id,
+                redis_ttl = (
+                    request.cache_ttl
+                    if request.cache_ttl is not None
+                    else (ttl or config.REDIS_TTL)
                 )
+                if redis_ttl > 0:
+                    await self._save_to_redis_cache(
+                        exact_hash,
+                        response,
+                        "Saving LLM generated response in Redis",
+                        ttl=redis_ttl,
+                        save_to_redis=use_redis_exact_matching,
+                        point_id=point_id,
+                    )
             logger.info(
                 f"Background cache write completed successfully for {exact_hash} (point_id: {point_id})"
             )
@@ -2817,7 +2826,12 @@ class LlmRouterService:
         shadow_mode = config.CACHE_MODE == "shadow"
 
         try:
-            if shadow_mode:
+            if request.cache_enabled is False:
+                logger.info(
+                    "cache_enabled=False: bypassing serving-time cache lookups for %s",
+                    exact_hash,
+                )
+            elif shadow_mode:
                 # Observation-only: no cache read may touch the serving path, and
                 # the response is served exclusively by a provider. The cache
                 # pipeline (lookup + write) runs after the response is returned.
@@ -2849,6 +2863,11 @@ class LlmRouterService:
                 embeddings = semantic_result.get("embeddings")
 
             t_provider_start = time.perf_counter()
+            max_retries = (
+                request.retries
+                if request.retries is not None
+                else config.LLM_MAX_RETRIES
+            )
             try:
                 (
                     response,
@@ -2857,7 +2876,7 @@ class LlmRouterService:
                 ) = await self._call_provider_with_retry(
                     request=request,
                     service_name=service_name,
-                    max_retries=config.LLM_MAX_RETRIES,
+                    max_retries=max_retries,
                     timeout_seconds=config.LLM_PROVIDER_TIMEOUT_SECONDS,
                     fallback_service=config.FALLBACK_LLM_SERVICE,
                     fallback_model=config.FALLBACK_LLM_MODEL,
@@ -2910,7 +2929,12 @@ class LlmRouterService:
                 response.cache_info = cache_info
                 breakdown["cache_write_ms"] = 0.0
 
-                if shadow_mode:
+                if request.cache_enabled is False or request.cache_ttl == 0:
+                    logger.info(
+                        "cache_enabled=False or cache_ttl=0: skipping cache write for %s",
+                        exact_hash,
+                    )
+                elif shadow_mode:
                     # The shadow evaluator performs the cache write itself, after
                     # it has recorded what the lookup would have returned.
                     logger.info(
@@ -3084,8 +3108,8 @@ class LlmRouterService:
         because this *is* the serving path for these requests.
         """
         request, opt_result = await self.prompt_optimizer.optimize_async(request)
-        if config.CACHE_MODE == "shadow":
-            # Shadow mode never reads the cache, so there is nothing to serve.
+        if config.CACHE_MODE == "shadow" or request.cache_enabled is False:
+            # Shadow mode or cache_enabled=False never reads the cache, so there is nothing to serve.
             return None
 
         start_time = time.perf_counter()
@@ -3235,15 +3259,17 @@ class LlmRouterService:
         shadow_mode = config.CACHE_MODE == "shadow"
 
         try:
-            if shadow_mode:
+            if request.cache_enabled is False or skip_cache_lookup:
+                logger.info(
+                    "Bypassing cache lookups for %s (cache_enabled=%s, skip_cache_lookup=%s); "
+                    "streaming from the provider",
+                    exact_hash,
+                    request.cache_enabled,
+                    skip_cache_lookup,
+                )
+            elif shadow_mode:
                 logger.info(
                     "CACHE_MODE=shadow: bypassing serving-time cache lookups for %s",
-                    exact_hash,
-                )
-            elif skip_cache_lookup:
-                logger.info(
-                    "Cache lookups already missed for %s (X-Cache-Prefer=instant); "
-                    "streaming from the provider",
                     exact_hash,
                 )
             else:
@@ -3351,7 +3377,12 @@ class LlmRouterService:
                     response.cache_info = cache_info
                     breakdown["cache_write_ms"] = 0.0
 
-                    if shadow_mode:
+                    if request.cache_enabled is False or request.cache_ttl == 0:
+                        logger.info(
+                            "cache_enabled=False or cache_ttl=0: skipping cache write for stream %s",
+                            exact_hash,
+                        )
+                    elif shadow_mode:
                         # The shadow evaluator performs the cache write itself,
                         # after recording what the lookup would have returned.
                         logger.info(
