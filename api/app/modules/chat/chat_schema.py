@@ -89,6 +89,9 @@ class ChatCompletionRequest(BaseModel):
     tools: list[Tool] | None = None
     tool_choice: str | dict[str, Any] | None = None
     prompt_optimization: PromptOptimizationConfig | bool | None = None
+    cache_enabled: bool | None = None
+    cache_ttl: int | None = Field(default=None, ge=0)
+    retries: int | None = Field(default=None, ge=0, le=10)
 
     # Resolved identity. These are deliberately *not* body fields: they are set
     # by the chat controller from the tenant/user that ``X-API-Key`` resolved to,
@@ -521,3 +524,47 @@ class StreamAccumulator:
             usage=self.usage,
             system_fingerprint=self.system_fingerprint,
         )
+
+
+def apply_request_directives(request: Any, headers: Any) -> None:
+    """Extract and apply per-request gateway directives from HTTP headers onto request object."""
+    if not hasattr(headers, "get"):
+        return
+
+    from app.core.constants import EchoGateHeaders
+
+    cache_header = (
+        headers.get(EchoGateHeaders.CACHE_CONTROL)
+        or headers.get("X-EchoGate-Cache")
+        or headers.get("X-Cache-Control")
+    )
+    if cache_header:
+        c_val = str(cache_header).strip().lower()
+        if c_val in ("false", "0", "off", "no", "disabled", "bypass", "no-cache"):
+            request.cache_enabled = False
+        elif c_val in ("true", "1", "on", "yes", "enabled"):
+            request.cache_enabled = True
+
+    ttl_header = (
+        headers.get(EchoGateHeaders.CACHE_TTL)
+        or headers.get("X-EchoGate-Cache-TTL")
+    )
+    if ttl_header:
+        try:
+            parsed_ttl = int(str(ttl_header).strip())
+            if parsed_ttl >= 0:
+                request.cache_ttl = parsed_ttl
+        except (ValueError, TypeError):
+            pass
+
+    retries_header = (
+        headers.get(EchoGateHeaders.RETRIES)
+        or headers.get("X-EchoGate-Retries")
+    )
+    if retries_header:
+        try:
+            parsed_retries = int(str(retries_header).strip())
+            if 0 <= parsed_retries <= 10:
+                request.retries = parsed_retries
+        except (ValueError, TypeError):
+            pass

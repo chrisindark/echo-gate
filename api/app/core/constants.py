@@ -44,6 +44,9 @@ class EchoGateHeaders:
     CONVERSATION_ID = "X-Conversation-ID"
     CACHE = "X-Cache"
     CACHE_PREFER = "X-Cache-Prefer"
+    CACHE_CONTROL = "X-EchoGate-Cache"
+    CACHE_TTL = "X-EchoGate-Cache-TTL"
+    RETRIES = "X-EchoGate-Retries"
     RATE_LIMIT_LIMIT_REQUESTS = "X-RateLimit-Limit-Requests"
     RATE_LIMIT_REMAINING_REQUESTS = "X-RateLimit-Remaining-Requests"
     RATE_LIMIT_RESET_REQUESTS = "X-RateLimit-Reset-Requests"
@@ -81,6 +84,9 @@ class EchoGateHeaders:
         PROMPT_OPTIMIZATION,
         PROMPT_SAVINGS,
         PROMPT_OPTIMIZATION_CCR_TURNS,
+        CACHE_CONTROL,
+        CACHE_TTL,
+        RETRIES,
     )
 
 

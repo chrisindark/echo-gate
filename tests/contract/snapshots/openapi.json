@@ -100,6 +100,29 @@
       "AnthropicMessagesRequest": {
         "description": "Request payload for POST /api/v1/messages.",
         "properties": {
+          "cache_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cache Enabled"
+          },
+          "cache_ttl": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cache Ttl"
+          },
           "conversation_id": {
             "anyOf": [
               {
@@ -153,6 +176,19 @@
               }
             ],
             "title": "Prompt Optimization"
+          },
+          "retries": {
+            "anyOf": [
+              {
+                "maximum": 10.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retries"
           },
           "service_name": {
             "anyOf": [
@@ -2742,6 +2778,29 @@
       },
       "ChatCompletionRequest": {
         "properties": {
+          "cache_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cache Enabled"
+          },
+          "cache_ttl": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cache Ttl"
+          },
           "conversation_id": {
             "anyOf": [
               {
@@ -2861,6 +2920,19 @@
               }
             ],
             "title": "Response Format"
+          },
+          "retries": {
+            "anyOf": [
+              {
+                "maximum": 10.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retries"
           },
           "service_name": {
             "anyOf": [

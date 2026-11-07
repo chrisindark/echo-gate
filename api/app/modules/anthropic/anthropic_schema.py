@@ -98,6 +98,9 @@ class AnthropicMessagesRequest(BaseModel):
 
     # Gateway passthrough parameters
     prompt_optimization: PromptOptimizationConfig | bool | None = None
+    cache_enabled: bool | None = None
+    cache_ttl: int | None = Field(default=None, ge=0)
+    retries: int | None = Field(default=None, ge=0, le=10)
     service_name: str | None = None
     tenant_id: str | None = None
     user_id: str | None = None

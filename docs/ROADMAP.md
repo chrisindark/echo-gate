@@ -683,20 +683,25 @@ Expanding Echo Gate's gateway surface, prompt efficiency, and safety guardrails,
   - **Contract Integrity**:
     - Snapshot contract tests updated and verified in `tests/contract/test_openapi_snapshot.py`.
 
-- [ ] **3. In-Flight PII Redaction & Soft-Steering Guardrails**
+- [ ] **3. Zero-Retention Mode & In-Flight PII Redaction**
+  - **Zero-Retention Mode (`disable_log`)**:
+    - Allow callers to pass `disable_log: true` or `X-EchoGate-Disable-Log: true` to bypass recording into PostgreSQL (`gateway_requests_log`, `llm_usage_log`) and cache stores (Redis / Qdrant) for HIPAA/GDPR zero-trace compliance.
   - **Pre-Routing PII Scrubber**:
-    - Detect and mask sensitive entity types (Email, Phone, Credit Card, SSN, IBAN, and custom regex patterns) *prior* to cache lookup or provider transmission.
+    - Detect and mask sensitive entity types (Email, Phone, Credit Card with Luhn validation, SSN, IBAN) *prior* to cache key generation or provider transmission.
     - Guarantees sensitive customer data is never indexed into Qdrant vector store, Redis cache keys, or external provider logs.
-  - **Dual-Mode Content Guardrails**:
-    - Hard-blocking mode: evaluate inputs against policy rules (regex, topic criteria) and abort request with structured audit logs.
+  - **Soft-Steering Guardrails**:
+    - Hard-blocking mode: evaluate inputs against policy rules and abort request with structured audit logs.
     - Soft-steering mode (`inject`): append policy instructions directly to the system prompt, directing the downstream LLM to self-enforce behavior without failing the call.
 
-- [ ] **4. Dynamic Routing Profiles & A/B Experimentation Engine**
-  - **Routing Profiles**:
-    - Named presets (e.g. `quality`, `cheap`, `fast`, `code`) packaging candidate model priorities, fallback chains, and timeout budgets into reusable configurations.
-  - **A/B Testing Variants**:
-    - Allow splitting incoming traffic between competing router configurations (model sets, prompt versions, or cache configurations).
-    - Traffic distribution strategies: `weighted`, `round-robin`, and `sticky` (identifying callers via `user` field, session headers, or hashed conversation prefix).
+- [x] **4. Per-Request Gateway Directives (`cache_enabled`, `cache_ttl`, `retries`)** *(2026-11-07)*
+  - **Directives & Overrides**:
+    - Allow client callers to override gateway caching and retry behavior per request via body (`cache_enabled`, `cache_ttl`, `retries`) and headers (`X-EchoGate-Cache`, `X-EchoGate-Cache-TTL`, `X-EchoGate-Retries`).
+    - Support `cache_enabled: false` (cache bypass / force refresh), custom `cache_ttl` in seconds (overriding retention policy calculation in Redis and Qdrant), and per-request `retries` bounds.
+
+- [ ] **5. Natural Streaming Playback for Cache Hits**
+  - **Smooth Token/Word Chunking**:
+    - Replace monolithic single-frame SSE responses for streaming cache hits with natural word/token chunking and micro-interval pacing (`STREAM_CACHE_PACING_DELAY_MS`) to eliminate UI flickering and support typewriter rendering on streaming frontends.
+    - Support `X-EchoGate-Stream-Pacing: off` client opt-out while preserving `ChatCompletionChunk` SSE contract.
 
 ---
 

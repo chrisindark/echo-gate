@@ -43,12 +43,16 @@
   - Bidirectional payload normalization: map Anthropic system/message blocks to internal representations while maintaining fail-open semantic caching, streaming SSE chunk translation, and usage accounting.
   - Includes `/v1/messages` compatibility alias for SDKs expecting root-level paths.
   - Update OpenAPI snapshot contract gate (`tests/contract/test_openapi_snapshot.py`). Unit tests in `api/app/modules/anthropic/tests/test_anthropic_adapter.py` and integration tests in `tests/integration/test_anthropic_messages.py`.
-- [ ] **Soft-Steering Guardrails & In-Flight PII Redaction**:
-  - Dual-mode guardrails: support both hard-blocking (`block` + audit log on violation) and soft-steering (`inject` mode: appending dynamic system instructions for model self-enforcement without request abortion).
-  - Pre-routing PII scrubber: scrub sensitive entities (email, phone, credit card, SSN, IBAN, and custom regex patterns) *before* cache lookup or upstream transmission to prevent sensitive data leakage into Redis, Qdrant vectors, or external provider logs.
-- [ ] **Dynamic Routing Profiles & A/B Experiments**:
-  - Introduce reusable routing profiles (e.g. `quality`, `cheap`, `fast`, `code`) bundling candidate model priorities, fallback chains, and timeout budgets.
-  - A/B testing engine: split traffic across router variants (models, prompt versions, or providers) with configurable rotation (`weighted`, `round-robin`, or `sticky` via `X-Session-ID`, `user` identity, or hashed conversation prefix).
+- [x] **Per-Request Gateway Directives (`cache_enabled`, `cache_ttl`, `retries`)** *(2026-11-07)*:
+  - Allow client callers to override gateway caching and retry behavior per request via body (`cache_enabled`, `cache_ttl`, `retries`) and headers (`X-EchoGate-Cache`, `X-EchoGate-Cache-TTL`, `X-EchoGate-Retries`).
+  - Support `cache_enabled: false` (cache bypass / force refresh setting `X-Cache: BYPASS`), custom `cache_ttl` in seconds (overriding retention policy calculation in Redis and Qdrant), and per-request `retries` bounds passed to upstream providers.
+  - Updates `ChatCompletionRequest` and `AnthropicMessagesRequest` schemas, controllers header resolution, router cache stage bypass/TTL application, and OpenAPI snapshot contract. Integration tests in `tests/integration/test_gateway_directives.py`.
+- [ ] **Natural Streaming Playback for Cache Hits**:
+  - Replace monolithic single-chunk streaming output for cache hits with natural word/token chunking and micro-interval pacing (`STREAM_CACHE_PACING_DELAY_MS`) to eliminate UI flickering and support typewriter rendering on streaming frontends.
+  - Support `X-EchoGate-Stream-Pacing: off` client opt-out while preserving `ChatCompletionChunk` SSE contract.
+- [ ] **Zero-Retention Mode & In-Flight PII Redaction**:
+  - Zero-Retention flag (`disable_log: true` or `X-EchoGate-Disable-Log: true`): serve completions with normal quota checks, but completely skip persistence in PostgreSQL (`gateway_requests_log`, `llm_usage_log`) and cache storage (Redis / Qdrant) for HIPAA/GDPR compliance.
+  - Pre-routing PII scrubber: scrub sensitive entities (email, phone, credit card with Luhn verification, SSN, IBAN) in Stage 0 before cache key generation and dense/sparse vectorization to prevent cross-tenant/cross-session PII storage.
 
 ---
 

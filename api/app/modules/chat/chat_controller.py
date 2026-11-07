@@ -21,6 +21,7 @@ from app.modules.chat.chat_schema import (
     ChatCompletionResponse,
     ChatEstimateRequest,
     ChatEstimateResponse,
+    apply_request_directives,
     format_sse_event,
 )
 from app.modules.llm.llm_router_service import LlmRouterService
@@ -82,6 +83,7 @@ async def create_chat_completion(
     request.conversation_id = request.conversation_id or http_request.headers.get(
         EchoGateHeaders.CONVERSATION_ID
     )
+    apply_request_directives(request, http_request.headers)
 
     api_key = getattr(http_request.state, "api_key", None)
 
@@ -138,7 +140,9 @@ async def create_chat_completion(
             .lower()
         )
         skip_cache_lookup = False
-        if cache_prefer == CACHE_PREFER_INSTANT:
+        if request.cache_enabled is False:
+            skip_cache_lookup = True
+        elif cache_prefer == CACHE_PREFER_INSTANT:
             instant_response = await llmRouterService.get_instant_cache_hit(
                 request, api_key=api_key
             )
@@ -251,6 +255,13 @@ async def create_chat_completion(
         http_response.headers[EchoGateHeaders.PROMPT_SAVINGS] = (
             f"tokens={opt_res.tokens_saved},chars={opt_res.chars_saved}"
         )
+    cache_info = getattr(llm_response, "cache_info", None) or {}
+    if request.cache_enabled is False:
+        http_response.headers[EchoGateHeaders.CACHE] = "BYPASS"
+    elif cache_info.get("matched"):
+        http_response.headers[EchoGateHeaders.CACHE] = "HIT"
+    else:
+        http_response.headers[EchoGateHeaders.CACHE] = "MISS"
 
     return llm_response
 
@@ -295,6 +306,7 @@ async def semantic_search(
     request.conversation_id = request.conversation_id or http_request.headers.get(
         EchoGateHeaders.CONVERSATION_ID
     )
+    apply_request_directives(request, http_request.headers)
 
     result = await llmRouterService.evaluate_semantic_cache(request)
 
@@ -334,6 +346,7 @@ async def exact_search(
     request.conversation_id = request.conversation_id or http_request.headers.get(
         EchoGateHeaders.CONVERSATION_ID
     )
+    apply_request_directives(request, http_request.headers)
 
     payload, point_id = await llmRouterService.get_exact_match(request)
     logger.info(
@@ -374,6 +387,7 @@ async def cache_save(
     request.conversation_id = request.conversation_id or http_request.headers.get(
         EchoGateHeaders.CONVERSATION_ID
     )
+    apply_request_directives(request, http_request.headers)
 
     point_id, _ = await llmRouterService.save_to_qdrant_cache(
         request=request, response=response
