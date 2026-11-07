@@ -10,6 +10,7 @@ the chat playground, trace explorer, and analytics dashboards.
 | Component | Where | Role |
 | --- | --- | --- |
 | HTTP API | `api/app/main.py`, `api/app/modules/*/*_controller.py` | FastAPI app, middleware, routers. |
+| Anthropic adapter | `api/app/modules/anthropic/` | Bidirectional wire protocol adapter mapping Anthropic Messages format to internal chat models and SSE streaming events. |
 | Routing/cache core | `api/app/modules/llm/llm_router_service.py` | Owns the request lifecycle: exact cache, semantic cache, verification, provider call, cache write, logging. |
 | Provider adapters | `api/app/modules/llm/providers/` | One module per upstream (`openai`, `groq`, `openrouter`, `ollama`, `gemini`, `claude`, `mock`) mixed into `LlmProviderService`, which keeps only credentials and the `service_name` dispatch. |
 | Embeddings | `api/app/modules/embedding/embedding_service.py` | Dense embeddings (via `inference-platform/` over HTTP) and sparse lexical embeddings (BM25, still local — see the inference platform section for why). |
@@ -44,6 +45,7 @@ api/app/
     constants.py              Version tags, scope hierarchy, prefixes
     logger.py                 Structured/colored logging + correlation IDs
   modules/
+    anthropic/                Anthropic Messages API adapter (/api/v1/messages and /v1/messages)
     chat/                     chat schema + controller (the public completions API)
     llm/                      provider adapters, router service, prompts, confidence
     embedding/                dense + sparse embedding service
@@ -77,18 +79,18 @@ and response models live in `*_schema.py`, SQLAlchemy tables live in
 
 ## Request lifecycle
 
-The public endpoint is `POST /api/v1/chat/completions`
-(`app/modules/chat/chat_controller.py`), guarded by `api_key_auth_optional_guard`
-then `llm_quota_guard`. A supplied `X-API-Key` must resolve to an active tenant
-key (otherwise `401`); a request with no key proceeds as the `anonymous` tenant,
-which is an intentional feature and is subject to the default quota limits. Auth
-runs first so a bad key is rejected without consuming rate-limit budget. The
-controller fills in identity from the middleware and calls
-`LlmRouterService.generate_completion(request, api_key=...)`.
+The primary public endpoints are `POST /api/v1/chat/completions` (OpenAI format) and `POST /api/v1/messages` (Anthropic format). Both endpoints run identical security and rate-limiting guards: `api_key_auth_optional_guard` followed by `llm_quota_guard`. A supplied `X-API-Key` must resolve to an active tenant key (otherwise `401`); omitting the key proceeds under the `anonymous` tenant with standard quota ceilings.
+
+For Anthropic requests, `AnthropicAdapter` normalizes the incoming payload to an internal `ChatCompletionRequest` and maps the resulting responses and streaming events back into the Anthropic specification.
+
+Per-request directives can override gateway behavior:
+- `cache_enabled: false` (or `X-EchoGate-Cache: false|bypass`): completely bypasses cache lookup (Steps 1–3 below) and cache write, serving directly from the provider with response header `X-Cache: BYPASS`.
+- `cache_ttl`: overrides computed retention TTL across Redis and Qdrant.
+- `retries`: overrides default provider retry attempts (`0` to `10`).
 
 `generate_completion` runs these stages, recording a latency value for each.
 Stage 0 performs pre-dispatch prompt optimization. Steps 1–3 are gated by
-`CACHE_MODE` (only `active` reaches them) and, within `active`, by their `USE_*`
+`CACHE_MODE` (only `active` reaches them), the per-request `cache_enabled` flag, and, within `active`, by their `USE_*`
 flag; see [Shadow cache mode](#shadow-cache-mode):
 
 0. **Prompt token optimization** — `self.prompt_optimizer.optimize(request)`.
@@ -463,12 +465,16 @@ with no score) are deleted immediately, protected entries get
 Entries past `expires_at` are never served regardless — retention only decides
 when the vector storage is reclaimed.
 
+### Natural streaming playback and pacing
+
+When replaying cached responses over SSE streams (`stream: true`), returning the entire answer in a single monolithic SSE event causes jarring UI flashes on typewriter-style chat interfaces. Echo Gate uses natural streaming playback:
+- **Token/Word Chunking**: `split_content_into_natural_chunks` partitions cached content into natural word groups (`STREAM_CACHE_WORDS_PER_CHUNK`, default 3) with exact preservation of characters, newlines, CJK characters, and markdown syntax.
+- **Micro-Interval Pacing**: Chunks are emitted with micro-interval pacing (`STREAM_CACHE_PACING_DELAY_MS`, default 8.0ms) simulating active generation.
+- **Client Opt-Out**: Clients desiring immediate delivery can pass `X-EchoGate-Stream-Pacing: off` or `stream_pacing: false`, or specify a custom millisecond delay via header or `stream_pacing_delay_ms`.
+
 ### Instant cache delivery
 
-A `stream: true` request normally replays a cache hit as synthesized SSE chunks
-(`response_to_stream_chunks`), because most streaming clients render
-progressively and cannot switch delivery shapes mid-request. A caller that only
-wants the answer can opt out with `X-Cache-Prefer: instant`:
+A `stream: true` request normally replays a cache hit as progressive SSE chunks. A caller that only wants the raw answer immediately without stream parsing can pass `X-Cache-Prefer: instant`:
 
 - The controller runs `LlmRouterService.get_instant_cache_hit` *before*
   building a `StreamingResponse`. Redis exact → Qdrant exact (with the usual
@@ -497,7 +503,15 @@ Optimization can be triggered globally via `PROMPT_OPTIMIZATION_ENABLED=true` or
 - **Conversation Context Reduction (`ccr`)**: For long multi-turn sessions exceeding the retention window, CCR retains the initial system prompt and recent $N$ conversational turns (`ccr_keep_last_n_turns`, default 5) in full fidelity, while intermediate turns are either condensed into a compact briefing marker (`ccr_strategy="condense"`) or dropped with a context reduction notice (`ccr_strategy="drop"`).
 - **Dynamic Headroom Trimmer (`headroom_trim`)**: Dynamically computes the target model's context window limit (configured via `MODEL_CONTEXT_WINDOWS_JSON` or built-in model defaults) minus the requested `max_tokens` (or completion token estimate) and a configurable safety buffer (`headroom_buffer_tokens`, default 100). If the accumulated prompt exceeds this token budget, the oldest intermediate turns are pruned to ensure the prompt fits safely within the provider's token limits without runtime truncation errors.
 
-### 3. Optimization Telemetry
+### 3. Lossy Prompt Compression (Phase C)
+
+- **HTTP Offload to Inference Platform**: To maintain the non-negotiable architectural invariant of zero in-process ML models inside the gateway, lossy prompt compression is offloaded to `inference-platform/` over HTTP via `POST /compress`.
+- **Supported Methods**:
+  - `lexical`: Fast token pruning targeting a retention ratio (`compress_rate`, default 0.5) while preserving code blocks and critical structural tokens.
+  - `extractive`: Sentence embedding centroid ranking using semantic cross-encoders to select the highest-information sentences up to the target token ceiling.
+- **Fail-Open Resilience**: If the compression service is unreachable or errors, the pipeline fails open and forwards the original prompt without breaking request serving.
+
+### 4. Optimization Telemetry
 
 When prompt optimization applies modifications that save tokens or characters:
 - The response header `X-EchoGate-Prompt-Optimization` is set to `applied`.

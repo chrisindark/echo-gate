@@ -4,7 +4,7 @@
 
 **Echo Gate** is an asynchronous, high-performance LLM API gateway, proxy, and observability platform built with **FastAPI** (Python 3.11+) and accompanied by an independent **Next.js 16** frontend in `web/`.
 
-Echo Gate accepts OpenAI-compatible `chat/completions` requests and routes them dynamically across local and cloud providers (**Ollama**, **Google GenAI / Gemini**, **OpenAI**, **Groq**, and **OpenRouter**). Its core capability is an enterprise-grade **Multi-Level Semantic Caching & Verification Pipeline** combining Redis, Qdrant hybrid search, cross-encoder reranking, intent classification, and asynchronous judge evaluations to maximize cache hit rates, eliminate hallucinations, protect user privacy, and drastically cut latency and inference costs.
+Echo Gate accepts both OpenAI-compatible `chat/completions` and Anthropic-compatible `messages` requests and routes them dynamically across local and cloud providers (**Ollama**, **Google GenAI / Gemini**, **OpenAI**, **Groq**, and **OpenRouter**). Its core capability is an enterprise-grade **Multi-Level Semantic Caching & Verification Pipeline** combining Redis, Qdrant hybrid search, cross-encoder reranking, intent classification, and asynchronous judge evaluations to maximize cache hit rates, eliminate hallucinations, protect user privacy, and drastically cut latency and inference costs.
 
 ## 📚 Documentation
 
@@ -22,7 +22,8 @@ Echo Gate accepts OpenAI-compatible `chat/completions` requests and routes them 
 
 ### 1. Multi-Provider Routing & Resiliency
 
-- Standardized OpenAI chat completion endpoint routing to:
+- **Dual-Protocol Endpoints**: OpenAI-compatible completions (`POST /api/v1/chat/completions`) and native Anthropic Messages API (`POST /api/v1/messages` and `/v1/messages`) supporting Claude Code, Cursor, and official SDKs without translation proxies.
+- Standardized routing across:
   - **Ollama**: Local models (`qwen3:8b`, `qwen2.5-coder:{1.5b,3b,7b,14b}`)
   - **Google GenAI**: Gemini models (`gemini-3.1-flash-lite`, `gemini-3.5-flash-lite`, `gemini-3.8-flash`)
   - **OpenAI**: `gpt-4o-mini`, etc.
@@ -44,6 +45,8 @@ Echo Gate accepts OpenAI-compatible `chat/completions` requests and routes them 
   - **Asynchronous Background Persistence**: Responses are returned to the client immediately on cache misses; cache vectorization and database insertion run out-of-band via background tasks.
   - **Shadow Cache Pipeline (`CACHE_MODE=shadow`)**: Serve every request from the provider while replaying the full cache pipeline in the background — recording would-be hits, match types, judge equivalence, and projected latency savings, and warming the cache corpus before you flip to `active`.
   - **Toggleable Infrastructure**: Ability to independently disable Redis or Qdrant search layers via environment configuration.
+- **Per-Request Gateway Directives**: Override cache behavior per request via body fields (`cache_enabled`, `cache_ttl`, `retries`) or headers (`X-EchoGate-Cache`, `X-EchoGate-Cache-TTL`, `X-EchoGate-Retries`), with cache bypass setting `X-Cache: BYPASS`.
+- **Natural Streaming Playback**: Replays cached responses over SSE streams with natural word/token chunking and micro-interval pacing (`STREAM_CACHE_PACING_DELAY_MS`) to eliminate UI flickering and support smooth typewriter rendering on client apps.
 
 ### 3. Semantic Verification & Request Intelligence
 
@@ -91,7 +94,9 @@ Echo Gate accepts OpenAI-compatible `chat/completions` requests and routes them 
 - **Context & Headroom Management**:
   - **Conversation Context Reduction (`ccr`)**: Retains initial system prompt and recent $N$ turns while condensing (briefing marker) or dropping intermediate turns.
   - **Dynamic Headroom Trimmer (`headroom_trim`)**: Dynamically trims oldest turns to fit within target model context limits minus completion tokens and safety buffer.
-  - Controllable via request body (`prompt_optimization`) or headers (`X-EchoGate-Prompt-Optimization`, `X-EchoGate-Prompt-Optimization-CCR-Turns`), reporting savings via `X-EchoGate-Prompt-Savings`.
+- **Lossy Compression Offload (`compress`)**:
+  - Offloads heavier extractive token pruning (`method="lexical"`) and sentence centroid ranking (`method="extractive"`) to `inference-platform/` over HTTP via `POST /compress`, preserving zero in-process embeddings invariant in the gateway.
+- Controllable via request body (`prompt_optimization`) or headers (`X-EchoGate-Prompt-Optimization`, `X-EchoGate-Prompt-Optimization-CCR-Turns`), reporting savings via `X-EchoGate-Prompt-Savings`.
 
 ### 7. Stateful Multi-Turn Conversations
 
@@ -130,7 +135,7 @@ Echo Gate accepts OpenAI-compatible `chat/completions` requests and routes them 
 
 ```text
                         ┌────────────────────────────────────────────────┐
-                        │      Client Request (OpenAI Compatible)        │
+                        │    Client Request (OpenAI / Anthropic Protocol)│
                         └───────────────────────┬────────────────────────┘
                                                 │
                                        [Auth / Quota Guard]
@@ -405,7 +410,23 @@ curl -X POST "http://localhost:8000/api/v1/chat/completions" \
   }'
 ```
 
-### 3. Inspecting Semantic Cache Directly
+### 3. Anthropic Messages Protocol (Claude SDKs / Cursor / Claude Code)
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/messages" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: <YOUR_API_KEY>" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{
+    "model": "claude-3-5-sonnet-20241022",
+    "max_tokens": 1024,
+    "messages": [
+      {"role": "user", "content": "Explain quantum entanglement in one simple sentence."}
+    ]
+  }'
+```
+
+### 4. Inspecting Semantic Cache Directly
 
 Test candidate retrieval without hitting an LLM provider. This is operator
 tooling: it needs an admin key with `cache:read` (tenant `X-API-Key`s are
@@ -423,7 +444,7 @@ curl -X POST "http://localhost:8000/api/v1/chat/completions/semantic-search?tena
   }'
 ```
 
-### 4. Fetching Request Traces & Analytics
+### 5. Fetching Request Traces & Analytics
 
 - **List Traces**: `GET /api/v1/gateway-requests/?skip=0&limit=20`
 - **Trace Details with Latency Breakdown**: `GET /api/v1/gateway-requests/{log_id}`
@@ -435,10 +456,11 @@ curl -X POST "http://localhost:8000/api/v1/chat/completions/semantic-search?tena
   `GET /api/v1/shadow-cache/summary`
 - **Shadow Evaluations Drill-Down**: `GET /api/v1/shadow-cache/evaluations`
 
-### 5. Other Endpoints
+### 6. Other Endpoints
 
 | Method             | Path                                           | Purpose                                                     |
 | ------------------ | ---------------------------------------------- | ----------------------------------------------------------- |
+| `POST`             | `/api/v1/messages`                             | Native Anthropic Messages API (Claude SDKs, streaming SSE). |
 | `POST`             | `/api/v1/chat/completions/exact-search`        | Test the exact-cache lookup only (admin key, `cache:read`).  |
 | `POST`             | `/api/v1/chat/completions/cache-save`          | Write a `{request, response}` pair into the cache directly (admin key, `cache:write`). |
 | `POST`             | `/api/v1/qdrant/search`                        | Dense vector search over all tenants (admin key, `cache:read`). |

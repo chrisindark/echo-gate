@@ -35,6 +35,15 @@ Feature-by-feature record of what exists in the codebase today.
 - [x] **OpenAI-compatible completions API** (`POST /api/v1/chat/completions`):
   provider routing across Gemini (`google-genai`), OpenAI, Groq, OpenRouter,
   Ollama, Claude, plus a mock provider for tests.
+- [x] **Anthropic Messages Protocol Adapter** (`POST /api/v1/messages` and `/v1/messages`, `2026-11-07`):
+  native wire protocol compatibility for Anthropic SDK clients (Claude Code, Cursor)
+  with bidirectional schema normalization, streaming SSE events translation, and cache hit playback.
+- [x] **Per-Request Gateway Directives** (`2026-11-07`):
+  request-level overrides for `cache_enabled` (bypass / force refresh), `cache_ttl`
+  (custom TTL in seconds), and `retries` bounds passed to upstream providers.
+- [x] **Natural Streaming Playback** (`2026-11-07`):
+  cache-hit stream playback with realistic word/token chunking and micro-interval
+  pacing (`STREAM_CACHE_PACING_DELAY_MS`) to eliminate UI flickering and support typewriter rendering.
 - [x] **Conversations API** (`2026-10-21`): the previously unmounted
   `conversation/` router is live in `app/main.py` —
   `POST/GET /api/v1/conversations`, `GET /{id}`,
@@ -659,7 +668,7 @@ support playbook) last.
 
 Expanding Echo Gate's gateway surface, prompt efficiency, and safety guardrails, drawing on battle-tested design patterns from modern open-source LLM gateways.
 
-- [ ] **1. Prompt Token Optimization Pipeline**
+- [x] **1. Prompt Token Optimization Pipeline** *(2026-11-06)*
   - **Motivation**: Shaving input tokens before upstream LLM dispatch directly lowers inference costs, reduces TTFT (time-to-first-token), and prevents cache corpus bloat.
   - [x] **Lossless & Rule-Based Compaction** *(2026-11-06)*:
     - Whitespace & boilerplate compaction: collapse repetitive spaces, tabs, and duplicate newline runs across prompt turns (preserving markdown code blocks and inline code).
@@ -669,19 +678,20 @@ Expanding Echo Gate's gateway surface, prompt efficiency, and safety guardrails,
     - Conversation context reduction (`ccr`): retain system prompt and last $N$ turns while compressing or omitting intermediate turns with notice.
     - Headroom trimmer: dynamically prune oldest intermediate turns to guarantee prompt fit within the selected model's context window minus completion tokens.
     - Configured via request body `prompt_optimization` or header `X-EchoGate-Prompt-Optimization: ccr,headroom-trim` and `X-EchoGate-Prompt-Optimization-CCR-Turns`. Tested in unit and integration suites.
-  - **Lossy Prompt Compression**:
-    - Offload token-pruning models (e.g. LLMLingua-2 token classifier) to `inference-platform/` over HTTP to strictly preserve Echo Gate's architectural invariant of zero in-process ML models.
+  - [x] **Lossy Prompt Compression (Phase C)** *(2026-11-06)*:
+    - Offload token pruning (`method="lexical"`) and sentence centroid ranking (`method="extractive"`) to `inference-platform/` over HTTP via `POST /compress` to strictly preserve Echo Gate's architectural invariant of zero in-process ML models.
+    - Supported via request body `prompt_optimization.compress` and `compress_rate`, `compress_method`, reporting savings via `X-EchoGate-Prompt-Savings`.
 
-- [ ] **2. Anthropic Messages Protocol Adapter (`POST /api/v1/messages`)**
+- [x] **2. Anthropic Messages Protocol Adapter (`POST /api/v1/messages`)** *(2026-11-07)*
   - **Motivation**: Enable seamless drop-in integration for Anthropic SDK clients (Claude Code, Cursor, OpenCode, Python/TS `anthropic` SDKs) without client-side translation layers.
   - **Bidirectional Wire Translation**:
     - Normalize Anthropic request format (`system` string/array, `messages` with structured text/image blocks) to Echo Gate's internal representation.
     - Translate gateway responses back into native Anthropic `message` structures and stop reasons.
   - **Streaming Parity**:
     - Map internal streaming tokens to Anthropic SSE event format (`message_start`, `content_block_start`, `content_block_delta`, `message_delta`, `message_stop`).
-    - Support instant cache hit playback directly into Anthropic SSE stream format.
+    - Support instant and natural-paced cache hit playback directly into Anthropic SSE stream format.
   - **Contract Integrity**:
-    - Snapshot contract tests updated and verified in `tests/contract/test_openapi_snapshot.py`.
+    - Snapshot contract tests updated and verified in `tests/contract/test_openapi_snapshot.py`. Mounted at `/api/v1/messages` and alias `/v1/messages`.
 
 - [ ] **3. Zero-Retention Mode & In-Flight PII Redaction**
   - **Zero-Retention Mode (`disable_log`)**:

@@ -123,6 +123,9 @@ Pre-processing pipeline applied to chat completion requests before cache key gen
 | `PROMPT_OPTIMIZATION_CCR_STRATEGY` | `condense` | Strategy for intermediate turns in CCR: `condense` (summarizes turns into a compact briefing marker) or `drop` (omits turns with a context reduction notice). |
 | `PROMPT_OPTIMIZATION_HEADROOM_ENABLED` | `false` | Global default for dynamic headroom trimming. Prunes oldest conversational turns to guarantee the prompt fits within the target model's context window limit minus completion tokens. |
 | `PROMPT_OPTIMIZATION_HEADROOM_BUFFER` | `100` | Safety buffer tokens retained below the target context window ceiling to prevent token truncation at provider edges. |
+| `PROMPT_OPTIMIZATION_COMPRESS_ENABLED` | `false` | Global default for lossy prompt compression offloaded to `inference-platform/` over HTTP via `POST /compress`. |
+| `PROMPT_OPTIMIZATION_COMPRESS_RATE` | `0.5` | Target retention ratio (`0.05` to `0.95`) for lossy compression. |
+| `PROMPT_OPTIMIZATION_COMPRESS_METHOD` | `lexical` | Compression algorithm: `lexical` (token pruning) or `extractive` (sentence centroid ranking). |
 
 ## Cost estimation
 

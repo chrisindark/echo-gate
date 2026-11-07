@@ -16,3 +16,11 @@ repos:
         args: [ --fix ]
       # Run the formatter
       - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: check-changesets
+        name: check changesets and semver sync
+        entry: python scripts/changeset.py check
+        language: system
+        pass_filenames: false
