@@ -266,12 +266,16 @@ class TestGatewayDirectives(unittest.IsolatedAsyncioTestCase):
         self.router.llm_cache_service = MagicMock()
         self.router.llm_cache_service.upsert_embedding = AsyncMock(return_value="pt-1")
         self.router.embedding_service = MagicMock()
-        self.router.embedding_service.get_embedding_async = AsyncMock(return_value=[0.1] * 384)
+        self.router.embedding_service.get_embedding_async = AsyncMock(
+            return_value=[0.1] * 384
+        )
         self.router.embedding_service.get_sparse_embedding = MagicMock(
             return_value={"indices": [1], "values": [1.0]}
         )
         self.router.intent_classifier_service = MagicMock()
-        self.router.intent_classifier_service.classify_intent = AsyncMock(return_value=None)
+        self.router.intent_classifier_service.classify_intent = AsyncMock(
+            return_value=None
+        )
         self.router.entity_extractor_service = MagicMock()
         from app.modules.qdrant.qdrant_schema import CacheScope
 
@@ -289,30 +293,27 @@ class TestGatewayDirectives(unittest.IsolatedAsyncioTestCase):
 
     def test_instant_cache_hit_skipped_when_cache_disabled(self):
         """When cache_enabled is False, instant cache hit check is skipped."""
-        mock_response = ChatCompletionResponse(
-            id="chatcmpl-test",
-            created=123456789,
-            model="gpt-4o-mini",
-            choices=[
-                Choice(
-                    index=0,
-                    message=ChatMessage(role="assistant", content="Streamed reply"),
-                    finish_reason="stop",
-                )
-            ],
-            cache_info={"matched": False, "cache_hit": False},
-        )
-
         self.router.get_instant_cache_hit = AsyncMock()
 
         async def fake_stream(*args, **kwargs):
-            from app.modules.chat.chat_schema import ChatCompletionChunk, ChunkChoice, ChunkDelta
+            from app.modules.chat.chat_schema import (
+                ChatCompletionChunk,
+                ChunkChoice,
+                ChunkDelta,
+            )
+
             yield (
                 ChatCompletionChunk(
                     id="chunk-1",
                     created=123,
                     model="gpt-4o-mini",
-                    choices=[ChunkChoice(index=0, delta=ChunkDelta(content="Hello"), finish_reason="stop")],
+                    choices=[
+                        ChunkChoice(
+                            index=0,
+                            delta=ChunkDelta(content="Hello"),
+                            finish_reason="stop",
+                        )
+                    ],
                 ),
                 "openai",
                 "gpt-4o-mini",

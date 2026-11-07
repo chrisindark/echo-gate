@@ -1,4 +1,3 @@
-import asyncio
 import json
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -7,23 +6,20 @@ from fastapi.testclient import TestClient
 
 from app.core.config import config
 from app.core.constants import EchoGateHeaders
+from app.core.dependencies import get_llm_router_service
+from app.core.guards import llm_quota_guard
 from app.main import app
 from app.modules.chat.chat_schema import (
-    ChatCompletionChunk,
     ChatCompletionRequest,
     ChatCompletionResponse,
     ChatMessage,
     Choice,
-    ChunkChoice,
-    ChunkDelta,
     Usage,
     apply_request_directives,
     response_to_stream_chunks,
     response_to_stream_chunks_natural,
     split_content_into_natural_chunks,
 )
-from app.core.dependencies import get_llm_router_service
-from app.core.guards import llm_quota_guard
 from app.modules.llm.llm_router_service import LlmRouterService
 from app.modules.prompt_optimization.prompt_optimizer import PromptOptimizer
 
@@ -90,7 +86,9 @@ class TestNaturalStreaming(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(split_content_into_natural_chunks("   \n\t "), ["   \n\t "])
         # Unbroken word
         long_word = "a" * 80
-        chunks = split_content_into_natural_chunks(long_word, words_per_chunk=3, max_chars_per_chunk=16)
+        chunks = split_content_into_natural_chunks(
+            long_word, words_per_chunk=3, max_chars_per_chunk=16
+        )
         self.assertEqual("".join(chunks), long_word)
         self.assertGreater(len(chunks), 1)
         # CJK text
@@ -126,18 +124,26 @@ class TestNaturalStreaming(unittest.IsolatedAsyncioTestCase):
 
         # Standard conversion (monolithic)
         std_chunks = response_to_stream_chunks(resp, natural=False)
-        content_std = [c for c in std_chunks if c.choices and c.choices[0].delta.content]
+        content_std = [
+            c for c in std_chunks if c.choices and c.choices[0].delta.content
+        ]
         self.assertEqual(len(content_std), 1)
         self.assertEqual(content_std[0].choices[0].delta.content, long_content)
 
         # Natural conversion (token/word sliced)
         nat_chunks = response_to_stream_chunks_natural(resp, words_per_chunk=3)
-        content_nat = [c for c in nat_chunks if c.choices and c.choices[0].delta.content]
-        reasoning_nat = [c for c in nat_chunks if c.choices and c.choices[0].delta.reasoning_content]
+        content_nat = [
+            c for c in nat_chunks if c.choices and c.choices[0].delta.content
+        ]
+        reasoning_nat = [
+            c for c in nat_chunks if c.choices and c.choices[0].delta.reasoning_content
+        ]
 
         self.assertGreater(len(content_nat), 1)
         self.assertGreater(len(reasoning_nat), 1)
-        self.assertEqual("".join(c.choices[0].delta.content for c in content_nat), long_content)
+        self.assertEqual(
+            "".join(c.choices[0].delta.content for c in content_nat), long_content
+        )
         self.assertEqual(
             "".join(c.choices[0].delta.reasoning_content for c in reasoning_nat),
             "Let me reason through this gateway design first.",
@@ -194,9 +200,7 @@ class TestNaturalStreaming(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(req4.stream_pacing_delay_ms, 0.0)
 
     async def test_router_generate_stream_pacing_cache_hit(self):
-        long_content = (
-            "One two three four five six seven eight nine ten eleven twelve."
-        )
+        long_content = "One two three four five six seven eight nine ten eleven twelve."
         cached_resp = ChatCompletionResponse(
             id="chatcmpl-cached-pacing",
             created=1700000000,
@@ -210,9 +214,7 @@ class TestNaturalStreaming(unittest.IsolatedAsyncioTestCase):
             ],
             cache_info={"source": "redis", "cache_hit": True},
         )
-        self.router._lookup_serving_cache = AsyncMock(
-            return_value=(cached_resp, {})
-        )
+        self.router._lookup_serving_cache = AsyncMock(return_value=(cached_resp, {}))
 
         req = ChatCompletionRequest(
             service_name="openai",
@@ -230,9 +232,14 @@ class TestNaturalStreaming(unittest.IsolatedAsyncioTestCase):
 
             self.assertGreaterEqual(len(chunks), 4)
             # Role chunk + multiple content chunks + finish chunk
-            content_chunks = [c for c in chunks if c.choices and c.choices[0].delta.content]
+            content_chunks = [
+                c for c in chunks if c.choices and c.choices[0].delta.content
+            ]
             self.assertGreater(len(content_chunks), 1)
-            self.assertEqual("".join(c.choices[0].delta.content for c in content_chunks), long_content)
+            self.assertEqual(
+                "".join(c.choices[0].delta.content for c in content_chunks),
+                long_content,
+            )
 
             # mock_sleep should have been called between content chunks with 0.01s (10ms)
             self.assertGreaterEqual(mock_sleep.call_count, len(content_chunks))
@@ -254,9 +261,7 @@ class TestNaturalStreaming(unittest.IsolatedAsyncioTestCase):
             ],
             cache_info={"source": "redis", "cache_hit": True},
         )
-        self.router._lookup_serving_cache = AsyncMock(
-            return_value=(cached_resp, {})
-        )
+        self.router._lookup_serving_cache = AsyncMock(return_value=(cached_resp, {}))
 
         req = ChatCompletionRequest(
             service_name="openai",
@@ -306,7 +311,9 @@ class TestNaturalStreaming(unittest.IsolatedAsyncioTestCase):
 
         raw_text = resp.text
         lines = [line.strip() for line in raw_text.split("\n") if line.strip()]
-        data_lines = [l[len("data: ") :] for l in lines if l.startswith("data: ")]
+        data_lines = [
+            line[len("data: ") :] for line in lines if line.startswith("data: ")
+        ]
 
         self.assertGreaterEqual(len(data_lines), 4)
         self.assertEqual(data_lines[-1], "[DONE]")
@@ -315,7 +322,8 @@ class TestNaturalStreaming(unittest.IsolatedAsyncioTestCase):
         text_parts = [
             c["choices"][0]["delta"]["content"]
             for c in chunks
-            if "content" in c["choices"][0]["delta"] and c["choices"][0]["delta"]["content"]
+            if "content" in c["choices"][0]["delta"]
+            and c["choices"][0]["delta"]["content"]
         ]
         self.assertGreater(len(text_parts), 1)
         self.assertEqual("".join(text_parts), cached_text)
@@ -358,11 +366,11 @@ class TestNaturalStreaming(unittest.IsolatedAsyncioTestCase):
             lines = ev.split("\n")
             event_type = None
             data = None
-            for l in lines:
-                if l.startswith("event: "):
-                    event_type = l[len("event: ") :]
-                elif l.startswith("data: "):
-                    data = json.loads(l[len("data: ") :])
+            for item in lines:
+                if item.startswith("event: "):
+                    event_type = item[len("event: ") :]
+                elif item.startswith("data: "):
+                    data = json.loads(item[len("data: ") :])
             if event_type == "content_block_delta" and data:
                 delta_text = data.get("delta", {}).get("text", "")
                 if delta_text:

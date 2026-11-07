@@ -806,7 +806,5 @@ def test_compress_validates_rate_and_empty_input() -> None:
         assert resp1.status_code == 400
         assert resp1.json()["detail"]["error"] == "missing_input"
 
-        resp2 = client.post(
-            "/compress", json={"input": "Some text", "rate": 1.5}
-        )
+        resp2 = client.post("/compress", json={"input": "Some text", "rate": 1.5})
         assert resp2.status_code == 422

@@ -223,8 +223,13 @@ async def create_chat_completion(
         }
         if request.cache_enabled is False:
             stream_headers[EchoGateHeaders.CACHE] = "BYPASS"
-        elif first_chunk and getattr(first_chunk, "cache_info", None) and (
-            first_chunk.cache_info.get("cache_hit") or first_chunk.cache_info.get("matched")
+        elif (
+            first_chunk
+            and getattr(first_chunk, "cache_info", None)
+            and (
+                first_chunk.cache_info.get("cache_hit")
+                or first_chunk.cache_info.get("matched")
+            )
         ):
             stream_headers[EchoGateHeaders.CACHE] = "HIT"
         else:

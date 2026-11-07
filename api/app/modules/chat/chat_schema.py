@@ -644,9 +644,8 @@ def apply_request_directives(request: Any, headers: Any) -> None:
         elif c_val in ("true", "1", "on", "yes", "enabled"):
             request.cache_enabled = True
 
-    ttl_header = (
-        headers.get(EchoGateHeaders.CACHE_TTL)
-        or headers.get("X-EchoGate-Cache-TTL")
+    ttl_header = headers.get(EchoGateHeaders.CACHE_TTL) or headers.get(
+        "X-EchoGate-Cache-TTL"
     )
     if ttl_header:
         try:
@@ -656,9 +655,8 @@ def apply_request_directives(request: Any, headers: Any) -> None:
         except (ValueError, TypeError):
             pass
 
-    retries_header = (
-        headers.get(EchoGateHeaders.RETRIES)
-        or headers.get("X-EchoGate-Retries")
+    retries_header = headers.get(EchoGateHeaders.RETRIES) or headers.get(
+        "X-EchoGate-Retries"
     )
     if retries_header:
         try:
@@ -668,9 +666,8 @@ def apply_request_directives(request: Any, headers: Any) -> None:
         except (ValueError, TypeError):
             pass
 
-    pacing_header = (
-        headers.get(EchoGateHeaders.STREAM_PACING)
-        or headers.get("X-EchoGate-Stream-Pacing")
+    pacing_header = headers.get(EchoGateHeaders.STREAM_PACING) or headers.get(
+        "X-EchoGate-Stream-Pacing"
     )
     if pacing_header:
         p_val = str(pacing_header).strip().lower()

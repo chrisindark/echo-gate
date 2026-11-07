@@ -82,7 +82,6 @@ from app.modules.chat.chat_schema import (
     ChatCompletionRequest,
     ChatCompletionResponse,
     StreamAccumulator,
-    response_to_stream_chunks,
     response_to_stream_chunks_natural,
 )
 from app.modules.embedding.embedding_service import EmbeddingService
@@ -3304,9 +3303,13 @@ class LlmRouterService:
                     )
                     for chunk in chunks:
                         yield chunk
-                        if pacing_delay_sec > 0 and chunk.choices and (
-                            chunk.choices[0].delta.content
-                            or chunk.choices[0].delta.reasoning_content
+                        if (
+                            pacing_delay_sec > 0
+                            and chunk.choices
+                            and (
+                                chunk.choices[0].delta.content
+                                or chunk.choices[0].delta.reasoning_content
+                            )
                         ):
                             await asyncio.sleep(pacing_delay_sec)
                     return
