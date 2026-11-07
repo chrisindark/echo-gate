@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
 from pydantic import BaseModel, Field
 
 
@@ -59,6 +58,26 @@ class PromptOptimizationConfig(BaseModel):
     headroom_target_tokens: int | None = Field(
         default=None,
         description="Explicit ceiling for maximum prompt tokens (overrides model context limit lookup).",
+    )
+    # Phase C: Lossy Prompt Compression (offloaded to inference-platform)
+    compress: bool = Field(
+        default=False,
+        description="Lossy prompt compression via token pruning or extractive semantic ranking offloaded to inference-platform.",
+    )
+    compress_rate: float = Field(
+        default=0.5,
+        ge=0.05,
+        le=0.95,
+        description="Target compression ratio (fraction of content to retain).",
+    )
+    compress_target_tokens: int | None = Field(
+        default=None,
+        ge=1,
+        description="Target token count ceiling; overrides rate if specified.",
+    )
+    compress_method: str = Field(
+        default="lexical",
+        description="Compression method: 'lexical' (token pruning) or 'extractive' (sentence ranking).",
     )
 
 

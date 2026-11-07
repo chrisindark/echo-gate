@@ -28,6 +28,49 @@ _INLINE_CODE_PATTERN = re.compile(r"(`[^`\n]+`)")
 class PromptOptimizer:
     """Pre-processing engine to reduce prompt token footprint rule-based and losslessly."""
 
+    def __init__(self, inference_client: Any | None = None) -> None:
+        self._inference_client = inference_client
+
+    @property
+    def inference_client(self) -> Any:
+        if self._inference_client is None:
+            from app.core.dependencies import get_inference_client
+
+            self._inference_client = get_inference_client()
+        return self._inference_client
+
+    def compress_texts(
+        self,
+        texts: list[str],
+        *,
+        rate: float = 0.5,
+        target_tokens: int | None = None,
+        method: str = "lexical",
+    ) -> list[dict[str, Any]]:
+        """Call inference-platform POST /compress to compress texts."""
+        return self.inference_client.compress_sync(
+            texts,
+            rate=rate,
+            target_tokens=target_tokens,
+            method=method,
+        )
+
+    async def compress_texts_async(
+        self,
+        texts: list[str],
+        *,
+        rate: float = 0.5,
+        target_tokens: int | None = None,
+        method: str = "lexical",
+    ) -> list[dict[str, Any]]:
+        """Call inference-platform POST /compress asynchronously."""
+        return await self.inference_client.compress(
+            texts,
+            rate=rate,
+            target_tokens=target_tokens,
+            method=method,
+        )
+
     def collapse_whitespace(self, text: str | None) -> str | None:
         """Collapse repetitive spaces, tabs, and duplicate newline runs while preserving code blocks.
 
@@ -44,9 +87,9 @@ class PromptOptimizer:
         for seg in segments:
             if not seg:
                 continue
-            is_code_block = (
-                seg.startswith("```") and seg.endswith("```")
-            ) or (seg.startswith("~~~") and seg.endswith("~~~"))
+            is_code_block = (seg.startswith("```") and seg.endswith("```")) or (
+                seg.startswith("~~~") and seg.endswith("~~~")
+            )
 
             if is_code_block:
                 # Inside fenced code block: preserve indentation, strip trailing spaces, cap blank lines
@@ -77,9 +120,7 @@ class PromptOptimizer:
         result = "".join(cleaned_segments).strip()
         return result
 
-    def _group_into_turns(
-        self, messages: list[ChatMessage]
-    ) -> list[list[ChatMessage]]:
+    def _group_into_turns(self, messages: list[ChatMessage]) -> list[list[ChatMessage]]:
         """Group messages into atomic turns preserving tool call and response pairings."""
         turns: list[list[ChatMessage]] = []
         i = 0
@@ -98,18 +139,14 @@ class PromptOptimizer:
                 i += 1
         return turns
 
-    def _flatten_turns(
-        self, turns: list[list[ChatMessage]]
-    ) -> list[ChatMessage]:
+    def _flatten_turns(self, turns: list[list[ChatMessage]]) -> list[ChatMessage]:
         """Flatten atomic turns back into a flat list of messages."""
         flattened: list[ChatMessage] = []
         for t in turns:
             flattened.extend(t)
         return flattened
 
-    def deduplicate_session(
-        self, messages: list[ChatMessage]
-    ) -> list[ChatMessage]:
+    def deduplicate_session(self, messages: list[ChatMessage]) -> list[ChatMessage]:
         """Detect and remove exact-match duplicate turns in multi-turn sessions.
 
         Maintains conversation semantics:
@@ -132,7 +169,13 @@ class PromptOptimizer:
                     for tc in (m.tool_calls or [])
                 )
                 sigs.append(
-                    (m.role or "", m.content or "", m.name or "", m.tool_call_id or "", tc_sig)
+                    (
+                        m.role or "",
+                        m.content or "",
+                        m.name or "",
+                        m.tool_call_id or "",
+                        tc_sig,
+                    )
                 )
             return tuple(sigs)
 
@@ -158,8 +201,14 @@ class PromptOptimizer:
             n = len(deduped_turns)
             while idx < n:
                 if idx < n - 4:
-                    pair_a = (_turn_fingerprint(deduped_turns[idx]), _turn_fingerprint(deduped_turns[idx + 1]))
-                    pair_b = (_turn_fingerprint(deduped_turns[idx + 2]), _turn_fingerprint(deduped_turns[idx + 3]))
+                    pair_a = (
+                        _turn_fingerprint(deduped_turns[idx]),
+                        _turn_fingerprint(deduped_turns[idx + 1]),
+                    )
+                    pair_b = (
+                        _turn_fingerprint(deduped_turns[idx + 2]),
+                        _turn_fingerprint(deduped_turns[idx + 3]),
+                    )
                     if pair_a == pair_b:
                         # Skip the earlier duplicate pair
                         idx += 2
@@ -216,7 +265,9 @@ class PromptOptimizer:
                     role_label = m.role or "unknown"
                     if m.role == "assistant" and m.tool_calls:
                         calls_str = ", ".join(
-                            tc.function.name for tc in m.tool_calls if tc.function and tc.function.name
+                            tc.function.name
+                            for tc in m.tool_calls
+                            if tc.function and tc.function.name
                         )
                         snippet = f"Called tool(s): {calls_str}"
                     else:
@@ -259,7 +310,9 @@ class PromptOptimizer:
             if max_tokens is not None
             else getattr(config, "ESTIMATE_DEFAULT_COMPLETION_TOKENS", 256)
         )
-        allowed_prompt_tokens = max(100, context_limit - completion_budget - buffer_tokens)
+        allowed_prompt_tokens = max(
+            100, context_limit - completion_budget - buffer_tokens
+        )
 
         def _count_total_tokens(msgs: list[ChatMessage]) -> int:
             return sum(count_tokens(m.content or "", model) for m in msgs)
@@ -285,7 +338,10 @@ class PromptOptimizer:
         # Iteratively prune oldest intermediate turns
         while intermediate_turns:
             candidate_turns = system_turns + intermediate_turns + [final_turn]
-            if _count_total_tokens(self._flatten_turns(candidate_turns)) <= allowed_prompt_tokens:
+            if (
+                _count_total_tokens(self._flatten_turns(candidate_turns))
+                <= allowed_prompt_tokens
+            ):
                 return self._flatten_turns(candidate_turns)
             intermediate_turns.pop(0)
 
@@ -314,7 +370,9 @@ class PromptOptimizer:
 
         return self._flatten_turns(system_turns + [truncated_final])
 
-    def tabularize_json_array(self, content: str | None, min_rows: int = 2) -> str | None:
+    def tabularize_json_array(
+        self, content: str | None, min_rows: int = 2
+    ) -> str | None:
         """Rewrite large uniform JSON arrays from tool calls into compact markdown pipe tables.
 
         Only rewrites when the tabular representation is strictly smaller than the original JSON.
@@ -340,7 +398,11 @@ class PromptOptimizer:
                 rows = parsed
         elif isinstance(parsed, dict):
             # Check if there is a single key with list[dict], or a primary items list
-            list_keys = [k for k, v in parsed.items() if isinstance(v, list) and all(isinstance(item, dict) for item in v)]
+            list_keys = [
+                k
+                for k, v in parsed.items()
+                if isinstance(v, list) and all(isinstance(item, dict) for item in v)
+            ]
             if len(list_keys) == 1:
                 wrapper_key = list_keys[0]
                 rows = parsed[wrapper_key]
@@ -377,7 +439,9 @@ class PromptOptimizer:
                 else:
                     cell_str = str(val)
                 # Escape pipes and replace newlines
-                cell_str = cell_str.replace("|", r"\|").replace("\r\n", " ").replace("\n", " ")
+                cell_str = (
+                    cell_str.replace("|", r"\|").replace("\r\n", " ").replace("\n", " ")
+                )
                 cells.append(cell_str)
             data_lines.append("| " + " | ".join(cells) + " |")
 
@@ -427,6 +491,9 @@ class PromptOptimizer:
                     ccr_strategy=config.PROMPT_OPTIMIZATION_CCR_STRATEGY,
                     headroom_trim=config.PROMPT_OPTIMIZATION_HEADROOM_ENABLED,
                     headroom_buffer_tokens=config.PROMPT_OPTIMIZATION_HEADROOM_BUFFER,
+                    compress=config.PROMPT_OPTIMIZATION_COMPRESS_ENABLED,
+                    compress_rate=config.PROMPT_OPTIMIZATION_COMPRESS_RATE,
+                    compress_method=config.PROMPT_OPTIMIZATION_COMPRESS_METHOD,
                 )
             elif request.prompt_optimization is False:
                 cfg = PromptOptimizationConfig(enabled=False)
@@ -442,6 +509,9 @@ class PromptOptimizer:
                     ccr_strategy=config.PROMPT_OPTIMIZATION_CCR_STRATEGY,
                     headroom_trim=config.PROMPT_OPTIMIZATION_HEADROOM_ENABLED,
                     headroom_buffer_tokens=config.PROMPT_OPTIMIZATION_HEADROOM_BUFFER,
+                    compress=config.PROMPT_OPTIMIZATION_COMPRESS_ENABLED,
+                    compress_rate=config.PROMPT_OPTIMIZATION_COMPRESS_RATE,
+                    compress_method=config.PROMPT_OPTIMIZATION_COMPRESS_METHOD,
                 )
 
             if not cfg.enabled:
@@ -449,7 +519,9 @@ class PromptOptimizer:
 
             # Compute initial metrics
             orig_chars = sum(len(m.content or "") for m in request.messages)
-            orig_tokens = sum(count_tokens(m.content or "", request.model) for m in request.messages)
+            orig_tokens = sum(
+                count_tokens(m.content or "", request.model) for m in request.messages
+            )
 
             messages = [m.model_copy() for m in request.messages]
             strategies_applied: list[str] = []
@@ -459,7 +531,9 @@ class PromptOptimizer:
                 table_applied = False
                 for m in messages:
                     if (m.role in ("tool", "function") or m.tool_call_id) and m.content:
-                        tabular = self.tabularize_json_array(m.content, min_rows=cfg.json_table_min_rows)
+                        tabular = self.tabularize_json_array(
+                            m.content, min_rows=cfg.json_table_min_rows
+                        )
                         if tabular != m.content:
                             m.content = tabular
                             table_applied = True
@@ -470,7 +544,8 @@ class PromptOptimizer:
             if cfg.session_dedup:
                 deduped = self.deduplicate_session(messages)
                 if len(deduped) != len(messages) or any(
-                    d.content != o.content for d, o in zip(deduped, messages)
+                    d.content != o.content
+                    for d, o in zip(deduped, messages, strict=False)
                 ):
                     messages = deduped
                     strategies_applied.append("session-dedup")
@@ -496,7 +571,8 @@ class PromptOptimizer:
                     max_turn_chars=cfg.ccr_max_turn_chars,
                 )
                 if len(reduced) != len(messages) or any(
-                    r.content != m.content for r, m in zip(reduced, messages)
+                    r.content != m.content
+                    for r, m in zip(reduced, messages, strict=False)
                 ):
                     messages = reduced
                     strategies_applied.append("ccr")
@@ -511,15 +587,57 @@ class PromptOptimizer:
                     buffer_tokens=cfg.headroom_buffer_tokens,
                 )
                 if len(trimmed) != len(messages) or any(
-                    t.content != m.content for t, m in zip(trimmed, messages)
+                    t.content != m.content
+                    for t, m in zip(trimmed, messages, strict=False)
                 ):
                     messages = trimmed
                     strategies_applied.append("headroom-trim")
 
-            opt_chars = sum(len(m.content or "") for m in messages)
-            opt_tokens = sum(count_tokens(m.content or "", request.model) for m in messages)
+            # 7. Lossy prompt compression via inference-platform (Phase C)
+            if cfg.compress:
+                compress_applied = False
+                to_compress_indices = []
+                to_compress_texts = []
+                for idx, m in enumerate(messages):
+                    if m.content and len(m.content) >= 50:
+                        if m.role == "system" and len(messages) > 1:
+                            continue
+                        to_compress_indices.append(idx)
+                        to_compress_texts.append(m.content)
 
-            if strategies_applied and (opt_chars < orig_chars or opt_tokens < orig_tokens):
+                if to_compress_texts:
+                    try:
+                        compressed_data = self.compress_texts(
+                            to_compress_texts,
+                            rate=cfg.compress_rate,
+                            target_tokens=cfg.compress_target_tokens,
+                            method=cfg.compress_method,
+                        )
+                        for idx, item in zip(
+                            to_compress_indices, compressed_data, strict=False
+                        ):
+                            comp_text = item.get("compressed_text")
+                            if comp_text and len(comp_text) < len(
+                                messages[idx].content or ""
+                            ):
+                                messages[idx].content = comp_text
+                                compress_applied = True
+                    except Exception as e:
+                        logger.warning(
+                            "Lossy prompt compression failed (fail-open): %s", e
+                        )
+
+                if compress_applied:
+                    strategies_applied.append("compress")
+
+            opt_chars = sum(len(m.content or "") for m in messages)
+            opt_tokens = sum(
+                count_tokens(m.content or "", request.model) for m in messages
+            )
+
+            if strategies_applied and (
+                opt_chars < orig_chars or opt_tokens < orig_tokens
+            ):
                 # Build cloned request with optimized messages
                 optimized_req = request.model_copy(update={"messages": messages})
                 # Preserve private attributes
@@ -553,5 +671,215 @@ class PromptOptimizer:
             )
 
         except Exception as e:  # Fail-open
-            logger.warning("Prompt optimization failed (fail-open): %s", e, exc_info=True)
+            logger.warning(
+                "Prompt optimization failed (fail-open): %s", e, exc_info=True
+            )
+            return request, PromptOptimizationResult(applied=False)
+
+    async def optimize_async(
+        self,
+        request: ChatCompletionRequest,
+        options: PromptOptimizationConfig | None = None,
+    ) -> tuple[ChatCompletionRequest, PromptOptimizationResult]:
+        """Async variant of optimize; awaits remote inference platform calls when compressing."""
+        try:
+            cfg: PromptOptimizationConfig
+            if options is not None:
+                cfg = options
+            elif isinstance(request.prompt_optimization, PromptOptimizationConfig):
+                cfg = request.prompt_optimization
+            elif isinstance(request.prompt_optimization, dict):
+                cfg = PromptOptimizationConfig(**request.prompt_optimization)
+            elif request.prompt_optimization is True:
+                cfg = PromptOptimizationConfig(
+                    enabled=True,
+                    whitespace=config.PROMPT_OPTIMIZATION_WHITESPACE,
+                    session_dedup=config.PROMPT_OPTIMIZATION_SESSION_DEDUP,
+                    json_table=config.PROMPT_OPTIMIZATION_JSON_TABLE,
+                    json_table_min_rows=config.PROMPT_OPTIMIZATION_JSON_TABLE_MIN_ROWS,
+                    ccr=config.PROMPT_OPTIMIZATION_CCR_ENABLED,
+                    ccr_keep_last_n_turns=config.PROMPT_OPTIMIZATION_CCR_KEEP_LAST_N_TURNS,
+                    ccr_strategy=config.PROMPT_OPTIMIZATION_CCR_STRATEGY,
+                    headroom_trim=config.PROMPT_OPTIMIZATION_HEADROOM_ENABLED,
+                    headroom_buffer_tokens=config.PROMPT_OPTIMIZATION_HEADROOM_BUFFER,
+                    compress=config.PROMPT_OPTIMIZATION_COMPRESS_ENABLED,
+                    compress_rate=config.PROMPT_OPTIMIZATION_COMPRESS_RATE,
+                    compress_method=config.PROMPT_OPTIMIZATION_COMPRESS_METHOD,
+                )
+            elif request.prompt_optimization is False:
+                cfg = PromptOptimizationConfig(enabled=False)
+            else:
+                cfg = PromptOptimizationConfig(
+                    enabled=config.PROMPT_OPTIMIZATION_ENABLED,
+                    whitespace=config.PROMPT_OPTIMIZATION_WHITESPACE,
+                    session_dedup=config.PROMPT_OPTIMIZATION_SESSION_DEDUP,
+                    json_table=config.PROMPT_OPTIMIZATION_JSON_TABLE,
+                    json_table_min_rows=config.PROMPT_OPTIMIZATION_JSON_TABLE_MIN_ROWS,
+                    ccr=config.PROMPT_OPTIMIZATION_CCR_ENABLED,
+                    ccr_keep_last_n_turns=config.PROMPT_OPTIMIZATION_CCR_KEEP_LAST_N_TURNS,
+                    ccr_strategy=config.PROMPT_OPTIMIZATION_CCR_STRATEGY,
+                    headroom_trim=config.PROMPT_OPTIMIZATION_HEADROOM_ENABLED,
+                    headroom_buffer_tokens=config.PROMPT_OPTIMIZATION_HEADROOM_BUFFER,
+                    compress=config.PROMPT_OPTIMIZATION_COMPRESS_ENABLED,
+                    compress_rate=config.PROMPT_OPTIMIZATION_COMPRESS_RATE,
+                    compress_method=config.PROMPT_OPTIMIZATION_COMPRESS_METHOD,
+                )
+
+            if not cfg.enabled:
+                return request, PromptOptimizationResult(applied=False)
+
+            orig_chars = sum(len(m.content or "") for m in request.messages)
+            orig_tokens = sum(
+                count_tokens(m.content or "", request.model) for m in request.messages
+            )
+
+            messages = [m.model_copy() for m in request.messages]
+            strategies_applied: list[str] = []
+
+            # 2. Tool JSON tabularization
+            if cfg.json_table:
+                table_applied = False
+                for m in messages:
+                    if (m.role in ("tool", "function") or m.tool_call_id) and m.content:
+                        tabular = self.tabularize_json_array(
+                            m.content, min_rows=cfg.json_table_min_rows
+                        )
+                        if tabular != m.content:
+                            m.content = tabular
+                            table_applied = True
+                if table_applied:
+                    strategies_applied.append("json-table")
+
+            # 3. Session deduplication
+            if cfg.session_dedup:
+                deduped = self.deduplicate_session(messages)
+                if len(deduped) != len(messages) or any(
+                    d.content != o.content
+                    for d, o in zip(deduped, messages, strict=False)
+                ):
+                    messages = deduped
+                    strategies_applied.append("session-dedup")
+
+            # 4. Whitespace collapse
+            if cfg.whitespace:
+                ws_applied = False
+                for m in messages:
+                    if m.content:
+                        collapsed = self.collapse_whitespace(m.content)
+                        if collapsed != m.content:
+                            m.content = collapsed
+                            ws_applied = True
+                if ws_applied:
+                    strategies_applied.append("whitespace")
+
+            # 5. Conversation Context Reduction (CCR - Phase B)
+            if cfg.ccr:
+                reduced = self.reduce_context(
+                    messages,
+                    keep_last_n_turns=cfg.ccr_keep_last_n_turns,
+                    strategy=cfg.ccr_strategy,
+                    max_turn_chars=cfg.ccr_max_turn_chars,
+                )
+                if len(reduced) != len(messages) or any(
+                    r.content != m.content
+                    for r, m in zip(reduced, messages, strict=False)
+                ):
+                    messages = reduced
+                    strategies_applied.append("ccr")
+
+            # 6. Target Model Headroom Trimmer (Phase B)
+            if cfg.headroom_trim:
+                trimmed = self.trim_headroom(
+                    messages,
+                    model=request.model,
+                    max_tokens=request.max_tokens,
+                    target_tokens=cfg.headroom_target_tokens,
+                    buffer_tokens=cfg.headroom_buffer_tokens,
+                )
+                if len(trimmed) != len(messages) or any(
+                    t.content != m.content
+                    for t, m in zip(trimmed, messages, strict=False)
+                ):
+                    messages = trimmed
+                    strategies_applied.append("headroom-trim")
+
+            # 7. Lossy prompt compression via inference-platform (Phase C)
+            if cfg.compress:
+                compress_applied = False
+                to_compress_indices = []
+                to_compress_texts = []
+                for idx, m in enumerate(messages):
+                    if m.content and len(m.content) >= 50:
+                        if m.role == "system" and len(messages) > 1:
+                            continue
+                        to_compress_indices.append(idx)
+                        to_compress_texts.append(m.content)
+
+                if to_compress_texts:
+                    try:
+                        compressed_data = await self.compress_texts_async(
+                            to_compress_texts,
+                            rate=cfg.compress_rate,
+                            target_tokens=cfg.compress_target_tokens,
+                            method=cfg.compress_method,
+                        )
+                        for idx, item in zip(
+                            to_compress_indices, compressed_data, strict=False
+                        ):
+                            comp_text = item.get("compressed_text")
+                            if comp_text and len(comp_text) < len(
+                                messages[idx].content or ""
+                            ):
+                                messages[idx].content = comp_text
+                                compress_applied = True
+                    except Exception as e:
+                        logger.warning(
+                            "Lossy prompt compression failed (fail-open): %s", e
+                        )
+
+                if compress_applied:
+                    strategies_applied.append("compress")
+
+            opt_chars = sum(len(m.content or "") for m in messages)
+            opt_tokens = sum(
+                count_tokens(m.content or "", request.model) for m in messages
+            )
+
+            if strategies_applied and (
+                opt_chars < orig_chars or opt_tokens < orig_tokens
+            ):
+                optimized_req = request.model_copy(update={"messages": messages})
+                optimized_req.tenant_id = request.tenant_id
+                optimized_req.user_id = request.user_id
+
+                result = PromptOptimizationResult(
+                    applied=True,
+                    original_tokens=orig_tokens,
+                    optimized_tokens=opt_tokens,
+                    tokens_saved=max(0, orig_tokens - opt_tokens),
+                    original_chars=orig_chars,
+                    optimized_chars=opt_chars,
+                    chars_saved=max(0, orig_chars - opt_chars),
+                    strategies=strategies_applied,
+                )
+                logger.info(
+                    "Prompt optimization applied (%s): saved %d chars, ~%d tokens",
+                    ",".join(strategies_applied),
+                    result.chars_saved,
+                    result.tokens_saved,
+                )
+                return optimized_req, result
+
+            return request, PromptOptimizationResult(
+                applied=False,
+                original_tokens=orig_tokens,
+                optimized_tokens=orig_tokens,
+                original_chars=orig_chars,
+                optimized_chars=orig_chars,
+            )
+
+        except Exception as e:  # Fail-open
+            logger.warning(
+                "Prompt optimization failed (fail-open): %s", e, exc_info=True
+            )
             return request, PromptOptimizationResult(applied=False)

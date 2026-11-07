@@ -24,7 +24,7 @@ default in `config.py`. Copy `api/app/.env.example` to `api/app/.env.local` (or
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `PYTHON_ENV` | `local` | Selects `api/app/.env.<PYTHON_ENV>`; also affects log level/format. |
-| `PROJECT_NAME` | `""` | App title. |
+| `PROJECT_NAME` | `echo-gate` | App title. |
 | `VERSION` | `0.1.0` | Reported version. |
 | `SERVICE_NAME` | `""` | Added to structured log records. |
 | `LOG_LEVEL` | env-dependent | Explicit log level override. |

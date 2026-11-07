@@ -10,13 +10,11 @@ Pins the contract:
 - Fail-open behavior when optimization encounters an error.
 """
 
-import json
 import unittest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from fastapi.testclient import TestClient
 
-from app.core.config import config
 from app.core.constants import EchoGateHeaders
 from app.core.dependencies import get_llm_router_service
 from app.core.guards import llm_quota_guard
@@ -75,7 +73,10 @@ class TestPromptOptimizationIntegration(unittest.TestCase):
             "service_name": "openai",
             "model": "gpt-4o-mini",
             "messages": [
-                {"role": "system", "content": "You    are    an    assistant.   \n\n\n\n"},
+                {
+                    "role": "system",
+                    "content": "You    are    an    assistant.   \n\n\n\n",
+                },
                 {"role": "user", "content": "Hello       world!    "},
             ],
             "prompt_optimization": True,
@@ -94,9 +95,7 @@ class TestPromptOptimizationIntegration(unittest.TestCase):
         # Verify router received the compacted request
         call_args = self.router._generate_completion_impl.call_args[0]
         optimized_req: ChatCompletionRequest = call_args[0]
-        self.assertEqual(
-            optimized_req.messages[0].content, "You are an assistant."
-        )
+        self.assertEqual(optimized_req.messages[0].content, "You are an assistant.")
         self.assertEqual(optimized_req.messages[1].content, "Hello world!")
 
     def test_header_opt_in_sets_headers(self):
@@ -120,7 +119,10 @@ class TestPromptOptimizationIntegration(unittest.TestCase):
             "service_name": "openai",
             "model": "gpt-4o-mini",
             "messages": [
-                {"role": "user", "content": "Query    with    extra    spaces   \n\n\n"},
+                {
+                    "role": "user",
+                    "content": "Query    with    extra    spaces   \n\n\n",
+                },
             ],
         }
 
@@ -194,7 +196,10 @@ class TestPromptOptimizationIntegration(unittest.TestCase):
             "model": "gpt-4o-mini",
             "stream": True,
             "messages": [
-                {"role": "user", "content": "Stream    with    excess    spaces.  \n\n\n"},
+                {
+                    "role": "user",
+                    "content": "Stream    with    excess    spaces.  \n\n\n",
+                },
             ],
             "prompt_optimization": True,
         }
@@ -283,7 +288,9 @@ class TestPromptOptimizationIntegration(unittest.TestCase):
         call_args = self.router._generate_completion_impl.call_args[0]
         optimized_req: ChatCompletionRequest = call_args[0]
         self.assertEqual(optimized_req.messages[0].content, "System prompt")
-        self.assertIn("omitted for context reduction", optimized_req.messages[1].content)
+        self.assertIn(
+            "omitted for context reduction", optimized_req.messages[1].content
+        )
         self.assertEqual(optimized_req.messages[-2].content, "Answer 3 (recent)")
         self.assertEqual(optimized_req.messages[-1].content, "Question 4 (active)")
 
@@ -306,16 +313,23 @@ class TestPromptOptimizationIntegration(unittest.TestCase):
 
         detailed_answer = (
             "This is a detailed explanation of distributed architectures, consensus mechanisms, "
-            "failover policies, replication groups, and network partitioning strategies. " * 3
+            "failover policies, replication groups, and network partitioning strategies. "
+            * 3
         )
         payload = {
             "service_name": "openai",
             "model": "gpt-4o-mini",
             "messages": [
                 {"role": "system", "content": "System prompt"},
-                {"role": "user", "content": "Question 1: Explain distributed systems architecture."},
+                {
+                    "role": "user",
+                    "content": "Question 1: Explain distributed systems architecture.",
+                },
                 {"role": "assistant", "content": detailed_answer},
-                {"role": "user", "content": "Question 2: Explain consensus mechanisms in full detail."},
+                {
+                    "role": "user",
+                    "content": "Question 2: Explain consensus mechanisms in full detail.",
+                },
                 {"role": "assistant", "content": detailed_answer},
                 {"role": "user", "content": "Question 3 (recent)"},
                 {"role": "assistant", "content": "Answer 3 (recent)"},
@@ -358,7 +372,9 @@ class TestPromptOptimizationIntegration(unittest.TestCase):
         )
         self.router._generate_completion_impl = AsyncMock(return_value=mock_response)
 
-        long_content = "This is a detailed intermediate answer with multiple tokens. " * 20
+        long_content = (
+            "This is a detailed intermediate answer with multiple tokens. " * 20
+        )
         payload = {
             "service_name": "openai",
             "model": "gpt-4o-mini",
@@ -390,6 +406,64 @@ class TestPromptOptimizationIntegration(unittest.TestCase):
         self.assertEqual(optimized_req.messages[-1].content, "Question 2 (keep)")
         contents = [m.content for m in optimized_req.messages]
         self.assertNotIn("Question 1 (to prune)", contents)
+
+    def test_compress_header_opt_in(self):
+        mock_response = ChatCompletionResponse(
+            id="chatcmpl-comp",
+            object="chat.completion",
+            created=1234567890,
+            model="gpt-4o-mini",
+            choices=[
+                Choice(
+                    index=0,
+                    message=ChatMessage(role="assistant", content="Answer"),
+                    finish_reason="stop",
+                )
+            ],
+            usage=Usage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+            cache_info={"matched": False},
+        )
+        self.router._generate_completion_impl = AsyncMock(return_value=mock_response)
+
+        long_content = "This is a very detailed explanation with verbose redundant text that can be compressed."
+        payload = {
+            "service_name": "openai",
+            "model": "gpt-4o-mini",
+            "messages": [
+                {"role": "assistant", "content": long_content},
+                {"role": "user", "content": "Follow up"},
+            ],
+        }
+
+        self.router.prompt_optimizer._inference_client = AsyncMock()
+        self.router.prompt_optimizer._inference_client.compress = AsyncMock(
+            return_value=[
+                {
+                    "index": 0,
+                    "original_text": long_content,
+                    "compressed_text": "detailed explanation compressed.",
+                    "original_tokens": 15,
+                    "compressed_tokens": 4,
+                }
+            ]
+        )
+
+        headers = {
+            "Authorization": "Bearer test-api-key",
+            EchoGateHeaders.PROMPT_OPTIMIZATION: "compress",
+        }
+        resp = self.client.post(
+            "/api/v1/chat/completions", json=payload, headers=headers
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            resp.headers.get(EchoGateHeaders.PROMPT_OPTIMIZATION), "applied"
+        )
+        call_args = self.router._generate_completion_impl.call_args[0]
+        optimized_req: ChatCompletionRequest = call_args[0]
+        self.assertEqual(
+            optimized_req.messages[0].content, "detailed explanation compressed."
+        )
 
 
 if __name__ == "__main__":

@@ -2745,7 +2745,7 @@ class LlmRouterService:
         read anywhere below (Redis, Qdrant exact, semantic search) is reported on
         the response instead of only in the logs.
         """
-        request, opt_result = self.prompt_optimizer.optimize(request)
+        request, opt_result = await self.prompt_optimizer.optimize_async(request)
         service_name = request.service_name or config.DEFAULT_LLM_SERVICE
         span_attrs = {
             GEN_AI_SYSTEM: service_name,
@@ -3083,7 +3083,7 @@ class LlmRouterService:
         hit counting, auditing, and usage/trace logging mirror the serving path,
         because this *is* the serving path for these requests.
         """
-        request, opt_result = self.prompt_optimizer.optimize(request)
+        request, opt_result = await self.prompt_optimizer.optimize_async(request)
         if config.CACHE_MODE == "shadow":
             # Shadow mode never reads the cache, so there is nothing to serve.
             return None
@@ -3176,7 +3176,7 @@ class LlmRouterService:
         `X-Cache-Prefer: instant` miss already ran the lookup pipeline, so the
         stream does not pay for it a second time.
         """
-        request, opt_result = self.prompt_optimizer.optimize(request)
+        request, opt_result = await self.prompt_optimizer.optimize_async(request)
         service_name = request.service_name or config.DEFAULT_LLM_SERVICE
         span_attrs = {
             GEN_AI_SYSTEM: service_name,

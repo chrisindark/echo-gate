@@ -90,6 +90,40 @@ class TestConstantsAndConfig(unittest.TestCase):
         config.PROMPT_VERSION = "2.1"
         self.assertEqual(constants.PROMPT_VERSION, "2.1")
 
+    def test_project_name_and_version_defaults(self):
+        backup = {
+            "PROJECT_NAME": os.environ.get("PROJECT_NAME"),
+            "VERSION": os.environ.get("VERSION"),
+        }
+        try:
+            # When unset, defaults to echo-gate / 0.1.0
+            os.environ.pop("PROJECT_NAME", None)
+            os.environ.pop("VERSION", None)
+            config.load()
+            self.assertEqual(config.PROJECT_NAME, "echo-gate")
+            self.assertEqual(config.VERSION, "0.1.0")
+
+            # When empty string or whitespace, falls back to defaults
+            os.environ["PROJECT_NAME"] = "   "
+            os.environ["VERSION"] = ""
+            config.load()
+            self.assertEqual(config.PROJECT_NAME, "echo-gate")
+            self.assertEqual(config.VERSION, "0.1.0")
+
+            # When explicitly provided, honors the value
+            os.environ["PROJECT_NAME"] = "custom-gateway"
+            os.environ["VERSION"] = "1.2.3"
+            config.load()
+            self.assertEqual(config.PROJECT_NAME, "custom-gateway")
+            self.assertEqual(config.VERSION, "1.2.3")
+        finally:
+            for k, v in backup.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+            config.load()
+
     def test_env_var_loading(self):
         backup_env = {
             "EMBEDDING_VERSION": os.environ.get("EMBEDDING_VERSION"),

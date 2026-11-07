@@ -247,6 +247,31 @@ class DynamicModelRegistry:
             return False
         return True
 
+    def get_service_for_model(self, model: str) -> str | None:
+        """Find the service name that hosts a given model or alias."""
+        norm_model = model.strip()
+        if self.is_alias(norm_model):
+            targets = self.get_alias_targets(norm_model)
+            if targets:
+                return targets[0].service
+        preferred_order = [
+            "claude",
+            "anthropic",
+            "google-genai",
+            "gemini",
+            "openai",
+            "groq",
+            "openrouter",
+            "ollama",
+        ]
+        for svc in preferred_order:
+            if svc in self._models and norm_model in self._models[svc]:
+                return svc
+        for svc, models in self._models.items():
+            if norm_model in models:
+                return svc
+        return None
+
     def get_context_window(self, model: str) -> int:
         """Resolve maximum context window limit (in tokens) for a model or alias."""
         norm = model.strip().lower()

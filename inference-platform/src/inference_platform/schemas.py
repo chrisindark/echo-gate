@@ -85,3 +85,29 @@ class ClassifyRequest(BaseModel):
     # omitted (the keys define the label set) and `hypothesis_template` must stay
     # at its default: the two ways of spelling a hypothesis are mutually exclusive.
     hypotheses: dict[str, list[str]] | None = None
+
+
+class CompressRequest(BaseModel):
+    """Lossy prompt compression via token pruning or extractive semantic ranking."""
+
+    model: str | None = None
+    role: str | None = None
+    input: str | list[str]
+    rate: float = Field(
+        default=0.5,
+        ge=0.05,
+        le=0.95,
+        description="Target compression ratio (fraction of content to retain)",
+    )
+    target_tokens: int | None = Field(
+        default=None,
+        ge=1,
+        description="Target token count ceiling; overrides rate if specified.",
+    )
+    method: Literal["lexical", "extractive"] = Field(
+        default="lexical",
+        description=(
+            "Compression method: 'lexical' (token pruning) or "
+            "'extractive' (sentence ranking)."
+        ),
+    )

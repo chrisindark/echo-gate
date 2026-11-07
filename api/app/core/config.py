@@ -68,8 +68,8 @@ class Config:
         self.load()
 
     def load(self):
-        self.PROJECT_NAME = os.getenv("PROJECT_NAME", "")
-        self.VERSION = os.getenv("VERSION", "0.1.0")
+        self.PROJECT_NAME = os.getenv("PROJECT_NAME", "").strip() or "echo-gate"
+        self.VERSION = os.getenv("VERSION", "").strip() or "0.1.0"
 
         # Telemetry & Observability
         self.OTEL_ENABLED = os.getenv("OTEL_ENABLED", "true").lower() == "true"
@@ -89,9 +89,7 @@ class Config:
             os.getenv("TELEMETRY_ENABLED", "false").lower() == "true"
         )
         self.TELEMETRY_ENDPOINT = os.getenv("TELEMETRY_ENDPOINT", "").strip()
-        self.TELEMETRY_INTERVAL_SECONDS = _int_env(
-            "TELEMETRY_INTERVAL_SECONDS", 86400
-        )
+        self.TELEMETRY_INTERVAL_SECONDS = _int_env("TELEMETRY_INTERVAL_SECONDS", 86400)
         self.TELEMETRY_INSTANCE_ID = os.getenv("TELEMETRY_INSTANCE_ID", "").strip()
         self.TELEMETRY_DEPLOYMENT_MODE = os.getenv(
             "TELEMETRY_DEPLOYMENT_MODE", "self-hosted"
@@ -275,9 +273,8 @@ class Config:
         # stretch them (and the eviction sweep protects the valuable ones)
         # instead of every entry dying on the same flat clock.
         self.CACHE_RETENTION_ENABLED = (
-            (os.getenv("CACHE_RETENTION_ENABLED", "true") or "true").strip().lower()
-            == "true"
-        )
+            os.getenv("CACHE_RETENTION_ENABLED", "true") or "true"
+        ).strip().lower() == "true"
         self.CACHE_RETENTION_MAX_TTL_SECONDS = _int_env(
             "CACHE_RETENTION_MAX_TTL_SECONDS", 30 * 24 * 60 * 60
         )
@@ -289,9 +286,7 @@ class Config:
         )
         # 0 disables capacity-based eviction; any positive value caps the
         # collection by deleting the lowest-retention-value points first.
-        self.CACHE_RETENTION_MAX_POINTS = _int_env(
-            "CACHE_RETENTION_MAX_POINTS", 0
-        )
+        self.CACHE_RETENTION_MAX_POINTS = _int_env("CACHE_RETENTION_MAX_POINTS", 0)
 
         # Prompt Token Optimization Pipeline (Phase 5 / P3)
         # Opt-in pre-processing pipeline for chat completion requests to reduce
@@ -319,13 +314,27 @@ class Config:
             "PROMPT_OPTIMIZATION_CCR_KEEP_LAST_N_TURNS", 5
         )
         self.PROMPT_OPTIMIZATION_CCR_STRATEGY = (
-            os.getenv("PROMPT_OPTIMIZATION_CCR_STRATEGY", "condense") or "condense"
-        ).strip().lower()
+            (os.getenv("PROMPT_OPTIMIZATION_CCR_STRATEGY", "condense") or "condense")
+            .strip()
+            .lower()
+        )
         self.PROMPT_OPTIMIZATION_HEADROOM_ENABLED = _bool_env(
             "PROMPT_OPTIMIZATION_HEADROOM_ENABLED", False
         )
         self.PROMPT_OPTIMIZATION_HEADROOM_BUFFER = _int_env(
             "PROMPT_OPTIMIZATION_HEADROOM_BUFFER", 100
+        )
+        # Phase C: Lossy Prompt Compression (offloaded to inference-platform)
+        self.PROMPT_OPTIMIZATION_COMPRESS_ENABLED = _bool_env(
+            "PROMPT_OPTIMIZATION_COMPRESS_ENABLED", False
+        )
+        self.PROMPT_OPTIMIZATION_COMPRESS_RATE = _bounded_float_env(
+            "PROMPT_OPTIMIZATION_COMPRESS_RATE", 0.5, 0.05, 0.95
+        )
+        self.PROMPT_OPTIMIZATION_COMPRESS_METHOD = (
+            (os.getenv("PROMPT_OPTIMIZATION_COMPRESS_METHOD", "lexical") or "lexical")
+            .strip()
+            .lower()
         )
 
         # Cache mode gate: `disabled` (no cache), `shadow` (serve every request
@@ -548,12 +557,16 @@ class Config:
         self.INFERENCE_NLI_URL = (
             os.getenv("INFERENCE_NLI_URL") or os.getenv("INFERENCE_CLASSIFY_URL") or ""
         ).rstrip("/")
+        self.INFERENCE_COMPRESS_URL = os.getenv("INFERENCE_COMPRESS_URL", "").rstrip(
+            "/"
+        )
         self.INFERENCE_ENABLED = bool(
             self.INFERENCE_BASE_URL
             or self.INFERENCE_EMBED_URL
             or self.INFERENCE_RERANK_URL
             or self.INFERENCE_RELEVANCE_URL
             or self.INFERENCE_NLI_URL
+            or self.INFERENCE_COMPRESS_URL
         )
         self.INFERENCE_TIMEOUT_SECONDS = _bounded_float_env(
             "INFERENCE_TIMEOUT_SECONDS", 5.0, 0.1, 120.0
@@ -578,6 +591,12 @@ class Config:
         )
         self.INFERENCE_NLI_TIMEOUT_SECONDS = _bounded_float_env(
             "INFERENCE_NLI_TIMEOUT_SECONDS", self.INFERENCE_TIMEOUT_SECONDS, 0.1, 120.0
+        )
+        self.INFERENCE_COMPRESS_TIMEOUT_SECONDS = _bounded_float_env(
+            "INFERENCE_COMPRESS_TIMEOUT_SECONDS",
+            self.INFERENCE_TIMEOUT_SECONDS,
+            0.1,
+            120.0,
         )
         self.INFERENCE_MAX_RETRIES = int(
             _bounded_float_env("INFERENCE_MAX_RETRIES", 1, 0, 5)

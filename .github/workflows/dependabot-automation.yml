@@ -1,0 +1,45 @@
+name: Dependabot Automation
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  pull-requests: write
+  contents: write
+
+jobs:
+  dependabot:
+    name: Triage & Review Dependabot PR
+    runs-on: ubuntu-latest
+    if: github.actor == 'dependabot[bot]'
+
+    steps:
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: '${{ secrets.GITHUB_TOKEN }}'
+
+      - name: Add security label for vulnerability fixes
+        if: steps.metadata.outputs.update-type == 'version-update:semver-patch' || steps.metadata.outputs.is-security-update == 'true'
+        run: gh pr edit "$PR_URL" --add-label "security,dependencies"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Auto-approve patch and minor updates
+        if: steps.metadata.outputs.update-type == 'version-update:semver-patch' || steps.metadata.outputs.update-type == 'version-update:semver-minor'
+        run: gh pr review --approve "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Dependabot Auto-Merge kept disabled/commented out: CI checks alone may not guarantee
+      # that dependency upgrades won't introduce subtle behavioral breaks. Manual review required.
+      # - name: Enable auto-merge for approved Dependabot PRs
+      #   if: steps.metadata.outputs.update-type == 'version-update:semver-patch' || steps.metadata.outputs.update-type == 'version-update:semver-minor'
+      #   run: gh pr merge --auto --squash "$PR_URL" || true
+      #   env:
+      #     PR_URL: ${{ github.event.pull_request.html_url }}
+      #     GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

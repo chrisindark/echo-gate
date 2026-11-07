@@ -21,6 +21,7 @@ from app.core.middlewares import (
 from app.core.responses import BaseAPIResponse
 from app.core.telemetry import init_telemetry
 from app.modules.analytics.analytics_controller import api_v1_router as analytics_router
+from app.modules.anthropic.anthropic_controller import anthropic_router
 from app.modules.api_keys.api_keys_controller import api_v1_router as api_keys_router
 from app.modules.chat.chat_controller import api_v1_router as chat_router
 from app.modules.conversation.conversation_controller import (
@@ -80,8 +81,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title=config.PROJECT_NAME,
-    version=config.VERSION,
+    title=config.PROJECT_NAME or "echo-gate",
+    version=config.VERSION or "0.1.0",
     description="A FastAPI-based proxy for LLMs with Semantic Caching.",
     lifespan=lifespan,
     # Declared so the OpenAPI contract documents the two credential headers.
@@ -129,6 +130,7 @@ def root():
 app.include_router(root_health_router)
 app.include_router(health_router)
 app.include_router(chat_router)
+app.include_router(anthropic_router)
 app.include_router(conversation_router)
 app.include_router(qdrant_router)
 app.include_router(llm_usage_router)
@@ -200,8 +202,8 @@ def _custom_openapi() -> dict:
         return app.openapi_schema
 
     schema = get_openapi(
-        title=app.title,
-        version=app.version,
+        title=app.title or "echo-gate",
+        version=app.version or "0.1.0",
         description=app.description,
         routes=app.routes,
         tags=app.openapi_tags,

@@ -124,6 +124,7 @@ async def create_chat_completion(
                 ccr="ccr" in strategies,
                 ccr_keep_last_n_turns=ccr_turns,
                 headroom_trim="headroom-trim" in strategies or "headroom" in strategies,
+                compress="compress" in strategies,
             )
 
     if request.stream:

@@ -194,7 +194,9 @@ class TestToolJsonTabularization(unittest.TestCase):
 
         # Single row when min_rows=2
         single_row = json.dumps([{"id": 1}])
-        self.assertEqual(self.optimizer.tabularize_json_array(single_row, min_rows=2), single_row)
+        self.assertEqual(
+            self.optimizer.tabularize_json_array(single_row, min_rows=2), single_row
+        )
 
 
 class TestConversationContextReduction(unittest.TestCase):
@@ -206,11 +208,18 @@ class TestConversationContextReduction(unittest.TestCase):
             ChatMessage(role="system", content="You are a helpful assistant."),
             # Intermediate turns
             ChatMessage(role="user", content="Turn 1: Tell me about astronomy."),
-            ChatMessage(role="assistant", content="Astronomy is the study of celestial objects."),
+            ChatMessage(
+                role="assistant", content="Astronomy is the study of celestial objects."
+            ),
             ChatMessage(role="user", content="Turn 2: What is Mars?"),
-            ChatMessage(role="assistant", content="Mars is the fourth planet from the Sun."),
+            ChatMessage(
+                role="assistant", content="Mars is the fourth planet from the Sun."
+            ),
             ChatMessage(role="user", content="Turn 3: What about Jupiter?"),
-            ChatMessage(role="assistant", content="Jupiter is the largest planet in our solar system."),
+            ChatMessage(
+                role="assistant",
+                content="Jupiter is the largest planet in our solar system.",
+            ),
             # Recent turns (keep_last_n_turns=2)
             ChatMessage(role="user", content="Turn 4: Does Jupiter have rings?"),
             ChatMessage(role="assistant", content="Yes, Jupiter has faint rings."),
@@ -320,7 +329,9 @@ class TestHeadroomTrimmer(unittest.TestCase):
     def test_headroom_truncates_large_active_prompt_when_alone_exceeds(self):
         messages = [
             ChatMessage(role="system", content="System instructions."),
-            ChatMessage(role="user", content="A massive active prompt: " + "word " * 200),
+            ChatMessage(
+                role="user", content="A massive active prompt: " + "word " * 200
+            ),
         ]
 
         trimmed = self.optimizer.trim_headroom(
@@ -331,7 +342,10 @@ class TestHeadroomTrimmer(unittest.TestCase):
         )
 
         self.assertEqual(trimmed[0].content, "System instructions.")
-        self.assertIn("[... Content truncated to fit within model context window ...]", trimmed[1].content)
+        self.assertIn(
+            "[... Content truncated to fit within model context window ...]",
+            trimmed[1].content,
+        )
 
 
 class TestFullOptimizationPipeline(unittest.TestCase):
@@ -351,11 +365,18 @@ class TestFullOptimizationPipeline(unittest.TestCase):
             service_name="openai",
             model="gpt-4o-mini",
             messages=[
-                ChatMessage(role="system", content="You    are   a    helpful    assistant.   \n\n\n\n"),
+                ChatMessage(
+                    role="system",
+                    content="You    are   a    helpful    assistant.   \n\n\n\n",
+                ),
                 ChatMessage(role="user", content="list   devices   "),
                 ChatMessage(role="user", content="list   devices   "),
-                ChatMessage(role="tool", content=tool_content, tool_call_id="call_list"),
-                ChatMessage(role="user", content="Which   devices   are   active?  \n\n"),
+                ChatMessage(
+                    role="tool", content=tool_content, tool_call_id="call_list"
+                ),
+                ChatMessage(
+                    role="user", content="Which   devices   are   active?  \n\n"
+                ),
             ],
             prompt_optimization=True,
         )
@@ -369,7 +390,9 @@ class TestFullOptimizationPipeline(unittest.TestCase):
         self.assertGreater(result.tokens_saved, 0)
 
         # Verify system prompt whitespace collapsed
-        self.assertEqual(optimized_req.messages[0].content, "You are a helpful assistant.")
+        self.assertEqual(
+            optimized_req.messages[0].content, "You are a helpful assistant."
+        )
         # Verify user duplicate turn removed
         self.assertEqual(len(optimized_req.messages), 4)
         # Verify tool message tabularized
@@ -386,7 +409,9 @@ class TestFullOptimizationPipeline(unittest.TestCase):
         )
         optimized_req, result = self.optimizer.optimize(request)
         self.assertFalse(result.applied)
-        self.assertEqual(optimized_req.messages[0].content, "Hello      world!   \n\n\n")
+        self.assertEqual(
+            optimized_req.messages[0].content, "Hello      world!   \n\n\n"
+        )
 
     def test_selective_strategies(self):
         request = ChatCompletionRequest(
@@ -414,14 +439,38 @@ class TestFullOptimizationPipeline(unittest.TestCase):
     def test_optimize_with_ccr_and_headroom_trimming(self):
         messages = [
             ChatMessage(role="system", content="System instruction.   \n\n"),
-            ChatMessage(role="user", content="Turn 1: question A about quantum computing mechanics and qubits"),
-            ChatMessage(role="assistant", content="Turn 1: answer A detailing superposition, entanglement, and decoherence times"),
-            ChatMessage(role="user", content="Turn 2: question B about error correction surface codes"),
-            ChatMessage(role="assistant", content="Turn 2: answer B detailing topological surface codes and physical-to-logical qubit overheads"),
-            ChatMessage(role="user", content="Turn 3: question C about cryogenic dilution refrigerators"),
-            ChatMessage(role="assistant", content="Turn 3: answer C describing millikelvin cooling with helium-3 and helium-4 isotopes"),
-            ChatMessage(role="user", content="Turn 4: question D about commercial cloud hardware"),
-            ChatMessage(role="assistant", content="Turn 4: answer D listing current superconducting quantum hardware available via cloud APIs"),
+            ChatMessage(
+                role="user",
+                content="Turn 1: question A about quantum computing mechanics and qubits",
+            ),
+            ChatMessage(
+                role="assistant",
+                content="Turn 1: answer A detailing superposition, entanglement, and decoherence times",
+            ),
+            ChatMessage(
+                role="user",
+                content="Turn 2: question B about error correction surface codes",
+            ),
+            ChatMessage(
+                role="assistant",
+                content="Turn 2: answer B detailing topological surface codes and physical-to-logical qubit overheads",
+            ),
+            ChatMessage(
+                role="user",
+                content="Turn 3: question C about cryogenic dilution refrigerators",
+            ),
+            ChatMessage(
+                role="assistant",
+                content="Turn 3: answer C describing millikelvin cooling with helium-3 and helium-4 isotopes",
+            ),
+            ChatMessage(
+                role="user",
+                content="Turn 4: question D about commercial cloud hardware",
+            ),
+            ChatMessage(
+                role="assistant",
+                content="Turn 4: answer D listing current superconducting quantum hardware available via cloud APIs",
+            ),
             ChatMessage(role="user", content="Turn 5: active prompt"),
         ]
         request = ChatCompletionRequest(
@@ -450,6 +499,203 @@ class TestFullOptimizationPipeline(unittest.TestCase):
         self.assertIn("[Context briefing", optimized_req.messages[1].content)
         # Verify active prompt kept
         self.assertEqual(optimized_req.messages[-1].content, "Turn 5: active prompt")
+
+    def test_ccr_with_tool_calls_in_intermediate_turns(self):
+        messages = [
+            ChatMessage(role="system", content="System instruction."),
+            ChatMessage(role="user", content="Turn 1: fetch data"),
+            ChatMessage(
+                role="assistant",
+                content=None,
+                tool_calls=[
+                    ToolCall(
+                        id="call_1",
+                        type="function",
+                        function=FunctionCall(name="query_database", arguments="{}"),
+                    )
+                ],
+            ),
+            ChatMessage(role="tool", tool_call_id="call_1", content="ok"),
+            ChatMessage(role="user", content="Turn 2: analyze"),
+            ChatMessage(role="assistant", content="Turn 2 answer"),
+            ChatMessage(role="user", content="Turn 3: final question"),
+        ]
+        reduced = self.optimizer.reduce_context(
+            messages, keep_last_n_turns=1, strategy="condense"
+        )
+        briefing = reduced[1].content
+        self.assertIn("Called tool(s): query_database", briefing)
+
+    def test_headroom_trim_model_registry_fallback(self):
+        # target_tokens=None, uses model_registry lookup
+        long_content = "Word " * 200
+        messages = [
+            ChatMessage(role="system", content="System instructions"),
+            ChatMessage(role="user", content=long_content),
+            ChatMessage(role="assistant", content=long_content),
+            ChatMessage(role="user", content="Active query"),
+        ]
+        # mock model has default context window, buffer_tokens trimmed
+        trimmed = self.optimizer.trim_headroom(
+            messages,
+            model="gpt-4o-mini",
+            target_tokens=300,
+            buffer_tokens=50,
+        )
+        self.assertLess(len(trimmed), len(messages))
+
+    def test_optimize_no_op_when_already_minimal(self):
+        request = ChatCompletionRequest(
+            service_name="openai",
+            model="gpt-4o-mini",
+            messages=[ChatMessage(role="user", content="Minimal content")],
+            prompt_optimization=PromptOptimizationConfig(
+                enabled=True,
+                whitespace=True,
+                session_dedup=True,
+                json_table=True,
+                ccr=False,
+                headroom_trim=False,
+            ),
+        )
+        optimized_req, result = self.optimizer.optimize(request)
+        self.assertFalse(result.applied)
+        self.assertEqual(result.chars_saved, 0)
+        self.assertEqual(result.tokens_saved, 0)
+
+    def test_optimize_fail_open_on_exception(self):
+        from unittest.mock import patch
+
+        request = ChatCompletionRequest(
+            service_name="openai",
+            model="gpt-4o-mini",
+            messages=[ChatMessage(role="user", content="Hello")],
+            prompt_optimization=PromptOptimizationConfig(enabled=True),
+        )
+        with patch.object(
+            self.optimizer,
+            "deduplicate_session",
+            side_effect=RuntimeError("Unexpected error"),
+        ):
+            optimized_req, result = self.optimizer.optimize(request)
+            self.assertFalse(result.applied)
+            self.assertEqual(optimized_req, request)
+
+    def test_compress_sync_applies_lossy_compression(self):
+        from unittest.mock import MagicMock
+
+        mock_client = MagicMock()
+        mock_client.compress_sync.return_value = [
+            {
+                "index": 0,
+                "original_text": "This is a very long and detailed explanation that should be compressed.",
+                "compressed_text": "detailed explanation compressed.",
+                "original_tokens": 12,
+                "compressed_tokens": 3,
+            }
+        ]
+        optimizer = PromptOptimizer(inference_client=mock_client)
+        request = ChatCompletionRequest(
+            service_name="openai",
+            model="gpt-4o-mini",
+            messages=[
+                ChatMessage(role="system", content="System instruction."),
+                ChatMessage(
+                    role="assistant",
+                    content="This is a very long and detailed explanation that should be compressed.",
+                ),
+                ChatMessage(role="user", content="Next question."),
+            ],
+            prompt_optimization=PromptOptimizationConfig(
+                enabled=True,
+                whitespace=False,
+                session_dedup=False,
+                json_table=False,
+                ccr=False,
+                headroom_trim=False,
+                compress=True,
+                compress_rate=0.5,
+            ),
+        )
+        optimized_req, result = optimizer.optimize(request)
+        self.assertTrue(result.applied)
+        self.assertIn("compress", result.strategies)
+        self.assertEqual(
+            optimized_req.messages[1].content, "detailed explanation compressed."
+        )
+
+    def test_compress_async_applies_lossy_compression(self):
+        import asyncio
+        from unittest.mock import AsyncMock
+
+        mock_client = AsyncMock()
+        mock_client.compress.return_value = [
+            {
+                "index": 0,
+                "original_text": "This is a very long and detailed explanation that should be compressed.",
+                "compressed_text": "detailed explanation compressed.",
+                "original_tokens": 12,
+                "compressed_tokens": 3,
+            }
+        ]
+        optimizer = PromptOptimizer(inference_client=mock_client)
+        request = ChatCompletionRequest(
+            service_name="openai",
+            model="gpt-4o-mini",
+            messages=[
+                ChatMessage(role="system", content="System instruction."),
+                ChatMessage(
+                    role="assistant",
+                    content="This is a very long and detailed explanation that should be compressed.",
+                ),
+                ChatMessage(role="user", content="Next question."),
+            ],
+            prompt_optimization=PromptOptimizationConfig(
+                enabled=True,
+                whitespace=False,
+                session_dedup=False,
+                json_table=False,
+                ccr=False,
+                headroom_trim=False,
+                compress=True,
+                compress_rate=0.5,
+            ),
+        )
+        optimized_req, result = asyncio.run(optimizer.optimize_async(request))
+        self.assertTrue(result.applied)
+        self.assertIn("compress", result.strategies)
+        self.assertEqual(
+            optimized_req.messages[1].content, "detailed explanation compressed."
+        )
+
+    def test_compress_fail_open_on_client_error(self):
+        from unittest.mock import MagicMock
+
+        mock_client = MagicMock()
+        mock_client.compress_sync.side_effect = RuntimeError("Inference down")
+        optimizer = PromptOptimizer(inference_client=mock_client)
+        long_content = (
+            "This is a very long and detailed explanation that should be compressed."
+        )
+        request = ChatCompletionRequest(
+            service_name="openai",
+            model="gpt-4o-mini",
+            messages=[
+                ChatMessage(role="assistant", content=long_content),
+            ],
+            prompt_optimization=PromptOptimizationConfig(
+                enabled=True,
+                whitespace=False,
+                session_dedup=False,
+                json_table=False,
+                ccr=False,
+                headroom_trim=False,
+                compress=True,
+            ),
+        )
+        optimized_req, result = optimizer.optimize(request)
+        self.assertFalse(result.applied)
+        self.assertEqual(optimized_req.messages[0].content, long_content)
 
 
 if __name__ == "__main__":

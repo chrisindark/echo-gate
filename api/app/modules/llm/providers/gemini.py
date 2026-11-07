@@ -246,7 +246,9 @@ class GeminiProvider:
                 for idx, fc in enumerate(response.function_calls):
                     call_id = getattr(fc, "id", None) or f"call_{uuid.uuid4().hex}"
                     if idx < len(candidate_fc_parts):
-                        sig = getattr(candidate_fc_parts[idx], "thought_signature", None)
+                        sig = getattr(
+                            candidate_fc_parts[idx], "thought_signature", None
+                        )
                         if sig:
                             _store_thought_signature(call_id, sig)
                     try:
@@ -423,7 +425,9 @@ class GeminiProvider:
                         if getattr(part, "function_call", None):
                             fc = part.function_call
                             function_calls.append(fc)
-                            call_id = getattr(fc, "id", None) or f"call_{uuid.uuid4().hex}"
+                            call_id = (
+                                getattr(fc, "id", None) or f"call_{uuid.uuid4().hex}"
+                            )
                             sig = getattr(part, "thought_signature", None)
                             if sig:
                                 _store_thought_signature(call_id, sig)

@@ -725,3 +725,88 @@ def test_zero_shot_pair_budget_counts_every_hypothesis() -> None:
     detail = response.json()["detail"]
     assert detail["error"] == "too_many_pairs"
     assert detail["got"] == 10 * 6 * 5
+
+
+# ------------------------------------------------------------------ #
+# /compress tests
+# ------------------------------------------------------------------ #
+
+
+def test_compress_lexical_prunes_words() -> None:
+    text = (
+        "Here is a very verbose and lengthy explanation with really unnecessary "
+        "filler words that should definitely be pruned down effectively."
+    )
+    with build_client() as client:
+        response = client.post(
+            "/compress",
+            json={"input": text, "rate": 0.5, "method": "lexical"},
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["method"] == "lexical"
+    assert len(data["data"]) == 1
+    item = data["data"][0]
+    assert item["compressed_tokens"] < item["original_tokens"]
+    assert item["compressed_text"] in text or len(item["compressed_text"]) < len(text)
+    assert data["usage"]["tokens_saved"] > 0
+
+
+def test_compress_preserves_code_blocks() -> None:
+    text = (
+        "Here is some python code to execute properly:\n"
+        "```python\n"
+        "def connect():\n"
+        "    return 42\n"
+        "```\n"
+        "Make sure to call connect when needed."
+    )
+    with build_client() as client:
+        response = client.post(
+            "/compress",
+            json={"input": text, "rate": 0.5, "method": "lexical"},
+        )
+    assert response.status_code == 200
+    comp_text = response.json()["data"][0]["compressed_text"]
+    assert "```python\ndef connect():\n    return 42\n```" in comp_text
+
+
+def test_compress_extractive() -> None:
+    text = (
+        "Sentence one establishes background context. "
+        "Sentence two provides crucial technical instructions. "
+        "Sentence three summarizes the conclusion."
+    )
+    with build_client() as client:
+        response = client.post(
+            "/compress",
+            json={"input": text, "rate": 0.5, "method": "extractive"},
+        )
+    assert response.status_code == 200
+    item = response.json()["data"][0]
+    assert item["compressed_tokens"] <= item["original_tokens"]
+    assert len(item["compressed_text"]) > 0
+
+
+def test_compress_respects_target_tokens() -> None:
+    text = "One two three four five six seven eight nine ten eleven twelve."
+    with build_client() as client:
+        response = client.post(
+            "/compress",
+            json={"input": text, "target_tokens": 4, "method": "lexical"},
+        )
+    assert response.status_code == 200
+    item = response.json()["data"][0]
+    assert item["compressed_tokens"] <= 5
+
+
+def test_compress_validates_rate_and_empty_input() -> None:
+    with build_client() as client:
+        resp1 = client.post("/compress", json={"input": "", "rate": 0.5})
+        assert resp1.status_code == 400
+        assert resp1.json()["detail"]["error"] == "missing_input"
+
+        resp2 = client.post(
+            "/compress", json={"input": "Some text", "rate": 1.5}
+        )
+        assert resp2.status_code == 422

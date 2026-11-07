@@ -10,9 +10,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import re
 from contextlib import asynccontextmanager
 from typing import Any
 
+import numpy as np
 from fastapi import FastAPI, HTTPException
 
 from inference_platform.errors import api_error
@@ -20,6 +22,7 @@ from inference_platform.roles import Registry, _Role
 from inference_platform.schemas import (
     DEFAULT_HYPOTHESIS_TEMPLATE,
     ClassifyRequest,
+    CompressRequest,
     EmbeddingsRequest,
     RerankRequest,
 )
@@ -65,6 +68,248 @@ def _token_count(role: _Role | None, texts: list[str]) -> int:
 
 def _as_texts(value: str | list[str]) -> list[str]:
     return [value] if isinstance(value, str) else list(value)
+
+
+_STOPWORDS = {
+    "a",
+    "an",
+    "the",
+    "and",
+    "or",
+    "but",
+    "if",
+    "because",
+    "as",
+    "until",
+    "while",
+    "of",
+    "at",
+    "by",
+    "for",
+    "with",
+    "about",
+    "against",
+    "between",
+    "into",
+    "through",
+    "during",
+    "before",
+    "after",
+    "above",
+    "below",
+    "to",
+    "from",
+    "up",
+    "down",
+    "in",
+    "out",
+    "on",
+    "off",
+    "over",
+    "under",
+    "again",
+    "further",
+    "then",
+    "once",
+    "here",
+    "there",
+    "when",
+    "where",
+    "why",
+    "how",
+    "all",
+    "any",
+    "both",
+    "each",
+    "few",
+    "more",
+    "most",
+    "other",
+    "some",
+    "such",
+    "no",
+    "nor",
+    "not",
+    "only",
+    "own",
+    "same",
+    "so",
+    "than",
+    "too",
+    "very",
+    "can",
+    "will",
+    "just",
+    "should",
+    "now",
+    "is",
+    "am",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "being",
+    "have",
+    "has",
+    "had",
+    "having",
+    "do",
+    "does",
+    "did",
+    "doing",
+    "really",
+    "basically",
+    "actually",
+    "literally",
+    "simply",
+    "definitely",
+    "certainly",
+    "obviously",
+    "clearly",
+    "furthermore",
+    "moreover",
+    "therefore",
+    "thus",
+    "hence",
+}
+
+
+def _protect_code_blocks(text: str) -> tuple[str, list[str]]:
+    """Extract fenced code blocks and replace with unique placeholders."""
+    pattern = re.compile(r"(```[\s\S]*?```|~~~[\s\S]*?~~~)")
+    code_blocks: list[str] = []
+
+    def repl(m: re.Match) -> str:
+        idx = len(code_blocks)
+        code_blocks.append(m.group(0))
+        return f"__CODE_BLOCK_{idx}__"
+
+    protected_text = pattern.sub(repl, text)
+    return protected_text, code_blocks
+
+
+def _restore_code_blocks(text: str, code_blocks: list[str]) -> str:
+    """Restore code blocks from placeholders."""
+    for idx, block in enumerate(code_blocks):
+        text = text.replace(f"__CODE_BLOCK_{idx}__", block)
+    return text
+
+
+def _compress_lexical_text(
+    text: str,
+    rate: float,
+    target_tokens: int | None = None,
+) -> tuple[str, int, int]:
+    protected, code_blocks = _protect_code_blocks(text)
+    words = protected.split()
+    orig_tokens = len(words)
+    if not words:
+        return text, 0, 0
+
+    if target_tokens is not None:
+        target_count = max(1, min(len(words), target_tokens))
+    else:
+        target_count = max(1, min(len(words), int(math.ceil(len(words) * rate))))
+
+    if len(words) <= target_count:
+        return text, orig_tokens, orig_tokens
+
+    word_scores: list[tuple[int, float]] = []
+    for idx, w in enumerate(words):
+        if w.startswith("__CODE_BLOCK_") or w.startswith("#"):
+            score = 100.0
+        elif w.isdigit() or any(c in "$%#@=<>+*/" for c in w):
+            score = 5.0
+        else:
+            clean = re.sub(r"[^\w]", "", w).lower()
+            if not clean:
+                score = 1.0
+            elif clean in _STOPWORDS:
+                score = 0.5
+            elif len(clean) > 4:
+                score = 2.5
+            else:
+                score = 1.5
+        word_scores.append((idx, score))
+
+    sorted_by_score = sorted(word_scores, key=lambda x: x[1], reverse=True)
+    selected_indices = sorted(x[0] for x in sorted_by_score[:target_count])
+
+    compressed_words = [words[i] for i in selected_indices]
+    compressed_protected = " ".join(compressed_words)
+    restored = _restore_code_blocks(compressed_protected, code_blocks)
+    comp_tokens = len(restored.split())
+    return restored, orig_tokens, comp_tokens
+
+
+def _compress_extractive_text(
+    text: str,
+    rate: float,
+    target_tokens: int | None = None,
+    embed_role: _Role | None = None,
+) -> tuple[str, int, int]:
+    protected, code_blocks = _protect_code_blocks(text)
+    raw_sentences = [
+        s.strip() for s in re.split(r"(?<=[.!?])\s+|\n+", protected) if s.strip()
+    ]
+    orig_tokens = sum(len(s.split()) for s in raw_sentences)
+    if len(raw_sentences) <= 1:
+        return text, orig_tokens, orig_tokens
+
+    if target_tokens is not None:
+        target_token_budget = target_tokens
+    else:
+        target_token_budget = max(1, int(orig_tokens * rate))
+
+    if orig_tokens <= target_token_budget:
+        return text, orig_tokens, orig_tokens
+
+    sentence_scores: list[tuple[int, float, int]] = []
+
+    if embed_role is not None and hasattr(embed_role, "encode"):
+        try:
+            embeddings = embed_role.encode(raw_sentences, batch_size=32)
+            arr = np.asarray(embeddings)
+            centroid = np.mean(arr, axis=0)
+            norm_arr = arr / (np.linalg.norm(arr, axis=1, keepdims=True) + 1e-9)
+            norm_cen = centroid / (np.linalg.norm(centroid) + 1e-9)
+            sims = np.dot(norm_arr, norm_cen).tolist()
+            for idx, (s, sim) in enumerate(zip(raw_sentences, sims, strict=True)):
+                t_len = len(s.split())
+                if "__CODE_BLOCK_" in s:
+                    sim += 10.0
+                sentence_scores.append((idx, float(sim), t_len))
+        except Exception:
+            sentence_scores.clear()
+
+    if not sentence_scores:
+        for idx, s in enumerate(raw_sentences):
+            words = s.split()
+            t_len = len(words)
+            non_stops = [
+                w for w in words if re.sub(r"[^\w]", "", w).lower() not in _STOPWORDS
+            ]
+            score = len(non_stops) / max(1, t_len)
+            if "__CODE_BLOCK_" in s or idx == 0 or idx == len(raw_sentences) - 1:
+                score += 1.0
+            sentence_scores.append((idx, float(score), t_len))
+
+    sorted_by_score = sorted(sentence_scores, key=lambda x: x[1], reverse=True)
+    accumulated_tokens = 0
+    selected_indices: list[int] = []
+    for idx, _score, t_len in sorted_by_score:
+        selected_indices.append(idx)
+        accumulated_tokens += t_len
+        if accumulated_tokens >= target_token_budget and len(selected_indices) >= 1:
+            break
+
+    selected_indices.sort()
+    selected_sentences = [raw_sentences[i] for i in selected_indices]
+    compressed_protected = "\n\n".join(selected_sentences)
+    restored = _restore_code_blocks(compressed_protected, code_blocks)
+    comp_tokens = sum(len(s.split()) for s in selected_sentences)
+    return restored, orig_tokens, comp_tokens
 
 
 def create_app(
@@ -515,6 +760,73 @@ def create_app(
         if request.hypotheses is not None:
             body["hypotheses"] = plan
         return body
+
+    # ------------------------------------------------------------------ #
+    # prompt compression
+    # ------------------------------------------------------------------ #
+
+    @app.post("/compress")
+    async def compress(request: CompressRequest) -> Any:
+        texts = _as_texts(request.input)
+        if not texts or all(not t.strip() for t in texts):
+            raise api_error(400, "missing_input", message="input must not be empty")
+
+        if request.rate <= 0.0 or request.rate >= 1.0:
+            raise api_error(
+                400,
+                "invalid_rate",
+                message="rate must be between 0.05 and 0.95",
+            )
+
+        embed_role: _Role | None = None
+        if request.method == "extractive":
+            embed_role = reg.roles.get("embed")
+
+        results = []
+        total_orig = 0
+        total_comp = 0
+
+        for index, text in enumerate(texts):
+            if request.method == "extractive":
+                comp_text, orig_t, comp_t = _compress_extractive_text(
+                    text,
+                    rate=request.rate,
+                    target_tokens=request.target_tokens,
+                    embed_role=embed_role,
+                )
+            else:
+                comp_text, orig_t, comp_t = _compress_lexical_text(
+                    text,
+                    rate=request.rate,
+                    target_tokens=request.target_tokens,
+                )
+
+            total_orig += orig_t
+            total_comp += comp_t
+            ratio = round(comp_t / max(1, orig_t), 4)
+
+            results.append(
+                {
+                    "index": index,
+                    "original_text": text,
+                    "compressed_text": comp_text,
+                    "original_tokens": orig_t,
+                    "compressed_tokens": comp_t,
+                    "compression_ratio": ratio,
+                }
+            )
+
+        return {
+            "method": request.method,
+            "rate": request.rate,
+            "target_tokens": request.target_tokens,
+            "data": results,
+            "usage": {
+                "original_tokens": total_orig,
+                "compressed_tokens": total_comp,
+                "tokens_saved": max(0, total_orig - total_comp),
+            },
+        }
 
     return app
 
