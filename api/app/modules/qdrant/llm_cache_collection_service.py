@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import uuid
 from typing import Any
@@ -234,6 +235,67 @@ class LlmCacheCollectionService:
     def close(self) -> None:
         """Close Qdrant connection."""
         self.client_service.close()
+
+    async def aclose(self) -> None:
+        """Close Qdrant connection asynchronously."""
+        if hasattr(self.client_service, "aclose"):
+            await self.client_service.aclose()
+        else:
+            await asyncio.to_thread(self.client_service.close)
+
+    async def ensure_indexes_async(self) -> None:
+        """Asynchronously ensure payload indexes without blocking the event loop."""
+        await asyncio.to_thread(self.ensure_indexes)
+
+    async def search_exact_async(
+        self, exact_hash: str, tenant_id: str | None = None
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        """Asynchronously search for exact hash match in Qdrant."""
+        return await asyncio.to_thread(
+            self.search_exact, exact_hash, tenant_id=tenant_id
+        )
+
+    async def search_by_exact_hash_async(
+        self,
+        exact_hash: str,
+        filter_payload: dict[str, Any] | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Asynchronously search entries by exact hash for the admin inspector."""
+        return await asyncio.to_thread(
+            self.search_by_exact_hash,
+            exact_hash,
+            filter_payload=filter_payload,
+            limit=limit,
+        )
+
+    async def query_points_rrf_async(self, **kwargs: Any) -> list[dict[str, Any]]:
+        """Asynchronously query points using hybrid RRF search."""
+        return await asyncio.to_thread(self.query_points_rrf, **kwargs)
+
+    async def query_points_dense_async(self, **kwargs: Any) -> list[dict[str, Any]]:
+        """Asynchronously query points using dense vector search."""
+        return await asyncio.to_thread(self.query_points_dense, **kwargs)
+
+    async def upsert_async(self, **kwargs: Any) -> str | None:
+        """Asynchronously upsert a point into Qdrant."""
+        return await asyncio.to_thread(self.upsert, **kwargs)
+
+    async def delete_point_async(self, point_id: str) -> bool:
+        """Asynchronously delete a point by ID."""
+        return await asyncio.to_thread(self.delete_point, point_id)
+
+    async def record_hit_async(self, point_id: str) -> bool:
+        """Asynchronously record a cache hit and bump retention score."""
+        return await asyncio.to_thread(self.record_hit, point_id)
+
+    async def bulk_evict_async(self, **kwargs: Any) -> dict[str, Any]:
+        """Asynchronously perform bulk cache eviction."""
+        return await asyncio.to_thread(self.bulk_evict, **kwargs)
+
+    async def delete_expired_async(self) -> None:
+        """Asynchronously delete expired vectors."""
+        await asyncio.to_thread(self.delete_expired)
 
     @log_latency()
     def search_exact(

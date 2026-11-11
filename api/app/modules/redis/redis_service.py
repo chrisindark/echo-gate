@@ -62,7 +62,10 @@ class RedisService:
 
     async def close(self):
         """Close Redis connection."""
-        await self.redis.close()
+        if hasattr(self.redis, "aclose"):
+            await self.redis.aclose()
+        else:
+            await self.redis.close()
 
     async def expire(self, key: str, seconds: int):
         try:
