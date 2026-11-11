@@ -10,6 +10,8 @@ changes' entry with a `[BREAKING]` marker.
 
 ## [Unreleased]
 
+## [v0.2.0] - 2026-11-11
+
 ### Added
 
 - **Anthropic Messages Protocol Adapter**:
@@ -55,6 +57,12 @@ changes' entry with a `[BREAKING]` marker.
   recursively. Cloud overlays replace the sink via
   `app.core.events.set_event_sink()`. Documented in `docs/CONFIGURATION.md` and
   `docs/EXTENSION_SEAMS.md`.
+
+### Fixed & Improved
+
+- **[deps] Security & CI Audits**: Upgrade Next.js to 16.4.6 to resolve critical RCE vulnerabilities (GHSA-673q-mjm6-r5xr, GHSA-2464-fhr4-w9xw), tighten CORS middleware with explicit origins, add non-root user to backend Dockerfile, and enforce unsuppressed vulnerability audits in CI.
+- **[gateway] Async Qdrant Optimization**: Implement non-blocking async execution (`AsyncQdrantClient` and `asyncio.to_thread` fallbacks) for vector searches, upserts, and scroll operations to prevent event-loop blocking under high load. Modernized to SQLAlchemy 2.0 `DeclarativeBase` and Redis `aclose()`.
+- **[gateway] Test Coverage Ratchet**: Boost backend test coverage to 85.81% (888 passing tests) and configure CI failure ratchet gate at 80%.
 
 ## [v0.1.0] - 2026-11-05
 
