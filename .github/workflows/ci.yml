@@ -49,11 +49,11 @@ jobs:
 
       - name: Unit tests + coverage ratchet + OpenAPI contract snapshot
         run: |
-          poetry run pytest -q --cov=app --cov-report=term --cov-report=xml:coverage.xml --cov-report=html:coverage/html --cov-fail-under=70
+          poetry run pytest -q --cov=app --cov-report=term --cov-report=xml:coverage.xml --cov-report=html:coverage/html --cov-fail-under=80
         # The suite is offline (mocked Redis/Qdrant/Postgres). The snapshot
         # test rewrites tests/contract/snapshots/openapi.json when it drifts,
         # so a failing step means an un-reviewed contract change.
-        # Coverage floor is ratcheted at >= 70%.
+        # Coverage floor is ratcheted at >= 80%.
 
       - name: Upload coverage report
         if: always()

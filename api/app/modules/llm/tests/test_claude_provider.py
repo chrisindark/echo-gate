@@ -328,6 +328,414 @@ class TestClaudeProvider(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(model, "claude-3-5-sonnet-20241022")
         mock_provider.generate_claude_completion.assert_awaited_once()
 
+    def test_prepare_claude_payload_consecutive_messages(self):
+        provider = LlmProviderService()
+        provider.claude_api_key = "test-key"
+
+        req = ChatCompletionRequest(
+            service_name="claude",
+            model="claude-3-5-sonnet-20241022",
+            messages=[
+                ChatMessage(role="user", content="User message 1"),
+                ChatMessage(role="user", content="User message 2"),
+                ChatMessage(role="assistant", content="Assistant 1"),
+                ChatMessage(role="assistant", content="Assistant 2"),
+                ChatMessage(role="tool", content="Tool 1", tool_call_id="call_1"),
+                ChatMessage(role="tool", content="Tool 2", tool_call_id="call_2"),
+            ],
+        )
+
+        url, headers, payload = provider._prepare_claude_payload(req)
+        msgs = payload["messages"]
+        # user messages merged, assistant merged, tools merged into user
+        self.assertEqual(len(msgs), 3)
+
+    async def test_generate_claude_stream_events_and_errors(self):
+        provider = LlmProviderService()
+        provider.claude_api_key = None
+
+        req = ChatCompletionRequest(
+            service_name="claude",
+            model="claude-3-5-sonnet-20241022",
+            messages=[ChatMessage(role="user", content="Hi")],
+        )
+
+        # Missing key raises 503
+        with self.assertRaises(HTTPException) as ctx:
+            async for _ in provider.generate_claude_stream(req):
+                pass
+        self.assertEqual(ctx.exception.status_code, 503)
+
+        provider.claude_api_key = "test-key"
+
+        # Mock stream lines
+        lines = [
+            'event: message_start\ndata: {"type": "message_start", "message": {"id": "msg_1", "usage": {"input_tokens": 10}}}',
+            'event: content_block_start\ndata: {"type": "content_block_start", "index": 0, "content_block": {"type": "thinking", "thinking": "Let me think"}}',
+            'event: content_block_delta\ndata: {"type": "content_block_delta", "index": 0, "delta": {"type": "thinking_delta", "thinking": "...done"}}',
+            'event: content_block_start\ndata: {"type": "content_block_start", "index": 1, "content_block": {"type": "text", "text": "Hello "}}',
+            'event: content_block_delta\ndata: {"type": "content_block_delta", "index": 1, "delta": {"type": "text_delta", "text": "world"}}',
+            'event: content_block_start\ndata: {"type": "content_block_start", "index": 2, "content_block": {"type": "tool_use", "id": "tc_1", "name": "test_tool"}}',
+            'event: content_block_delta\ndata: {"type": "content_block_delta", "index": 2, "delta": {"type": "input_json_delta", "partial_json": "{\\"a\\": 1}"}}',
+            'event: message_delta\ndata: {"type": "message_delta", "delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 15}}',
+            'event: message_stop\ndata: {"type": "message_stop"}',
+        ]
+
+        class FakeClaudeStreamResponse:
+            status_code = 200
+
+            async def aiter_lines(self):
+                for line in lines:
+                    for subline in line.split("\n"):
+                        yield subline
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+        class FakeClaudeClient:
+            def stream(self, *args, **kwargs):
+                return FakeClaudeStreamResponse()
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+        with patch("httpx.AsyncClient", return_value=FakeClaudeClient()):
+            chunks = [c async for c in provider.generate_claude_stream(req)]
+            self.assertGreater(len(chunks), 4)
+
+        # Stream error event
+        class FakeErrorStreamResponse:
+            status_code = 200
+
+            async def aiter_lines(self):
+                yield "event: error"
+                yield 'data: {"type": "error", "error": {"message": "Overloaded"}}'
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+        class FakeErrorClient:
+            def stream(self, *args, **kwargs):
+                return FakeErrorStreamResponse()
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+        with patch("httpx.AsyncClient", return_value=FakeErrorClient()):
+            with self.assertRaises(HTTPException) as ctx:
+                async for _ in provider.generate_claude_stream(req):
+                    pass
+            self.assertEqual(ctx.exception.status_code, 502)
+            self.assertIn("Overloaded", ctx.exception.detail)
+
+    async def test_prepare_claude_payload_thinking_and_tool_choices(self):
+        provider = LlmProviderService()
+        provider.claude_api_key = "test-key"
+
+        req = ChatCompletionRequest(
+            service_name="claude",
+            model="claude-3-5-sonnet-20241022",
+            messages=[ChatMessage(role="user", content="hello")],
+            thinking=True,
+            thinking_budget=4000,
+            max_tokens=2000,
+            stop=["END"],
+            tools=[self.sample_tool],
+            tool_choice="required",
+        )
+        _, _, payload = provider._prepare_claude_payload(req)
+        self.assertEqual(payload["thinking"]["type"], "enabled")
+        self.assertEqual(payload["thinking"]["budget_tokens"], 4000)
+        self.assertEqual(payload["max_tokens"], 6048)  # budget + 2048
+        self.assertEqual(payload["stop_sequences"], ["END"])
+        self.assertEqual(payload["tool_choice"]["type"], "any")
+
+        # tool_choice as dict
+        req_fn = ChatCompletionRequest(
+            service_name="claude",
+            model="claude-3-5-sonnet-20241022",
+            messages=[ChatMessage(role="user", content="hello")],
+            tools=[self.sample_tool],
+            tool_choice={"function": {"name": "get_current_weather"}},
+        )
+        _, _, payload_fn = provider._prepare_claude_payload(req_fn)
+        self.assertEqual(payload_fn["tool_choice"]["type"], "tool")
+        self.assertEqual(payload_fn["tool_choice"]["name"], "get_current_weather")
+
+    async def test_generate_claude_completion_stop_reasons_and_errors(self):
+        provider = LlmProviderService()
+        provider.claude_api_key = "test-key"
+
+        req = ChatCompletionRequest(
+            service_name="claude",
+            model="claude-3-5-sonnet-20241022",
+            messages=[ChatMessage(role="user", content="hello")],
+        )
+
+        # max_tokens stop reason
+        mock_resp = MagicMock(spec=httpx.Response)
+        mock_resp.status_code = 200
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json.return_value = {
+            "id": "msg_len",
+            "model": "claude-3-5-sonnet-20241022",
+            "content": [{"type": "text", "text": "truncated"}],
+            "stop_reason": "max_tokens",
+            "usage": {"input_tokens": 10, "output_tokens": 100},
+        }
+
+        with patch(
+            "httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_resp
+        ):
+            resp = await provider.generate_claude_completion(req)
+            self.assertEqual(resp.choices[0].finish_reason, "length")
+
+        # stop_sequence stop reason
+        mock_resp.json.return_value["stop_reason"] = "stop_sequence"
+        with patch(
+            "httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_resp
+        ):
+            resp = await provider.generate_claude_completion(req)
+            self.assertEqual(resp.choices[0].finish_reason, "stop")
+
+        # generic exception raises 502
+        with patch(
+            "httpx.AsyncClient.post",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("connection dropped"),
+        ):
+            with self.assertRaises(HTTPException) as ctx:
+                await provider.generate_claude_completion(req)
+            self.assertEqual(ctx.exception.status_code, 502)
+
+    async def test_generate_claude_stream_error_status_and_exceptions(self):
+        provider = LlmProviderService()
+        provider.claude_api_key = "test-key"
+
+        req = ChatCompletionRequest(
+            service_name="claude",
+            model="claude-3-5-sonnet-20241022",
+            messages=[ChatMessage(role="user", content="hello")],
+        )
+
+        # Response status >= 400
+        class Fake400Response:
+            status_code = 400
+            text = '{"error": {"message": "Invalid request"}}'
+
+            async def aread(self):
+                pass
+
+            def json(self):
+                return {"error": {"message": "Invalid request"}}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+        class Fake400Client:
+            def stream(self, *args, **kwargs):
+                return Fake400Response()
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+        with patch("httpx.AsyncClient", return_value=Fake400Client()):
+            with self.assertRaises(HTTPException) as ctx:
+                async for _ in provider.generate_claude_stream(req):
+                    pass
+            self.assertEqual(ctx.exception.status_code, 400)
+
+        # Generic stream exception
+        class FakeCrashClient:
+            def stream(self, *args, **kwargs):
+                raise RuntimeError("Stream broken")
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+        with patch("httpx.AsyncClient", return_value=FakeCrashClient()):
+            with self.assertRaises(HTTPException) as ctx:
+                async for _ in provider.generate_claude_stream(req):
+                    pass
+            self.assertEqual(ctx.exception.status_code, 502)
+
+    async def test_generate_claude_stream_full_events_tool_and_thinking(self):
+        provider = LlmProviderService()
+        provider.claude_api_key = "test-key"
+
+        req = ChatCompletionRequest(
+            service_name="claude",
+            model="claude-3-5-sonnet-20241022",
+            messages=[ChatMessage(role="user", content="hello")],
+        )
+
+        sse_events = [
+            "event: message_start\ndata: "
+            + json.dumps(
+                {
+                    "type": "message_start",
+                    "message": {
+                        "id": "msg_stream_99",
+                        "model": "claude-3-5-sonnet-20241022",
+                        "usage": {"input_tokens": 12},
+                    },
+                }
+            )
+            + "\n\n",
+            "event: content_block_start\ndata: "
+            + json.dumps(
+                {
+                    "type": "content_block_start",
+                    "index": 0,
+                    "content_block": {
+                        "type": "tool_use",
+                        "id": "tool_call_abc",
+                        "name": "do_search",
+                    },
+                }
+            )
+            + "\n\n",
+            "event: content_block_delta\ndata: "
+            + json.dumps(
+                {
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {
+                        "type": "input_json_delta",
+                        "partial_json": '{"query": "antigravity"}',
+                    },
+                }
+            )
+            + "\n\n",
+            "event: content_block_start\ndata: "
+            + json.dumps(
+                {
+                    "type": "content_block_start",
+                    "index": 1,
+                    "content_block": {"type": "thinking"},
+                }
+            )
+            + "\n\n",
+            "event: content_block_delta\ndata: "
+            + json.dumps(
+                {
+                    "type": "content_block_delta",
+                    "index": 1,
+                    "delta": {
+                        "type": "thinking_delta",
+                        "thinking": "Let me think about that",
+                    },
+                }
+            )
+            + "\n\n",
+            "event: message_delta\ndata: "
+            + json.dumps(
+                {
+                    "type": "message_delta",
+                    "delta": {"stop_reason": "max_tokens"},
+                    "usage": {"output_tokens": 40},
+                }
+            )
+            + "\n\n",
+            "event: message_stop\ndata: "
+            + json.dumps({"type": "message_stop"})
+            + "\n\n",
+        ]
+
+        class FakeStreamResponse:
+            status_code = 200
+
+            async def aread(self):
+                pass
+
+            async def aiter_lines(self):
+                for line in "".join(sse_events).split("\n"):
+                    yield line
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+        class FakeStreamClient:
+            def stream(self, *args, **kwargs):
+                return FakeStreamResponse()
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+        with patch("httpx.AsyncClient", return_value=FakeStreamClient()):
+            chunks = [c async for c in provider.generate_claude_stream(req)]
+            self.assertGreater(len(chunks), 3)
+
+            # Find tool use chunk
+            tool_start = next(
+                (
+                    c
+                    for c in chunks
+                    if c.choices
+                    and c.choices[0].delta
+                    and c.choices[0].delta.tool_calls
+                    and c.choices[0].delta.tool_calls[0].function.name == "do_search"
+                ),
+                None,
+            )
+            self.assertIsNotNone(tool_start)
+
+            # Find thinking delta chunk
+            thinking_chunk = next(
+                (
+                    c
+                    for c in chunks
+                    if c.choices
+                    and c.choices[0].delta
+                    and c.choices[0].delta.reasoning_content
+                ),
+                None,
+            )
+            self.assertIsNotNone(thinking_chunk)
+            self.assertEqual(
+                thinking_chunk.choices[0].delta.reasoning_content,
+                "Let me think about that",
+            )
+
+            # Final finish reason should be length for max_tokens
+            last_chunk = chunks[-1]
+            self.assertEqual(last_chunk.choices[0].finish_reason, "length")
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+if __name__ == "__main__":
+    unittest.main()
+
 
 if __name__ == "__main__":
     unittest.main()

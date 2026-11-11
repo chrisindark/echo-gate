@@ -697,6 +697,153 @@ class TestFullOptimizationPipeline(unittest.TestCase):
         self.assertFalse(result.applied)
         self.assertEqual(optimized_req.messages[0].content, long_content)
 
+    def test_optimize_json_table_and_session_dedup_integration(self):
+        import asyncio
+
+        optimizer = PromptOptimizer()
+        tool_json = json.dumps(
+            [
+                {"id": 1, "name": "Alpha", "status": "active"},
+                {"id": 2, "name": "Beta", "status": "inactive"},
+                {"id": 3, "name": "Gamma", "status": "pending"},
+            ],
+            indent=2,
+        )
+
+        request = ChatCompletionRequest(
+            service_name="openai",
+            model="gpt-4o-mini",
+            messages=[
+                ChatMessage(role="system", content="System instruction"),
+                ChatMessage(role="user", content="hello"),
+                ChatMessage(role="user", content="hello"),
+                ChatMessage(role="tool", content=tool_json, tool_call_id="call_1"),
+                ChatMessage(role="user", content="Next task"),
+            ],
+            prompt_optimization=PromptOptimizationConfig(
+                enabled=True,
+                whitespace=True,
+                session_dedup=True,
+                json_table=True,
+                ccr=False,
+                headroom_trim=False,
+                compress=False,
+            ),
+        )
+        opt_req, result = asyncio.run(optimizer.optimize_async(request))
+        self.assertTrue(result.applied)
+        self.assertIn("json-table", result.strategies)
+        self.assertIn("session-dedup", result.strategies)
+
+    def test_optimize_async_config_variants(self):
+        import asyncio
+
+        optimizer = PromptOptimizer()
+        req_dict = ChatCompletionRequest(
+            service_name="openai",
+            model="gpt-4o-mini",
+            messages=[ChatMessage(role="user", content="hello  world")],
+            prompt_optimization={"enabled": True, "whitespace": True},
+        )
+        opt_req, res = asyncio.run(optimizer.optimize_async(req_dict))
+        self.assertTrue(res.applied)
+
+        req_true = ChatCompletionRequest(
+            service_name="openai",
+            model="gpt-4o-mini",
+            messages=[ChatMessage(role="user", content="hello  world")],
+            prompt_optimization=True,
+        )
+        opt_req, res = asyncio.run(optimizer.optimize_async(req_true))
+        self.assertTrue(res.applied)
+
+        req_false = ChatCompletionRequest(
+            service_name="openai",
+            model="gpt-4o-mini",
+            messages=[ChatMessage(role="user", content="hello  world")],
+            prompt_optimization=False,
+        )
+        opt_req, res = asyncio.run(optimizer.optimize_async(req_false))
+        self.assertFalse(res.applied)
+
+        from unittest.mock import patch
+
+        from app.core.config import config
+
+        with (
+            patch.object(config, "PROMPT_OPTIMIZATION_ENABLED", True),
+            patch.object(config, "PROMPT_OPTIMIZATION_WHITESPACE", True),
+        ):
+            req_none = ChatCompletionRequest(
+                service_name="openai",
+                model="gpt-4o-mini",
+                messages=[ChatMessage(role="user", content="hello  world")],
+                prompt_optimization=None,
+            )
+            opt_req, res = asyncio.run(optimizer.optimize_async(req_none))
+            self.assertTrue(res.applied)
+
+        # with options parameter
+        opt_req, res = asyncio.run(
+            optimizer.optimize_async(
+                req_false,
+                options=PromptOptimizationConfig(enabled=True, whitespace=True),
+            )
+        )
+        self.assertTrue(res.applied)
+
+    def test_optimize_fail_open_on_generic_exception(self):
+        import asyncio
+
+        optimizer = PromptOptimizer()
+        request = ChatCompletionRequest(
+            service_name="openai",
+            model="gpt-4o-mini",
+            messages=[ChatMessage(role="user", content="hello")],
+            prompt_optimization=PromptOptimizationConfig(enabled=True),
+        )
+        from unittest.mock import patch
+
+        with patch.object(
+            optimizer,
+            "collapse_whitespace",
+            side_effect=RuntimeError("unexpected crash"),
+        ):
+            opt_req, result = optimizer.optimize(request)
+            self.assertFalse(result.applied)
+            self.assertEqual(opt_req, request)
+
+            opt_req_async, result_async = asyncio.run(optimizer.optimize_async(request))
+            self.assertFalse(result_async.applied)
+            self.assertEqual(opt_req_async, request)
+
+    def test_optimize_no_savings_returns_applied_false(self):
+        import asyncio
+
+        optimizer = PromptOptimizer()
+        # Message already minimal with whitespace
+        request = ChatCompletionRequest(
+            service_name="openai",
+            model="gpt-4o-mini",
+            messages=[ChatMessage(role="user", content="word")],
+            prompt_optimization=PromptOptimizationConfig(
+                enabled=True,
+                whitespace=True,
+                session_dedup=False,
+                json_table=False,
+                ccr=False,
+                headroom_trim=False,
+                compress=False,
+            ),
+        )
+        opt_req, result = optimizer.optimize(request)
+        self.assertFalse(result.applied)
+        self.assertEqual(result.chars_saved, 0)
+
+        opt_req_async, result_async = asyncio.run(optimizer.optimize_async(request))
+        self.assertFalse(result_async.applied)
+        self.assertEqual(result_async.chars_saved, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

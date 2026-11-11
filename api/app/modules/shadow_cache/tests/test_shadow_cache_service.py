@@ -50,6 +50,7 @@ class _ShadowServiceTestCase(unittest.TestCase):
     def tearDown(self):
         for attr, value in zip(_THRESHOLD_ATTRS, self._saved_thresholds, strict=True):
             setattr(config, attr, value)
+        self.Session.close_all()
         Base.metadata.drop_all(self.engine)
         self.engine.dispose()
 
@@ -391,6 +392,97 @@ class TestGetEvaluationsSqlite(_ShadowServiceTestCase):
         start, end = self._window()
         items, total = self.service.get_evaluations(start_time=start, end_time=end)
         self.assertEqual(total, 2)
+
+    def test_tenant_id_match_type_and_intent_filters(self):
+        self._add(
+            tenant_id="tenant-1",
+            match_type=ShadowMatchType.REDIS_EXACT,
+            intent="billing",
+        )
+        self._add(
+            tenant_id="tenant-2",
+            match_type=ShadowMatchType.QDRANT_SEMANTIC,
+            intent="coding",
+        )
+
+        items, total = self.service.get_evaluations(tenant_id="tenant-1")
+        self.assertEqual(total, 1)
+        self.assertEqual(items[0].tenant_id, "tenant-1")
+
+        items, total = self.service.get_evaluations(
+            match_type=ShadowMatchType.REDIS_EXACT.value
+        )
+        self.assertEqual(total, 1)
+        self.assertEqual(items[0].match_type, ShadowMatchType.REDIS_EXACT.value)
+
+        items, total = self.service.get_evaluations(intent="billing")
+        self.assertEqual(total, 1)
+        self.assertEqual(items[0].intent, "billing")
+
+    def test_session_injection_and_context_managers(self):
+        with self.Session() as session:
+            # Test direct Session injection into __init__
+            service_with_session = ShadowCacheService(
+                session_factory=session,
+                session_factory_read=session,
+            )
+            self.assertIs(service_with_session._db_session, session)
+            self.assertIs(service_with_session._db_session_read, session)
+
+            with service_with_session._get_session() as s:
+                self.assertIs(s, session)
+            with service_with_session._get_read_session() as s:
+                self.assertIs(s, session)
+
+            # Test fallback session setups
+            svc_read_only = ShadowCacheService(
+                db_session=session,
+                db_session_read=None,
+            )
+            with svc_read_only._get_read_session() as s:
+                self.assertIs(s, session)
+
+            svc_factory_read = ShadowCacheService(
+                session_factory=self.Session,
+                session_factory_read=None,
+            )
+            svc_factory_read._session_factory_read = None
+            with svc_factory_read._get_read_session() as s:
+                self.assertIsNotNone(s)
+
+        from unittest.mock import MagicMock, patch
+
+        with patch(
+            "app.modules.shadow_cache.shadow_cache_service.SessionLocal"
+        ) as mock_sl:
+            mock_s = MagicMock()
+            mock_sl.return_value.__enter__.return_value = mock_s
+            svc_default = ShadowCacheService()
+            svc_default._session_factory = None
+            svc_default._session_factory_read = None
+            with svc_default._get_session() as s:
+                self.assertIs(s, mock_s)
+            with svc_default._get_read_session() as s:
+                self.assertIs(s, mock_s)
+
+    def test_log_evaluation_rollback_on_error(self):
+        from unittest.mock import MagicMock
+
+        mock_session = MagicMock()
+        mock_session.commit.side_effect = RuntimeError("DB commit failed")
+
+        svc = ShadowCacheService(db_session=mock_session)
+        with self.assertRaises(RuntimeError):
+            svc.log_evaluation(
+                ShadowCacheEvaluationCreate(
+                    exact_hash="fail_hash",
+                    model="gpt-4o",
+                    provider="openai",
+                    would_have_hit=False,
+                    match_type=ShadowMatchType.MISS,
+                )
+            )
+        mock_session.rollback.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -121,6 +121,27 @@ class TestQdrantClientService(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(service.async_client, mock_inst)
             mock_async_cls.assert_called_once()
 
+    def test_init_with_default_client(self):
+        with patch(
+            "app.modules.qdrant.qdrant_client_service.QdrantClient"
+        ) as mock_client_cls:
+            mock_inst = MagicMock()
+            mock_client_cls.return_value = mock_inst
+            svc = QdrantClientService(url="http://localhost:6333", api_key="secret")
+            self.assertEqual(svc.client, mock_inst)
+            mock_client_cls.assert_called_once_with(
+                url="http://localhost:6333", api_key="secret"
+            )
+
+    async def test_close_and_aclose_exception_handling(self):
+        self.mock_client.close.side_effect = RuntimeError("Sync close error")
+        # close() should catch exception without crashing
+        self.service.close()
+
+        self.mock_async_client.close.side_effect = RuntimeError("Async close error")
+        # aclose() should catch exceptions without crashing
+        await self.service.aclose()
+
 
 if __name__ == "__main__":
     unittest.main()
