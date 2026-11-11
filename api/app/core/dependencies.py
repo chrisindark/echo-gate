@@ -61,7 +61,7 @@ class DependencyContainer:
         cls.get_embedding_service()
         cls.get_qdrant_client_service()
         cache_service = cls.get_llm_cache_collection_service()
-        cache_service.ensure_indexes()
+        await cache_service.ensure_indexes_async()
         cls.get_llm_provider_service()
         cls.get_reranker_service()
         await cls.get_intent_classifier_service()
@@ -99,7 +99,7 @@ class DependencyContainer:
                 await cls._redis_service.close()
         finally:
             if cls._qdrant_client_service is not None:
-                cls._qdrant_client_service.close()
+                await cls._qdrant_client_service.aclose()
             cls._embedding_service = None
             cls._qdrant_client_service = None
             cls._llm_cache_collection_service = None

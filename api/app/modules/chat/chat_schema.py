@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 import uuid
 from typing import Any
@@ -92,6 +93,8 @@ class ChatCompletionRequest(BaseModel):
     cache_enabled: bool | None = None
     cache_ttl: int | None = Field(default=None, ge=0)
     retries: int | None = Field(default=None, ge=0, le=10)
+    stream_pacing: bool | None = None
+    stream_pacing_delay_ms: float | None = Field(default=None, ge=0.0, le=1000.0)
 
     # Resolved identity. These are deliberately *not* body fields: they are set
     # by the chat controller from the tenant/user that ``X-API-Key`` resolved to,
@@ -248,12 +251,73 @@ def format_sse_event(data: str | BaseModel | dict[str, Any]) -> str:
     return f"data: {payload}\n\n"
 
 
+def split_content_into_natural_chunks(
+    text: str,
+    words_per_chunk: int = 3,
+    max_chars_per_chunk: int = 16,
+) -> list[str]:
+    """Split text into natural word/token slices preserving exact whitespace, newlines, and CJK characters."""
+    if not text:
+        return []
+
+    raw_parts = re.split(r"(\s+)", text)
+    cjk_pattern = re.compile(r"([\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af])")
+
+    tokens: list[str] = []
+    for part in raw_parts:
+        if not part:
+            continue
+        if part.isspace():
+            tokens.append(part)
+        else:
+            sub_parts = cjk_pattern.split(part)
+            for sp in sub_parts:
+                if not sp:
+                    continue
+                if len(sp) > max_chars_per_chunk:
+                    for i in range(0, len(sp), max_chars_per_chunk):
+                        tokens.append(sp[i : i + max_chars_per_chunk])
+                else:
+                    tokens.append(sp)
+
+    chunks: list[str] = []
+    current_chunk: list[str] = []
+    word_count = 0
+    current_len = 0
+
+    for tok in tokens:
+        current_chunk.append(tok)
+        current_len += len(tok)
+        if not tok.isspace():
+            word_count += 1
+
+        if (
+            word_count >= words_per_chunk
+            or "\n" in tok
+            or current_len >= max_chars_per_chunk * 2
+        ):
+            chunks.append("".join(current_chunk))
+            current_chunk = []
+            word_count = 0
+            current_len = 0
+
+    if current_chunk:
+        chunks.append("".join(current_chunk))
+
+    return chunks
+
+
 def response_to_stream_chunks(
     response: ChatCompletionResponse,
+    natural: bool = False,
+    words_per_chunk: int = 3,
 ) -> list[ChatCompletionChunk]:
     """
     Converts a full ChatCompletionResponse into a list of ChatCompletionChunk objects
     for SSE playback to streaming clients.
+
+    When natural=True, splits content and reasoning_content into natural word/token
+    chunks rather than a single monolithic chunk.
     """
     chunks: list[ChatCompletionChunk] = []
     base_id = response.id
@@ -284,39 +348,55 @@ def response_to_stream_chunks(
 
         # 1.5 Reasoning content chunk (if any)
         if msg.reasoning_content:
-            chunks.append(
-                ChatCompletionChunk(
-                    id=base_id,
-                    created=created,
-                    model=model,
-                    choices=[
-                        ChunkChoice(
-                            index=idx,
-                            delta=ChunkDelta(reasoning_content=msg.reasoning_content),
-                            finish_reason=None,
-                        )
-                    ],
-                    cache_info=cache_info,
+            if natural:
+                reasoning_slices = split_content_into_natural_chunks(
+                    msg.reasoning_content, words_per_chunk=words_per_chunk
                 )
-            )
+            else:
+                reasoning_slices = [msg.reasoning_content]
+
+            for r_slice in reasoning_slices:
+                chunks.append(
+                    ChatCompletionChunk(
+                        id=base_id,
+                        created=created,
+                        model=model,
+                        choices=[
+                            ChunkChoice(
+                                index=idx,
+                                delta=ChunkDelta(reasoning_content=r_slice),
+                                finish_reason=None,
+                            )
+                        ],
+                        cache_info=cache_info,
+                    )
+                )
 
         # 2. Content chunk (if any)
         if msg.content:
-            chunks.append(
-                ChatCompletionChunk(
-                    id=base_id,
-                    created=created,
-                    model=model,
-                    choices=[
-                        ChunkChoice(
-                            index=idx,
-                            delta=ChunkDelta(content=msg.content),
-                            finish_reason=None,
-                        )
-                    ],
-                    cache_info=cache_info,
+            if natural:
+                content_slices = split_content_into_natural_chunks(
+                    msg.content, words_per_chunk=words_per_chunk
                 )
-            )
+            else:
+                content_slices = [msg.content]
+
+            for c_slice in content_slices:
+                chunks.append(
+                    ChatCompletionChunk(
+                        id=base_id,
+                        created=created,
+                        model=model,
+                        choices=[
+                            ChunkChoice(
+                                index=idx,
+                                delta=ChunkDelta(content=c_slice),
+                                finish_reason=None,
+                            )
+                        ],
+                        cache_info=cache_info,
+                    )
+                )
 
         # 3. Tool calls chunk (if any)
         if msg.tool_calls:
@@ -366,7 +446,26 @@ def response_to_stream_chunks(
             )
         )
 
+    # Preserve metadata attributes on generated chunks
+    degradation = getattr(response, "_degradation_state", None)
+    prompt_opt = getattr(response, "_prompt_optimization_result", None)
+    for chunk in chunks:
+        if degradation is not None:
+            chunk._degradation_state = degradation
+        if prompt_opt is not None:
+            chunk._prompt_optimization_result = prompt_opt
+
     return chunks
+
+
+def response_to_stream_chunks_natural(
+    response: ChatCompletionResponse,
+    words_per_chunk: int = 3,
+) -> list[ChatCompletionChunk]:
+    """Helper to convert a ChatCompletionResponse into natural word/token streaming chunks."""
+    return response_to_stream_chunks(
+        response, natural=True, words_per_chunk=words_per_chunk
+    )
 
 
 class StreamAccumulator:
@@ -545,9 +644,8 @@ def apply_request_directives(request: Any, headers: Any) -> None:
         elif c_val in ("true", "1", "on", "yes", "enabled"):
             request.cache_enabled = True
 
-    ttl_header = (
-        headers.get(EchoGateHeaders.CACHE_TTL)
-        or headers.get("X-EchoGate-Cache-TTL")
+    ttl_header = headers.get(EchoGateHeaders.CACHE_TTL) or headers.get(
+        "X-EchoGate-Cache-TTL"
     )
     if ttl_header:
         try:
@@ -557,9 +655,8 @@ def apply_request_directives(request: Any, headers: Any) -> None:
         except (ValueError, TypeError):
             pass
 
-    retries_header = (
-        headers.get(EchoGateHeaders.RETRIES)
-        or headers.get("X-EchoGate-Retries")
+    retries_header = headers.get(EchoGateHeaders.RETRIES) or headers.get(
+        "X-EchoGate-Retries"
     )
     if retries_header:
         try:
@@ -568,3 +665,27 @@ def apply_request_directives(request: Any, headers: Any) -> None:
                 request.retries = parsed_retries
         except (ValueError, TypeError):
             pass
+
+    pacing_header = headers.get(EchoGateHeaders.STREAM_PACING) or headers.get(
+        "X-EchoGate-Stream-Pacing"
+    )
+    if pacing_header:
+        p_val = str(pacing_header).strip().lower()
+        if p_val in ("false", "0", "off", "no", "disabled", "disable", "none"):
+            request.stream_pacing = False
+            request.stream_pacing_delay_ms = 0.0
+        elif p_val in ("true", "1", "on", "yes", "enabled", "enable"):
+            request.stream_pacing = True
+        else:
+            try:
+                # Handle possible trailing ms: e.g. "15ms"
+                if p_val.endswith("ms"):
+                    p_val = p_val[:-2].strip()
+                parsed_delay = float(p_val)
+                if 0.0 <= parsed_delay <= 1000.0:
+                    request.stream_pacing = True
+                    request.stream_pacing_delay_ms = parsed_delay
+            except (ValueError, TypeError):
+                pass
+    elif getattr(request, "stream_pacing", None) is False:
+        request.stream_pacing_delay_ms = 0.0

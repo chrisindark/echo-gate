@@ -104,10 +104,19 @@ ADMIN_KEY_HEADER = {"type": "apiKey", "in": "header", "name": EchoGateHeaders.AD
 app.add_middleware(CorrelationIdMiddleware)
 app.add_middleware(UserMiddleware)
 app.add_middleware(TenantContextMiddleware)
+# Security: CORS configuration defaults to local web playground origins;
+# wildcard origins ("*") automatically disable allow_credentials to comply with browser CORS specs.
+cors_origins = config.CORS_ORIGINS
+allow_credentials = (
+    False
+    if ("*" in cors_origins and config.CORS_ALLOW_CREDENTIALS)
+    else config.CORS_ALLOW_CREDENTIALS
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # For testing, allow all origins
-    allow_credentials=True,
+    allow_origins=cors_origins,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=list(EchoGateHeaders.EXPOSED_CORS_HEADERS),

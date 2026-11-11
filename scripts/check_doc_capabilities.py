@@ -6,7 +6,6 @@ Source of truth: docs/capability-evidence.json
 """
 
 import json
-import os
 import re
 import sys
 from pathlib import Path
@@ -27,7 +26,7 @@ def main() -> None:
         fail(f"Missing {REGISTRY_PATH}")
 
     try:
-        with open(REGISTRY_PATH, "r", encoding="utf-8") as f:
+        with open(REGISTRY_PATH, encoding="utf-8") as f:
             registry = json.load(f)
     except Exception as e:
         fail(f"Invalid JSON in {REGISTRY_PATH}: {e}")
@@ -66,7 +65,9 @@ def main() -> None:
             else:
                 src_text = source_path.read_text(encoding="utf-8")
                 if not re.search(r"\b" + re.escape(export_sym) + r"\b", src_text):
-                    errors.append(f"{cap_id}: symbol '{export_sym}' not found in {source_rel}")
+                    errors.append(
+                        f"{cap_id}: symbol '{export_sym}' not found in {source_rel}"
+                    )
 
         # 3. Verify test evidence
         if test_rel and test_needle:
@@ -76,7 +77,9 @@ def main() -> None:
             else:
                 test_text = test_path.read_text(encoding="utf-8")
                 if test_needle not in test_text:
-                    errors.append(f"{cap_id}: test needle '{test_needle}' not found in {test_rel}")
+                    errors.append(
+                        f"{cap_id}: test needle '{test_needle}' not found in {test_rel}"
+                    )
 
         checked += 1
 
@@ -85,7 +88,9 @@ def main() -> None:
             print(f"  - {err}", file=sys.stderr)
         fail(f"{len(errors)} capability drift(s) detected.")
 
-    print(f"[docs:check] {checked} documented capabilities checked; all point to real code and test evidence.")
+    print(
+        f"[docs:check] {checked} documented capabilities checked; all point to real code and test evidence."
+    )
 
 
 if __name__ == "__main__":

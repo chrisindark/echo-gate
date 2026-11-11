@@ -52,7 +52,7 @@ jobs:
         run: poetry install --with dev --no-interaction
 
       - name: Audit Python dependencies (pip-audit)
-        run: poetry run pip-audit || true
+        run: poetry run python scripts/audit_python.py
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -65,4 +65,4 @@ jobs:
         run: cd web && npm ci
 
       - name: Audit Node dependencies (npm audit)
-        run: cd web && npm audit --audit-level=high || true
+        run: cd web && npm audit --audit-level=high

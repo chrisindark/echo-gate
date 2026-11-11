@@ -153,6 +153,8 @@ def normalize_anthropic_to_chat_request(
         "cache_enabled": request.cache_enabled,
         "cache_ttl": request.cache_ttl,
         "retries": request.retries,
+        "stream_pacing": request.stream_pacing,
+        "stream_pacing_delay_ms": request.stream_pacing_delay_ms,
         "tenant_id": request.tenant_id,
         "user_id": request.user_id,
         "session_id": request.session_id,

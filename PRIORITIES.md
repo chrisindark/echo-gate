@@ -47,9 +47,10 @@
   - Allow client callers to override gateway caching and retry behavior per request via body (`cache_enabled`, `cache_ttl`, `retries`) and headers (`X-EchoGate-Cache`, `X-EchoGate-Cache-TTL`, `X-EchoGate-Retries`).
   - Support `cache_enabled: false` (cache bypass / force refresh setting `X-Cache: BYPASS`), custom `cache_ttl` in seconds (overriding retention policy calculation in Redis and Qdrant), and per-request `retries` bounds passed to upstream providers.
   - Updates `ChatCompletionRequest` and `AnthropicMessagesRequest` schemas, controllers header resolution, router cache stage bypass/TTL application, and OpenAPI snapshot contract. Integration tests in `tests/integration/test_gateway_directives.py`.
-- [ ] **Natural Streaming Playback for Cache Hits**:
-  - Replace monolithic single-chunk streaming output for cache hits with natural word/token chunking and micro-interval pacing (`STREAM_CACHE_PACING_DELAY_MS`) to eliminate UI flickering and support typewriter rendering on streaming frontends.
-  - Support `X-EchoGate-Stream-Pacing: off` client opt-out while preserving `ChatCompletionChunk` SSE contract.
+- [x] **Natural Streaming Playback for Cache Hits** *(2026-11-07)*:
+  - Replaces monolithic single-chunk streaming output for cache hits with natural word/token chunking and micro-interval pacing (`STREAM_CACHE_PACING_DELAY_MS`) to eliminate UI flickering and support typewriter rendering on streaming frontends.
+  - Supports `X-EchoGate-Stream-Pacing: off` client opt-out and custom millisecond pacing via header or `stream_pacing` / `stream_pacing_delay_ms` request body fields.
+  - Parity across OpenAI (`/api/v1/chat/completions`) and Anthropic (`/api/v1/messages`) streaming endpoints while preserving exact character identity and OpenAPI contract. Tests in `tests/integration/test_natural_streaming.py`.
 - [ ] **Zero-Retention Mode & In-Flight PII Redaction**:
   - Zero-Retention flag (`disable_log: true` or `X-EchoGate-Disable-Log: true`): serve completions with normal quota checks, but completely skip persistence in PostgreSQL (`gateway_requests_log`, `llm_usage_log`) and cache storage (Redis / Qdrant) for HIPAA/GDPR compliance.
   - Pre-routing PII scrubber: scrub sensitive entities (email, phone, credit card with Luhn verification, SSN, IBAN) in Stage 0 before cache key generation and dense/sparse vectorization to prevent cross-tenant/cross-session PII storage.

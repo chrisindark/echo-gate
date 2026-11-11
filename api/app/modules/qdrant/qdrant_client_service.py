@@ -1,8 +1,9 @@
+import asyncio
 import logging
 import os
 from typing import Any
 
-from qdrant_client import QdrantClient
+from qdrant_client import AsyncQdrantClient, QdrantClient
 from qdrant_client.http import models
 
 from app.core.config import config
@@ -14,6 +15,7 @@ class QdrantClientService:
     """
     Generic Qdrant client service providing collection-agnostic vector database operations.
     Encapsulates connection management, collection lifecycle, and low-level CRUD operations.
+    Supports both synchronous and asynchronous Qdrant clients.
     """
 
     def __init__(
@@ -21,28 +23,52 @@ class QdrantClientService:
         url: str | None = None,
         api_key: str | None = None,
         client: QdrantClient | None = None,
+        async_client: AsyncQdrantClient | None = None,
     ) -> None:
+        self.url = (
+            url
+            or getattr(config, "QDRANT_URL", None)
+            or os.getenv("QDRANT_URL", "http://localhost:6333")
+        )
+        self.api_key = (
+            api_key if api_key is not None else getattr(config, "QDRANT_API_KEY", None)
+        )
+        self._async_client = async_client
+
         if client is not None:
             self.client = client
         else:
-            qdrant_url = (
-                url
-                or getattr(config, "QDRANT_URL", None)
-                or os.getenv("QDRANT_URL", "http://localhost:6333")
-            )
-            qdrant_api_key = (
-                api_key
-                if api_key is not None
-                else getattr(config, "QDRANT_API_KEY", None)
-            )
-            logger.info(f"Connecting to Qdrant at {qdrant_url}")
-            self.client = QdrantClient(url=qdrant_url, api_key=qdrant_api_key)
+            logger.info(f"Connecting to Qdrant at {self.url}")
+            self.client = QdrantClient(url=self.url, api_key=self.api_key)
+
+    @property
+    def async_client(self) -> AsyncQdrantClient:
+        """Lazily initialize and return the asynchronous Qdrant client."""
+        if self._async_client is None:
+            self._async_client = AsyncQdrantClient(url=self.url, api_key=self.api_key)
+        return self._async_client
 
     def close(self) -> None:
-        """Close Qdrant client connection."""
+        """Close synchronous Qdrant client connection."""
         try:
             self.client.close()
         except Exception:
+            logger.exception("Failed to close Qdrant client connection")
+
+    async def aclose(self) -> None:
+        """Asynchronously close both synchronous and asynchronous Qdrant clients."""
+        try:
+            await asyncio.to_thread(self.close)
+        except Exception:
+            logger.exception("Failed to close synchronous Qdrant client")
+
+        if self._async_client is not None:
+            try:
+                await self._async_client.close()
+            except Exception:
+                logger.exception("Failed to close asynchronous Qdrant client")
+            finally:
+                self._async_client = None
             logger.exception("Failed to close Qdrant client connection")
 
     def get_collections(self) -> list[str]:

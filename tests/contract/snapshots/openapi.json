@@ -231,6 +231,30 @@
             "title": "Stream",
             "type": "boolean"
           },
+          "stream_pacing": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stream Pacing"
+          },
+          "stream_pacing_delay_ms": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stream Pacing Delay Ms"
+          },
           "system": {
             "anyOf": [
               {
@@ -2982,6 +3006,30 @@
             ],
             "default": false,
             "title": "Stream"
+          },
+          "stream_pacing": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stream Pacing"
+          },
+          "stream_pacing_delay_ms": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stream Pacing Delay Ms"
           },
           "temperature": {
             "default": 0.7,

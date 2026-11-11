@@ -83,6 +83,13 @@ PY
 
 COPY . .
 
+# Run as non-root user for container security hardening (CIS Docker Benchmark).
+RUN groupadd -g 10001 appgroup && \
+    useradd -u 10001 -g appgroup -s /bin/sh -d /workspace appuser && \
+    chown -R appuser:appgroup /workspace
+
+USER appuser
+
 EXPOSE 8000
 
 # Requires INFERENCE_BASE_URL to point at the inference platform. Without it the

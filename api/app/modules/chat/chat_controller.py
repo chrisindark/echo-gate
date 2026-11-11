@@ -221,6 +221,19 @@ async def create_chat_completion(
             )
             or "none",
         }
+        if request.cache_enabled is False:
+            stream_headers[EchoGateHeaders.CACHE] = "BYPASS"
+        elif (
+            first_chunk
+            and getattr(first_chunk, "cache_info", None)
+            and (
+                first_chunk.cache_info.get("cache_hit")
+                or first_chunk.cache_info.get("matched")
+            )
+        ):
+            stream_headers[EchoGateHeaders.CACHE] = "HIT"
+        else:
+            stream_headers[EchoGateHeaders.CACHE] = "MISS"
         # A StreamingResponse replaces the injected Response, so the quota guard's
         # X-RateLimit-* headers have to be re-applied here.
         if hasattr(quota_status, "to_headers"):

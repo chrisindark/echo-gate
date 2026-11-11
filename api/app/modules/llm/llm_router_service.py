@@ -82,7 +82,7 @@ from app.modules.chat.chat_schema import (
     ChatCompletionRequest,
     ChatCompletionResponse,
     StreamAccumulator,
-    response_to_stream_chunks,
+    response_to_stream_chunks_natural,
 )
 from app.modules.embedding.embedding_service import EmbeddingService
 from app.modules.gateway_requests.gateway_requests_schema import (
@@ -3282,8 +3282,36 @@ class LlmRouterService:
                 )
                 if response:
                     self._record_cache_hit(response)
-                    for chunk in response_to_stream_chunks(response):
+                    words_per_chunk = getattr(config, "STREAM_CACHE_WORDS_PER_CHUNK", 3)
+                    chunks = response_to_stream_chunks_natural(
+                        response, words_per_chunk=words_per_chunk
+                    )
+                    pacing_enabled = (
+                        request.stream_pacing
+                        if request.stream_pacing is not None
+                        else getattr(config, "STREAM_CACHE_PACING_ENABLED", True)
+                    )
+                    pacing_delay_ms = (
+                        request.stream_pacing_delay_ms
+                        if request.stream_pacing_delay_ms is not None
+                        else getattr(config, "STREAM_CACHE_PACING_DELAY_MS", 8.0)
+                    )
+                    pacing_delay_sec = (
+                        (pacing_delay_ms / 1000.0)
+                        if pacing_enabled and pacing_delay_ms > 0
+                        else 0.0
+                    )
+                    for chunk in chunks:
                         yield chunk
+                        if (
+                            pacing_delay_sec > 0
+                            and chunk.choices
+                            and (
+                                chunk.choices[0].delta.content
+                                or chunk.choices[0].delta.reasoning_content
+                            )
+                        ):
+                            await asyncio.sleep(pacing_delay_sec)
                     return
 
                 # Extract intent and other metadata if intent classification has been called already

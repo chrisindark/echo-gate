@@ -145,6 +145,30 @@ class TestConstantsAndConfig(unittest.TestCase):
                     os.environ[k] = v
             config.load()
 
+    def test_cors_config_loading(self):
+        backup_env = {
+            "CORS_ORIGINS": os.environ.get("CORS_ORIGINS"),
+            "CORS_ALLOW_CREDENTIALS": os.environ.get("CORS_ALLOW_CREDENTIALS"),
+        }
+        try:
+            os.environ["CORS_ORIGINS"] = (
+                "https://app.example.com, https://admin.example.com"
+            )
+            os.environ["CORS_ALLOW_CREDENTIALS"] = "false"
+            config.load()
+            self.assertEqual(
+                config.CORS_ORIGINS,
+                ["https://app.example.com", "https://admin.example.com"],
+            )
+            self.assertFalse(config.CORS_ALLOW_CREDENTIALS)
+        finally:
+            for k, v in backup_env.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+            config.load()
+
 
 if __name__ == "__main__":
     unittest.main()

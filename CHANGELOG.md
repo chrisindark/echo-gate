@@ -12,11 +12,30 @@ changes' entry with a `[BREAKING]` marker.
 
 ### Added
 
-- **Prompt Token Optimization Pipeline (Phases A & B)**:
+- **Anthropic Messages Protocol Adapter**:
+  - Native Anthropic Messages API support mounted at `POST /api/v1/messages` and compatibility alias `POST /v1/messages` for Claude SDKs (Python/TypeScript), Cursor in Claude mode, and Claude Code.
+  - Bidirectional payload normalization mapping Anthropic system/message blocks and tool definitions to Echo Gate's internal representations while preserving caching, quotas, and usage accounting.
+  - Full streaming SSE translation matching Anthropic event stream schema (`message_start`, `content_block_start`, `content_block_delta`, `content_block_stop`, `message_delta`, `message_stop`) with cache hit replaying.
+  - Pinned by OpenAPI snapshot contract test and covered by integration tests.
+- **Per-Request Gateway Directives**:
+  - Granular client-side control over caching and retry behavior via request body fields (`cache_enabled`, `cache_ttl`, `retries`) and headers (`X-EchoGate-Cache`, `X-EchoGate-Cache-TTL`, `X-EchoGate-Retries`).
+  - Cache bypass / force-refresh mode (`cache_enabled: false` or `X-EchoGate-Cache: false|bypass`) setting response header `X-Cache: BYPASS`.
+  - Custom TTL override (`cache_ttl`) in seconds across Redis and Qdrant cache stores.
+  - Per-request provider retry count bounds (`retries`, 0–10) with full parity across OpenAI and Anthropic endpoints.
+- **Natural Streaming Playback for Cache Hits**:
+  - Realistic word and token chunking with micro-interval pacing (`STREAM_CACHE_PACING_DELAY_MS`, default 8ms; `STREAM_CACHE_WORDS_PER_CHUNK`, default 3) when replaying cached responses over SSE streams (`stream: true`).
+  - Eliminates frontend UI flickering and enables smooth typewriter rendering without sacrificing character or newline fidelity.
+  - Client opt-out via `X-EchoGate-Stream-Pacing: off|instant` or body fields `stream_pacing: false` and `stream_pacing_delay_ms: 0.0`. Fully backward-compatible with `X-Cache-Prefer: instant`.
+- **Prompt Token Optimization Pipeline (Phases A, B, & C)**:
   - Opt-in pre-dispatch compression engine (`api/app/modules/prompt_optimization/`) reducing token footprint before semantic cache key generation and upstream LLM dispatch.
   - Lossless rule-based compression: excessive whitespace collapse with markdown code fence (``` and ~~~) and inline code protection; session turn deduplication (`session-dedup`) preserving atomic tool pairs and active prompt; and tool JSON array tabularization (`json-table`) into markdown pipe tables with strict size-reduction invariant.
   - Context window and headroom management: Conversation Context Reduction (`ccr`) retaining initial system prompt and recent $N$ turns while condensing (briefing marker) or dropping intermediate turns; dynamic headroom trimming (`headroom-trim`) against target model context limit minus completion tokens with safety buffer and `MODEL_CONTEXT_WINDOWS_JSON` lookup.
+  - Phase C Lossy Compression: offloads heavy token pruning (`method="lexical"`) and sentence embedding centroid ranking (`method="extractive"`) to `inference-platform/` over HTTP via `POST /compress`, preserving zero in-process embeddings invariant in the gateway.
   - Telemetry response headers: `X-EchoGate-Prompt-Optimization: applied` and `X-EchoGate-Prompt-Savings: tokens=...,chars=...`. Request controls via body parameter `prompt_optimization` or headers `X-EchoGate-Prompt-Optimization` and `X-EchoGate-Prompt-Optimization-CCR-Turns`.
+- **Changeset CLI & Pre-Commit SemVer Gate**:
+  - Standalone changeset management CLI `scripts/changeset.py` (`add`, `status`, `check`, `bump`).
+  - Enforces synchronized SemVer calculation across monorepo packages (`pyproject.toml`, `web/package.json`, `inference-platform/pyproject.toml`).
+  - Pre-commit hook `check-changesets` ensuring changeset integrity on staged commits.
 - **Stateful Multi-Turn Conversations API & Web Playground**:
   - Full CRUD lifecycle endpoints under `/api/v1/conversations`: create, get, list with pagination, update title (`PATCH /{conversation_id}`), and cascade delete (`DELETE /{conversation_id}`) with PostgreSQL Row-Level Security (RLS) isolation.
   - Conversational chat endpoint (`POST /api/v1/conversations/{conversation_id}/chat`): appends user message to thread history, executes completion via `LlmRouterService` with prompt optimization and caching, and atomically commits both user turn and assistant response.

@@ -288,3 +288,62 @@ def test_empty_window_returns_zeros_not_errors(session):
     assert data.latency_metrics.avg_latency_ms == 0.0
     assert data.latency_metrics.percentiles.p50 is None
     assert all(point.requests == 0 for point in data.time_series)
+
+
+def test_multiday_time_series_aggregation(session):
+    start_7d = datetime(2026, 1, 1, 0, 0, tzinfo=UTC)
+    end_7d = datetime(2026, 1, 8, 0, 0, tzinfo=UTC)
+
+    session.add(
+        GatewayRequestLog(
+            query_text="multiday query",
+            routing_decision="REDIS_EXACT",
+            created_at=datetime(2026, 1, 3, 12, 0, tzinfo=UTC),
+        )
+    )
+    session.add(
+        LlmUsageLog(
+            service_name="openai",
+            model="gpt-4o-mini",
+            caller_service_name="chat",
+            cost=0.05,
+            total_tokens=100,
+            created_at=datetime(2026, 1, 3, 12, 0, tzinfo=UTC),
+        )
+    )
+    session.commit()
+
+    service = AnalyticsService(session)
+    data = service.get_dashboard_data(start_time=start_7d, end_time=end_7d)
+    assert len(data.time_series) == 8  # 8 days inclusive
+    day_with_data = next(
+        (p for p in data.time_series if p.date_label == "2026-01-03"), None
+    )
+    assert day_with_data is not None
+    assert day_with_data.requests == 1
+    assert day_with_data.cost == 0.05
+    assert day_with_data.cache_hits == 1
+
+
+def test_latency_metrics_duration_buckets(session):
+    from datetime import timedelta
+
+    _seed(session)
+    service = AnalyticsService(session)
+
+    # Test each duration branch
+    base = datetime(2026, 1, 1, 0, 0, tzinfo=UTC)
+    durations = [
+        timedelta(hours=2),  # <= 3h
+        timedelta(hours=5),  # <= 6h
+        timedelta(hours=10),  # <= 12h
+        timedelta(hours=20),  # <= 1d
+        timedelta(days=2),  # <= 3d
+        timedelta(days=5),  # <= 7d
+        timedelta(days=10),  # <= 14d
+        timedelta(days=20),  # > 14d
+    ]
+    for dur in durations:
+        lat = service.get_latency_metrics(start_time=base, end_time=base + dur)
+        assert lat.total_requests >= 0
+        assert len(lat.time_series) > 0

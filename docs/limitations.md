@@ -24,5 +24,5 @@ The application connects to PostgreSQL using a non-owner role to guarantee that 
 
 ## 3. Known Gaps & Discrepancies
 
-- **No Open Critical Gaps**: All former gaps (conversation router unmount, rate-limit buckets, Celery beat schedules) have been resolved and verified against tests.
+- **Transitive Dependency Pin (Pillow via fastembed)**: `fastembed 0.8.1` pins `pillow<13.0,>=12.0.0`, holding Pillow at `12.3.0` while upstream Pillow 13.0.0 is released. Echo Gate uses `fastembed` exclusively for local sparse BM25 text embedding (`SparseTextEmbedding`); image decoding/ImageEmbedding code paths are never executed. Monitored via `scripts/audit_python.py` until `fastembed` bumps its Pillow upper bound.
 - When new discrepancies or temporary compromises are discovered, document them here immediately rather than fixing them silently in passing.

@@ -71,6 +71,16 @@ class Config:
         self.PROJECT_NAME = os.getenv("PROJECT_NAME", "").strip() or "echo-gate"
         self.VERSION = os.getenv("VERSION", "").strip() or "0.1.0"
 
+        # CORS & Security
+        raw_cors = os.getenv("CORS_ORIGINS", "").strip()
+        if raw_cors:
+            self.CORS_ORIGINS = [
+                origin.strip() for origin in raw_cors.split(",") if origin.strip()
+            ]
+        else:
+            self.CORS_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]
+        self.CORS_ALLOW_CREDENTIALS = _bool_env("CORS_ALLOW_CREDENTIALS", True)
+
         # Telemetry & Observability
         self.OTEL_ENABLED = os.getenv("OTEL_ENABLED", "true").lower() == "true"
         self.OTEL_SERVICE_NAME = os.getenv("OTEL_SERVICE_NAME", "echo-gate")
@@ -240,6 +250,15 @@ class Config:
         # Streaming
         self.STREAM_MAX_CONTENT_BYTES = int(
             os.getenv("STREAM_MAX_CONTENT_BYTES", str(2 * 1024 * 1024))
+        )
+        self.STREAM_CACHE_PACING_ENABLED = os.getenv(
+            "STREAM_CACHE_PACING_ENABLED", "true"
+        ).lower() in ("true", "1", "yes", "on")
+        self.STREAM_CACHE_PACING_DELAY_MS = float(
+            os.getenv("STREAM_CACHE_PACING_DELAY_MS", "8.0")
+        )
+        self.STREAM_CACHE_WORDS_PER_CHUNK = int(
+            os.getenv("STREAM_CACHE_WORDS_PER_CHUNK", "3")
         )
 
         # Semantic Search & Cache Tuning

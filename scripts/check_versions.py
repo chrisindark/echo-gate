@@ -12,6 +12,7 @@ Usage:
 
 Exit 0 = in sync; exit 1 with a diff = out of sync.
 """
+
 import re
 import sys
 from pathlib import Path
@@ -21,7 +22,10 @@ ROOT = Path(__file__).resolve().parent.parent
 SOURCES = [
     ("pyproject.toml", ROOT / "pyproject.toml"),
     ("web/package.json", ROOT / "web" / "package.json"),
-    ("inference-platform/pyproject.toml", ROOT / "inference-platform" / "pyproject.toml"),
+    (
+        "inference-platform/pyproject.toml",
+        ROOT / "inference-platform" / "pyproject.toml",
+    ),
 ]
 
 

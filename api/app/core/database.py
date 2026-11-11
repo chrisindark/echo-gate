@@ -4,8 +4,7 @@ from contextlib import contextmanager
 from typing import TypeAlias
 
 from sqlalchemy import create_engine, event
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.core.config import config
 
@@ -51,7 +50,9 @@ SessionLocalRead: sessionmaker[Session] = sessionmaker(
     autocommit=False, autoflush=False, bind=read_engine, expire_on_commit=False
 )
 
-Base = declarative_base()
+
+class Base(DeclarativeBase):
+    pass
 
 
 @event.listens_for(engine, "checkout")

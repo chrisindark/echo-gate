@@ -389,6 +389,55 @@ class TestRerankerService(unittest.TestCase):
             {"judged": False, "reason": "request_empty"},
         )
 
+    def test_reranker_error_handling_and_malformed_candidates(self):
+        service, _ = self._service([0.9, 0.8])
+        # Candidate with broken response structure
+        broken_cand = {
+            "id": "broken",
+            "score": 0.5,
+            "payload": {"prompt": "broken prompt", "response": "not-a-dict"},
+        }
+        valid_cand = _candidate("valid", user_prompt="hello")
+
+        res = service.rerank(
+            query="hello", candidates=[broken_cand, valid_cand], user_query="hello"
+        )
+        self.assertGreaterEqual(len(res), 1)
+
+    def test_reranker_global_exception_returns_empty_list(self):
+        from app.modules.inference.inference_client import InferenceUnavailable
+
+        class CrashingCrossEncoder:
+            def rerank_predict(self, pairs):
+                raise InferenceUnavailable("Inference platform completely crashed")
+
+        service = RerankerService(
+            cross_encoder_service=CrashingCrossEncoder(),
+            instruction_service=InstructionVerifier(),
+        )
+        valid_cand = _candidate("valid", user_prompt="hello")
+        res = service.rerank(query="hello", candidates=[valid_cand], user_query="hello")
+        self.assertEqual(res, [])
+
+    def test_token_overlap_helpers(self):
+        from app.modules.reranking.reranker_service import (
+            _normalize_modifier,
+            _token_overlap,
+        )
+
+        self.assertEqual(_token_overlap("", ""), 1.0)
+        self.assertEqual(_token_overlap("abc", ""), 0.0)
+        self.assertEqual(_token_overlap("", "xyz"), 0.0)
+        self.assertEqual(_token_overlap("hello world", "world hello"), 1.0)
+
+        self.assertEqual(_normalize_modifier("none"), "")
+        self.assertEqual(_normalize_modifier("null"), "")
+        self.assertEqual(_normalize_modifier("  valid  "), "valid")
+
+
+if __name__ == "__main__":
+    unittest.main()
+
 
 if __name__ == "__main__":
     unittest.main()

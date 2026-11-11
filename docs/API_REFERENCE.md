@@ -55,14 +55,19 @@ well as the matching headers; body values win.
 
 | Header | Direction | Used by | Effect |
 | --- | --- | --- | --- |
-| `X-EchoGate-Prompt-Optimization` / `X-Prompt-Optimization` | Request | chat, conversations | `true` (enables default optimization pipeline), `false` (disables), or comma-separated strategies: `whitespace`, `session-dedup`, `json-table`, `ccr`, `headroom-trim`. |
-| `X-EchoGate-Prompt-Optimization-CCR-Turns` | Request | chat, conversations | Integer (default `5`): number of recent turns to preserve in full fidelity when CCR is active. |
-| `X-Timeout-Budget-Ms` / `X-EchoGate-Timeout-Budget-Ms` | Request | chat, conversations | Millisecond timeout budget for upstream generation. |
+| `X-EchoGate-Prompt-Optimization` / `X-Prompt-Optimization` | Request | chat, messages, conversations | `true` (enables default optimization pipeline), `false` (disables), or comma-separated strategies: `whitespace`, `session-dedup`, `json-table`, `ccr`, `headroom-trim`, `compress`. |
+| `X-EchoGate-Prompt-Optimization-CCR-Turns` | Request | chat, messages, conversations | Integer (default `5`): number of recent turns to preserve in full fidelity when CCR is active. |
+| `X-EchoGate-Cache` / `X-Cache-Control` | Request | chat, messages, conversations | `true` (enforce cache), `false` / `bypass` / `off` / `no-cache` (bypass cache and force fresh provider generation; sets response `X-Cache: BYPASS`). |
+| `X-EchoGate-Cache-TTL` / `X-Cache-TTL` | Request | chat, messages, conversations | Integer seconds override for cache retention across Redis and Qdrant. |
+| `X-EchoGate-Retries` / `X-Retries` | Request | chat, messages, conversations | Integer (0 to 10): maximum retry attempts against upstream provider. |
+| `X-EchoGate-Stream-Pacing` / `X-Stream-Pacing` | Request | chat, messages, conversations | When streaming: `natural` / `true` (smooth word/token chunk pacing on cache hits), `off` / `false` / `instant` (disable pacing), or explicit float millisecond delay (e.g. `12.0`). |
+| `X-Timeout-Budget-Ms` / `X-EchoGate-Timeout-Budget-Ms` | Request | chat, messages, conversations | Millisecond timeout budget for upstream generation. |
 | `X-Cache-Prefer` | Request | chat (`stream: true`) | When set to `instant`, an exact/semantic cache hit is served immediately as a single JSON response (`ChatCompletionResponse`) instead of replaying SSE chunks. |
-| `X-EchoGate-Prompt-Optimization` | Response | chat, conversations | Emitted with value `applied` when prompt optimization modified the prompt and saved tokens or characters. |
-| `X-EchoGate-Prompt-Savings` | Response | chat, conversations | Emitted when optimization was applied: `tokens=<saved_tokens>,chars=<saved_chars>` (e.g. `tokens=12,chars=48`). |
-| `X-EchoGate-Gateway-Degradation` | Response | chat, conversations | Gateway resilience indicator: `none`, `fallback`, `cache_degraded`, or other degradation state. |
-| `X-Cache` | Response | chat | `HIT` or `MISS`. |
+| `X-EchoGate-Prompt-Optimization` | Response | chat, messages, conversations | Emitted with value `applied` when prompt optimization modified the prompt and saved tokens or characters. |
+| `X-EchoGate-Prompt-Savings` | Response | chat, messages, conversations | Emitted when optimization was applied: `tokens=<saved_tokens>,chars=<saved_chars>` (e.g. `tokens=12,chars=48`). |
+| `X-EchoGate-Gateway-Degradation` | Response | chat, messages, conversations | Gateway resilience indicator: `none`, `fallback`, `cache_degraded`, or other degradation state. |
+| `X-Cache` | Response | chat, messages | `HIT`, `MISS`, or `BYPASS`. |
+| `anthropic-version` | Response | messages | Always emitted as `2023-06-01` for Anthropic client compatibility. |
 
 ### Chat authentication
 
@@ -237,6 +242,11 @@ The main gateway endpoint. OpenAI-compatible request; returns a
 | `tools` | array | `null` | OpenAI tool schema. **Presence bypasses the semantic cache.** |
 | `tool_choice` | string/object | `null` | Cache key. |
 | `prompt_optimization` | bool/object | `null` | Opt-in prompt token optimization. Pass `true`/`false`, or a `PromptOptimizationConfig` object (see below). When omitted, falls back to `PROMPT_OPTIMIZATION_*` server settings or `X-EchoGate-Prompt-Optimization` header. |
+| `cache_enabled` | bool | `null` | Direct cache control override. Set `false` to bypass semantic and exact caches and force fresh upstream generation (sets response `X-Cache: BYPASS`). Overrides `X-EchoGate-Cache`. |
+| `cache_ttl` | int | `null` | Custom cache TTL in seconds overriding retention policy for Redis and Qdrant. Overrides `X-EchoGate-Cache-TTL`. |
+| `retries` | int | `null` | Upstream provider retry attempts (`0` to `10`). Overrides `X-EchoGate-Retries`. |
+| `stream_pacing` | bool | `null` | Control smooth word/token chunk pacing on cache-hit SSE streams. Set `false` to disable pacing and emit single-frame chunks. Overrides `X-EchoGate-Stream-Pacing`. |
+| `stream_pacing_delay_ms` | float | `null` | Custom inter-chunk delay in milliseconds (`0.0` to `1000.0`) when stream pacing is active. |
 
 #### `PromptOptimizationConfig` object
 
@@ -254,6 +264,10 @@ The main gateway endpoint. OpenAI-compatible request; returns a
 | `headroom_trim` | bool | `false` | Dynamically prune oldest conversational turns to guarantee the prompt fits within the target model context limit minus completion tokens. |
 | `headroom_buffer_tokens` | int | `100` | Safety token buffer subtracted below the target context window ceiling. |
 | `headroom_target_tokens` | int | `null` | Explicit token ceiling override (bypasses model context limit lookup). |
+| `compress` | bool | `false` | Lossy prompt compression offloaded to `inference-platform/` over HTTP via `POST /compress`. |
+| `compress_rate` | float | `0.5` | Target retention ratio (fraction of content to retain, `0.05` to `0.95`). |
+| `compress_target_tokens` | int | `null` | Explicit token count ceiling; overrides `compress_rate` if specified. |
+| `compress_method` | string | `"lexical"` | Compression method: `"lexical"` (token pruning preserving code blocks) or `"extractive"` (sentence centroid ranking). |
 
 **Response** (`ChatCompletionResponse`):
 
@@ -387,6 +401,86 @@ Body: `{ "request": ChatCompletionRequest, "response": ChatCompletionResponse,
 scope. Writes the pair into the Qdrant cache and returns `{"point_id": ...}`.
 For a tenant-scoped seed that also fills Redis, prefer
 `POST /api/v1/admin/cache/warmup`.
+
+---
+
+## Anthropic Messages — `/api/v1/messages`
+
+Drop-in compatibility adapter implementing the Anthropic Messages API specification for Claude SDKs (Python, TypeScript), Cursor in Claude mode, and Claude Code. Also mounted at `/v1/messages` for clients expecting a root base path.
+
+Runs the same authentication (`X-API-Key` optional guard) and rate-limiting / quota guards as chat completions. Always responds with the `anthropic-version: 2023-06-01` header.
+
+### `POST /api/v1/messages`
+
+**Request body** (`AnthropicMessagesRequest`):
+
+| Field | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `model` | string | required | Anthropic model identifier (e.g. `claude-3-5-sonnet-20241022`, `claude-3-haiku-20240307`, or provider/alias). |
+| `messages` | array | required | List of turns `{role: "user" \| "assistant", content: string \| array}` with text or structured content blocks. |
+| `max_tokens` | int | required | Maximum tokens to generate (Anthropic protocol requires this). |
+| `system` | string/array | `null` | System prompt string or array of system text blocks. |
+| `temperature` | float | `null` | Sampling temperature (`0.0` to `1.0`). |
+| `top_p` | float | `null` | Nucleus sampling probability (`0.0` to `1.0`). |
+| `top_k` | int | `null` | Top-k sampling limit. |
+| `stream` | bool | `false` | When `true`, streams Server-Sent Events adhering to the Anthropic SSE protocol. |
+| `stop_sequences` | string[] | `null` | Custom stop sequences. |
+| `tools` | array | `null` | Anthropic tool definitions `[{name, description, input_schema}]`. Declaring tools bypasses semantic caching. |
+| `tool_choice` | object/string | `null` | `{"type": "auto" \| "any" \| "tool", "name": "..."}`. |
+| `thinking` | object | `null` | Extended thinking configuration: `{"type": "enabled", "budget_tokens": int}`. |
+| `metadata` | object | `null` | Request metadata; `user_id` inside metadata is accepted for compatibility. |
+| `prompt_optimization` | bool/object | `null` | Opt-in prompt token optimization (same options as chat completion). |
+| `cache_enabled` | bool | `null` | Set `false` to bypass cache and force fresh generation (`X-Cache: BYPASS`). |
+| `cache_ttl` | int | `null` | Custom cache TTL override in seconds. |
+| `retries` | int | `null` | Upstream provider retry attempts (`0` to `10`). |
+| `stream_pacing` | bool | `null` | Enable/disable natural chunk pacing on cache hits. |
+| `stream_pacing_delay_ms` | float | `null` | Custom delay in ms for streaming chunk pacing. |
+
+**Response** (`AnthropicMessagesResponse`):
+
+```json
+{
+  "id": "msg_01...",
+  "type": "message",
+  "role": "assistant",
+  "content": [
+    {
+      "type": "text",
+      "text": "Hello! How can I assist you today?"
+    }
+  ],
+  "model": "claude-3-5-sonnet-20241022",
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 12,
+    "output_tokens": 8
+  }
+}
+```
+
+**Streaming format (`stream: true`)**:
+Streams SSE events adhering to the Anthropic wire format:
+- `event: message_start` with initial message metadata and input token count.
+- `event: content_block_start` opening text or tool blocks.
+- `event: content_block_delta` with `delta.type = "text_delta"` and incremental text chunks.
+- `event: content_block_stop`.
+- `event: message_delta` with final `stop_reason` and output token usage.
+- `event: message_stop`.
+
+Cached responses replayed over streaming automatically pace chunks using natural word boundaries and the configured `STREAM_CACHE_PACING_DELAY_MS`.
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/messages" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: <key>" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{
+    "model": "claude-3-5-sonnet-20241022",
+    "max_tokens": 1024,
+    "messages": [{"role": "user", "content": "Explain relativity in one sentence."}]
+  }'
+```
 
 ---
 

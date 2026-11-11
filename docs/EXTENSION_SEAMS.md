@@ -27,7 +27,7 @@ schemas changed.
 # In the private echo-gate-cloud package (never in this repo):
 from app.core import features, identity, metering, storage
 
-features.register_cloud()                      # flips DEPLOYMENT_MODE to cloud
+features.register_cloud()  # flips DEPLOYMENT_MODE to cloud
 identity.default_provider = lambda: OidcIdentityProvider(...)  # plus session
 metering.default_sink = lambda: StripeRecorderSink(...)
 storage.default_factory = lambda: ManagedStorageFactory(...)
