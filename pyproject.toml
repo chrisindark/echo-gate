@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "echo-gate"
-version = "0.1.0"
+version = "0.2.0"
 description = "Echo Gate LLM Gateway"
 authors = ["Christopher Paul <14836101+chrisindark@users.noreply.github.com>"]
 license = "AGPL-3.0-only"

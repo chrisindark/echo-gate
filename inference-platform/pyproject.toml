@@ -1,6 +1,6 @@
 [project]
 name = "inference-platform"
-version = "0.1.0"
+version = "0.2.0"
 description = "Shared encoder-serving layer: dense embeddings, sparse BM25, rerank, and NLI over HTTP."
 readme = "README.md"
 requires-python = ">=3.11"
