@@ -98,6 +98,11 @@ Infinity is the better implementation anyway. That is why `pyproject.toml` pins
 torch to the CPU index: the PyPI wheel drags the whole CUDA runtime into the image
 as a hard dependency on Linux.
 
+The Compose files publish no host ports. Create the shared network once
+(`docker network create echo-gate-net`); consumers on it use
+`http://inference:7997` (split pools use `inference-embed:7997`,
+`inference-rerank:7998`, `inference-classify:7999`).
+
 ### Container
 
 ```bash
@@ -227,6 +232,9 @@ INFERENCE_BASE_URL=http://localhost:7997
 
 # when the gateway runs in OrbStack, inference on the host
 INFERENCE_BASE_URL=http://host.docker.internal:7997
+
+# when both run in containers on echo-gate-net
+INFERENCE_BASE_URL=http://inference:7997
 ```
 
 Day-to-day commands:

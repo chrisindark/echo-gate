@@ -78,10 +78,12 @@ poetry run uvicorn app.main:app --port 8000 --reload
 
 ## Rules and caveats
 
-- **API base URL defaults to `http://localhost:8000`** and is configurable via
-  `NEXT_PUBLIC_API_BASE_URL` at build time (see `src/lib/api.ts`; Next.js inlines
-  `NEXT_PUBLIC_*` variables into the client bundle during `next build`, so the
-  value cannot be changed at runtime). See `.env.example`.
+- **API base URL defaults to `http://localhost:8000`** for host-native runs and is
+  configurable via `NEXT_PUBLIC_API_BASE_URL` at build time (see `src/lib/api.ts`;
+  Next.js inlines `NEXT_PUBLIC_*` variables into the client bundle during
+  `next build`, so the value cannot be changed at runtime). The Compose images
+  build with `http://echo-gate:8000` because no host ports are published. See
+  `.env.example`.
 - **Keep the model allowlist in sync.** `src/app/page.tsx` has a `PROVIDERS` map that
   mirrors the gateway's per-provider allowlist in
   `../app/modules/chat/chat_schema.py` (`ALLOWED_MODELS`). When the backend adds or

@@ -78,7 +78,11 @@ class Config:
                 origin.strip() for origin in raw_cors.split(",") if origin.strip()
             ]
         else:
-            self.CORS_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]
+            self.CORS_ORIGINS = [
+                "http://localhost:3000",
+                "http://127.0.0.1:3000",
+                "http://web:3000",
+            ]
         self.CORS_ALLOW_CREDENTIALS = _bool_env("CORS_ALLOW_CREDENTIALS", True)
 
         # Telemetry & Observability

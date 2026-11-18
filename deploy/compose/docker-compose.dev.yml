@@ -2,6 +2,11 @@ name: echo-gate-dev
 #
 # Echo Gate development compose configuration with live hot reload.
 #
+# No host ports are published. All services listen only on the shared external
+# network `echo-gate-net` (`docker network create echo-gate-net` before first
+# use). Reach them from another container on that network or with
+# `docker compose exec`.
+#
 # Code changes made on the host in ./api/ are instantly reflected:
 # - API (echo-gate): uvicorn auto-reloads the application
 # - Celery worker (celery_worker): watchfiles auto-restarts the worker process
@@ -22,7 +27,7 @@ services:
       - qdrant_dev_data:/qdrant/storage
     restart: unless-stopped
     networks:
-      - app-network
+      - echo-gate-net
 
   redis:
     image: redis:7-alpine
@@ -30,7 +35,7 @@ services:
       - "6379"
     restart: unless-stopped
     networks:
-      - app-network
+      - echo-gate-net
 
   postgres:
     image: postgres:16-alpine
@@ -49,7 +54,7 @@ services:
       retries: 10
     restart: unless-stopped
     networks:
-      - app-network
+      - echo-gate-net
 
   echo-gate:
     build:
@@ -59,7 +64,7 @@ services:
       - "8000"
     environment:
       - PYTHON_ENV=development
-      - INFERENCE_BASE_URL=${INFERENCE_DOCKER_BASE_URL:-http://host.docker.internal:7997}
+      - INFERENCE_BASE_URL=${INFERENCE_DOCKER_BASE_URL:-http://inference:7997}
       - QDRANT_URL=http://qdrant:6333
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1
@@ -94,7 +99,7 @@ services:
         condition: service_started
     restart: unless-stopped
     networks:
-      - app-network
+      - echo-gate-net
 
   celery_worker:
     build:
@@ -102,7 +107,7 @@ services:
       dockerfile: Dockerfile.dev
     environment:
       - PYTHON_ENV=development
-      - INFERENCE_BASE_URL=${INFERENCE_DOCKER_BASE_URL:-http://host.docker.internal:7997}
+      - INFERENCE_BASE_URL=${INFERENCE_DOCKER_BASE_URL:-http://inference:7997}
       - QDRANT_URL=http://qdrant:6333
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1
@@ -127,7 +132,7 @@ services:
         condition: service_started
     restart: unless-stopped
     networks:
-      - app-network
+      - echo-gate-net
 
   celery_beat:
     build:
@@ -146,7 +151,7 @@ services:
         condition: service_started
     restart: unless-stopped
     networks:
-      - app-network
+      - echo-gate-net
 
   web:
     build:
@@ -156,7 +161,7 @@ services:
       - "3000"
     environment:
       - NODE_ENV=development
-      - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+      - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://echo-gate:8000}
     volumes:
       - ../../web:/app
       - /app/node_modules
@@ -172,12 +177,12 @@ services:
             - .next/
     restart: unless-stopped
     networks:
-      - app-network
+      - echo-gate-net
 
 volumes:
   qdrant_dev_data:
   postgres_dev_data:
 
 networks:
-  app-network:
-    driver: bridge
+  echo-gate-net:
+    external: true

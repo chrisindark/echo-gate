@@ -8,7 +8,11 @@
 # Laptop (macOS): do not use this. A Linux container has no Metal, and Infinity's
 # batching buys nothing at single-user rates. Run dev/serve.sh on the host.
 #
+#   docker network create echo-gate-net   # once, if it does not exist
 #   docker compose -f inference.yml --env-file .env up -d
+#
+# No host ports are published; consumers on `echo-gate-net` use
+# http://inference:7997.
 #
 # Verify arm64 availability before running this on Apple Silicon — an amd64-only
 # image runs under Rosetta and is 2-3x slower for numeric work:
@@ -18,6 +22,8 @@ services:
   inference:
     image: michaelfeil/infinity:0.0.76
     restart: unless-stopped
+    networks:
+      - echo-gate-net
     # Container-only: no host port is bound. Consumers on the same Docker
     # network reach this service as http://inference:7997.
     expose:
@@ -75,6 +81,10 @@ services:
     #         - driver: nvidia
     #           count: 1
     #           capabilities: [gpu]
+
+networks:
+  echo-gate-net:
+    external: true
 
 volumes:
   inference_hf_cache:

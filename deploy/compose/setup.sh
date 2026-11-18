@@ -9,11 +9,15 @@
 #   ./deploy/compose/setup.sh --name ops --scopes admin:*   # custom admin key
 #
 # What it does, in order:
-#   1. Starts the inference platform (separate compose project) and waits for
-#      /health — the gateway refuses to start without it.
-#   2. Brings up the core (+ ui) profile.
-#   3. Runs Alembic migrations as the table owner (MIGRATION_DATABASE_URL).
-#   4. Creates the first admin key via `python -m app.scripts.create_admin_key create`.
+#   1. Ensures the shared Docker network exists.
+#   2. Starts the inference platform (separate compose project) and waits for
+#      /health from inside its container — the gateway refuses to start without it.
+#   3. Brings up the core (+ ui) profile.
+#   4. Runs Alembic migrations as the table owner (MIGRATION_DATABASE_URL).
+#   5. Creates the first admin key via `python -m app.scripts.create_admin_key create`.
+#
+# No host ports are published: every service is reachable only from another
+# container on the shared network (or via `docker compose exec`).
 #
 # Everything is idempotent: re-running the script starts what is stopped and
 # creates another admin key (the CLI, by design, has no "exists" check).
@@ -22,9 +26,10 @@ set -euo pipefail
 COMPOSE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${COMPOSE_DIR}/../.." && pwd)"
 INFERENCE_COMPOSE="${REPO_ROOT}/inference-platform/deploy/compose/inference-native.yml"
-INFERENCE_URL="${INFERENCE_BASE_URL:-http://127.0.0.1:7997}"
+SHARED_NETWORK="echo-gate-net"
 INFERENCE_TIMEOUT="${INFERENCE_TIMEOUT:-180}"
-COMPOSE="docker compose -f ${COMPOSE_DIR}/docker-compose.yml"
+COMPOSE_FILE="${COMPOSE_DIR}/docker-compose.yml"
+COMPOSE="docker compose -f ${COMPOSE_FILE}"
 WITH_UI=true
 KEY_NAME="${ADMIN_KEY_NAME:-local-admin}"
 KEY_SCOPES="${ADMIN_KEY_SCOPES:-admin:*}"
@@ -46,16 +51,22 @@ done
 
 cd "${REPO_ROOT}"
 
-echo "==> [1/4] Starting inference platform"
+echo "==> [1/5] Ensuring shared Docker network"
+if ! docker network inspect "${SHARED_NETWORK}" >/dev/null 2>&1; then
+  docker network create "${SHARED_NETWORK}" >/dev/null
+fi
+
+echo "==> [2/5] Starting inference platform"
 if [[ ! -f "${INFERENCE_COMPOSE}" ]]; then
   echo "ERROR: inference compose file not found: ${INFERENCE_COMPOSE}" >&2
   exit 1
 fi
 docker compose -f "${INFERENCE_COMPOSE}" up -d --build
 
-echo "    waiting for ${INFERENCE_URL}/health (up to ${INFERENCE_TIMEOUT}s)..."
+echo "    waiting for inference /health inside its container (up to ${INFERENCE_TIMEOUT}s)..."
 deadline=$((SECONDS + INFERENCE_TIMEOUT))
-until curl -fsS "${INFERENCE_URL}/health" >/dev/null 2>&1; do
+until docker compose -f "${INFERENCE_COMPOSE}" exec -T inference \
+  python -c "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:7997/health', timeout=4).status == 200 else 1)" >/dev/null 2>&1; do
   if (( SECONDS >= deadline )); then
     echo "ERROR: inference platform did not become healthy in ${INFERENCE_TIMEOUT}s." >&2
     echo "       docker compose -f ${INFERENCE_COMPOSE} logs -f inference" >&2
@@ -65,7 +76,7 @@ until curl -fsS "${INFERENCE_URL}/health" >/dev/null 2>&1; do
 done
 echo "    inference platform is up"
 
-echo "==> [2/4] Starting gateway stack"
+echo "==> [3/5] Starting gateway stack"
 PROFILES=(--profile core)
 if [[ "${WITH_UI}" == "true" ]]; then
   PROFILES+=(--profile ui)
@@ -75,7 +86,7 @@ else
 fi
 ${COMPOSE} "${PROFILES[@]}" up -d --build
 
-echo "==> [3/4] Running database migrations"
+echo "==> [4/5] Running database migrations"
 # Migrations must run as the table owner: RLS policies do not apply to owners,
 # which is exactly why the app itself connects as the non-owner echo_gate_app
 # role. psycopg is a gateway dependency, so this runs inside the api image.
@@ -84,7 +95,7 @@ ${COMPOSE} "${PROFILES[@]}" run --rm \
   -e "MIGRATION_DATABASE_URL=postgresql+psycopg://postgres:postgres@postgres:5432/echo_gate" \
   echo-gate alembic upgrade head
 
-echo "==> [4/4] Creating admin API key"
+echo "==> [5/5] Creating admin API key"
 KEY_ARGS=(create --name "${KEY_NAME}" --scopes "${KEY_SCOPES}")
 if [[ -n "${KEY_EXPIRES}" ]]; then
   KEY_ARGS+=(--expires-in-days "${KEY_EXPIRES}")
@@ -97,14 +108,16 @@ ${COMPOSE} "${PROFILES[@]}" run --rm \
   echo-gate python -m app.scripts.create_admin_key "${KEY_ARGS[@]}"
 
 echo ""
-echo "Echo Gate is up."
-echo "  Gateway : http://localhost:8000   (health: /api/v1/health/deps)"
+echo "Echo Gate is up. No host ports are bound; containers on ${SHARED_NETWORK} can reach:"
+echo "  Gateway   : http://echo-gate:8000   (health: /api/v1/health/deps)"
+echo "  Inference : http://inference:7997"
 if [[ "${WITH_UI}" == "true" ]]; then
-  echo "  UI      : http://localhost:3000"
+  echo "  UI        : http://web:3000"
 fi
 echo ""
+echo "Host-side health probe (the gateway image has no curl):"
+echo "  docker compose -f ${COMPOSE_FILE} exec -T echo-gate python -c \"import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health/deps').read().decode())\""
+echo ""
 echo "Save the admin key printed above — it is shown only once."
-echo "Then create a tenant API key:"
-echo "  curl -X POST http://localhost:8000/api/v1/admin/api-keys/ \\"
-echo "    -H \"Content-Type: application/json\" -H \"X-Admin-Key: <admin key>\" \\"
-echo "    -d '{\"name\": \"local-dev\", \"tenant_id\": \"acme\", \"user_id\": \"dev\"}'"
+echo "Then create a tenant API key from a container on ${SHARED_NETWORK}:"
+echo "  docker compose -f ${COMPOSE_FILE} exec -T echo-gate python -c \"import urllib.request,json; req=urllib.request.Request('http://127.0.0.1:8000/api/v1/admin/api-keys/', data=json.dumps({'name':'local-dev','tenant_id':'acme','user_id':'dev'}).encode(), headers={'Content-Type':'application/json','X-Admin-Key':'<admin key>'}); print(urllib.request.urlopen(req).read().decode())\""
