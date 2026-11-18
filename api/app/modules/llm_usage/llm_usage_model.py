@@ -38,8 +38,15 @@ class LlmUsageLog(Base):
     total_tokens = Column(Integer, default=0)
     cache_read_tokens = Column(
         Integer, default=0
-    )  # Tokens retrieved from prompt cache (discounted)
-    cache_creation_tokens = Column(Integer, default=0)  # Tokens written to cache
+    )  # Gateway cache hits (Echo Gate semantic cache)
+    cache_creation_tokens = Column(Integer, default=0)  # Gateway cache writes
+    # Provider-native ("upstream") prompt-cache accounting. Kept separate from
+    # the gateway cache columns above so cost attribution never conflates the
+    # two. `upstream_cached_tokens` is the OpenAI/Gemini subset of prompt
+    # tokens; the Anthropic fields are reported outside `input_tokens`.
+    upstream_cached_tokens = Column(Integer, default=0)
+    upstream_cache_read_input_tokens = Column(Integer, default=0)
+    upstream_cache_creation_input_tokens = Column(Integer, default=0)
 
     cost = Column(Numeric(precision=12, scale=6), default=0.000000)
     cost_calculated = Column(Boolean, default=False, server_default="false", index=True)

@@ -40,15 +40,21 @@ def normalize_anthropic_to_chat_request(
             chat_messages.append(ChatMessage(role="system", content=request.system))
         elif isinstance(request.system, list):
             sys_texts: list[str] = []
+            system_cache_control: dict[str, Any] | None = None
             for block in request.system:
                 if isinstance(block, dict) and block.get("type") == "text":
                     sys_texts.append(block.get("text", ""))
+                    if isinstance(block.get("cache_control"), dict):
+                        system_cache_control = block["cache_control"]
                 elif isinstance(block, str):
                     sys_texts.append(block)
             if sys_texts:
-                chat_messages.append(
-                    ChatMessage(role="system", content="\n\n".join(sys_texts))
+                system_message = ChatMessage(
+                    role="system", content="\n\n".join(sys_texts)
                 )
+                if system_cache_control:
+                    system_message.cache_control = system_cache_control
+                chat_messages.append(system_message)
 
     # 2. Conversational turns
     for msg in request.messages:
@@ -58,6 +64,7 @@ def normalize_anthropic_to_chat_request(
         elif isinstance(msg.content, list):
             text_parts: list[str] = []
             tool_calls: list[ToolCall] = []
+            message_cache_control: dict[str, Any] | None = None
 
             for block in msg.content:
                 if not isinstance(block, dict):
@@ -67,6 +74,8 @@ def normalize_anthropic_to_chat_request(
                 b_type = block.get("type")
                 if b_type == "text":
                     text_parts.append(block.get("text", ""))
+                    if isinstance(block.get("cache_control"), dict):
+                        message_cache_control = block["cache_control"]
                 elif b_type == "tool_use":
                     tc_id = block.get("id") or f"call_{uuid.uuid4().hex[:24]}"
                     tc_name = block.get("name", "")
@@ -105,13 +114,14 @@ def normalize_anthropic_to_chat_request(
 
             if text_parts or tool_calls:
                 combined_text = "\n\n".join(text_parts) if text_parts else None
-                chat_messages.append(
-                    ChatMessage(
-                        role=role,
-                        content=combined_text,
-                        tool_calls=tool_calls if tool_calls else None,
-                    )
+                combined_message = ChatMessage(
+                    role=role,
+                    content=combined_text,
+                    tool_calls=tool_calls if tool_calls else None,
                 )
+                if message_cache_control:
+                    combined_message.cache_control = message_cache_control
+                chat_messages.append(combined_message)
 
     # 3. Tools
     chat_tools: list[Tool] | None = None
@@ -218,6 +228,15 @@ def normalize_chat_to_anthropic_response(
 
     prompt_tokens = response.usage.prompt_tokens if response.usage else 0
     completion_tokens = response.usage.completion_tokens if response.usage else 0
+    cache_read_tokens = response.usage.cache_read_tokens if response.usage else 0
+    cache_creation_tokens = (
+        response.usage.cache_creation_tokens if response.usage else 0
+    )
+    # `prompt_tokens` is total input; Anthropic's `input_tokens` excludes the
+    # cached portions it reports separately.
+    non_cached_input = max(
+        prompt_tokens - cache_read_tokens - cache_creation_tokens, 0
+    )
 
     return AnthropicMessagesResponse(
         id=msg_id,
@@ -227,8 +246,10 @@ def normalize_chat_to_anthropic_response(
         content=content_blocks,
         stop_reason=stop_reason,
         usage=AnthropicUsage(
-            input_tokens=prompt_tokens,
+            input_tokens=non_cached_input,
             output_tokens=completion_tokens,
+            cache_read_input_tokens=cache_read_tokens or None,
+            cache_creation_input_tokens=cache_creation_tokens or None,
         ),
     )
 

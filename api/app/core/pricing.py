@@ -86,6 +86,56 @@ PRICING_CONFIG = {
 PRICING_CONFIG["gemini"] = PRICING_CONFIG["google-genai"]
 
 
+# Upstream prompt-cache multipliers applied to the provider's input price.
+# These are *provider-native* cache rates, orthogonal to Echo Gate's semantic
+# cache: OpenAI implicit caching bills cache reads at 0.5x, Anthropic charges
+# 0.1x for cache reads and 1.25x for cache writes, and Gemini implicit caching
+# bills cache reads at 0.25x.
+CACHE_TOKEN_MULTIPLIERS: dict[str, tuple[float, float]] = {
+    "openai": (0.5, 1.0),
+    "claude": (0.1, 1.25),
+    "anthropic": (0.1, 1.25),
+    "gemini": (0.25, 1.0),
+    "google-genai": (0.25, 1.0),
+}
+DEFAULT_CACHE_TOKEN_MULTIPLIERS = (1.0, 1.0)
+
+
+def get_cache_token_multipliers(provider: str) -> tuple[float, float]:
+    """Return ``(cache_read_multiplier, cache_write_multiplier)`` for a provider."""
+    return CACHE_TOKEN_MULTIPLIERS.get(
+        provider.lower(), DEFAULT_CACHE_TOKEN_MULTIPLIERS
+    )
+
+
+def calculate_cost(
+    provider: str,
+    model: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+    cache_read_tokens: int = 0,
+    cache_creation_tokens: int = 0,
+) -> float:
+    """Price a completion, including provider-native prompt-cache discounts.
+
+    ``prompt_tokens`` is total input (cached portions included). Non-cached
+    input is billed at the normal prompt rate, cache reads at the provider's
+    read multiplier, and cache writes at its write multiplier.
+    """
+    prompt_price, completion_price = get_model_prices(provider, model)
+    read_multiplier, write_multiplier = get_cache_token_multipliers(provider)
+
+    non_cached = max(
+        prompt_tokens - cache_read_tokens - cache_creation_tokens, 0
+    )
+    input_cost = (
+        non_cached * prompt_price
+        + cache_read_tokens * prompt_price * read_multiplier
+        + cache_creation_tokens * prompt_price * write_multiplier
+    )
+    return input_cost + completion_tokens * completion_price
+
+
 def get_model_prices(provider: str, model: str) -> tuple[float, float]:
     """
     Returns (prompt_price_per_token, completion_price_per_token).

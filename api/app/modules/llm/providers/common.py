@@ -53,6 +53,14 @@ def prepare_openai_compatible_payload(
     ]:
         payload_data.pop(key, None)
 
+    # Bounded passthrough: merge `extra_body` into the top-level payload so its
+    # keys reach the selected provider, then drop the wrapper key itself.
+    extra_body = payload_data.pop("extra_body", None)
+    if isinstance(extra_body, dict):
+        merged = dict(extra_body)
+        merged.update(payload_data)
+        payload_data = merged
+
     if request.reasoning_effort:
         payload_data["reasoning_effort"] = request.reasoning_effort
     elif request.thinking:

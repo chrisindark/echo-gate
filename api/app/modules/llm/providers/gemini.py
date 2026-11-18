@@ -26,6 +26,7 @@ from app.modules.chat.chat_schema import (
     ChunkDelta,
     FunctionCall,
     FunctionCallChunk,
+    PromptTokensDetails,
     ToolCall,
     ToolCallChunk,
     Usage,
@@ -230,6 +231,11 @@ class GeminiProvider:
                 if response.usage_metadata
                 else 0
             )
+            cached_tokens = (
+                getattr(response.usage_metadata, "cached_content_token_count", None)
+                if response.usage_metadata
+                else None
+            )
 
             tool_calls = []
             candidate_fc_parts = []
@@ -310,6 +316,11 @@ class GeminiProvider:
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
                     total_tokens=total_tokens,
+                    prompt_tokens_details=(
+                        PromptTokensDetails(cached_tokens=cached_tokens)
+                        if cached_tokens
+                        else None
+                    ),
                 ),
             )
         except errors.APIError as e:
@@ -493,10 +504,18 @@ class GeminiProvider:
                     total_tokens = response.usage_metadata.total_token_count or (
                         prompt_tokens + completion_tokens
                     )
+                    cached_tokens = getattr(
+                        response.usage_metadata, "cached_content_token_count", None
+                    )
                     usage = Usage(
                         prompt_tokens=prompt_tokens,
                         completion_tokens=completion_tokens,
                         total_tokens=total_tokens,
+                        prompt_tokens_details=(
+                            PromptTokensDetails(cached_tokens=cached_tokens)
+                            if cached_tokens
+                            else None
+                        ),
                     )
 
             finish_reason = (

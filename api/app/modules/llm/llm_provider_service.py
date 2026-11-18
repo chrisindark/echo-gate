@@ -64,6 +64,29 @@ class LlmProviderService(
         if genai and self.gemini_api_key:
             self.gemini_client = genai.Client(api_key=self.gemini_api_key)
 
+    def service_availability(self) -> dict[str, bool]:
+        """Map every dispatchable service to whether this deployment can call it.
+
+        Availability means *configured*: a provider with no credential (or no
+        base URL) can never succeed, while a configured one may still fail and
+        is handled by the router's retry, fallback, and circuit-breaker paths.
+        This is deliberately not a health probe — model discovery must stay
+        fast and must not depend on upstream uptime.
+        """
+        return {
+            "openai": bool(self.openai_api_key),
+            "groq": bool(self.groq_api_key),
+            "openrouter": bool(self.openrouter_api_key),
+            "ollama": bool(self.ollama_base_url),
+            # "gemini" and "google-genai" are the same upstream under two names.
+            "gemini": bool(self.gemini_api_key),
+            "google-genai": bool(self.gemini_api_key),
+            # "claude" and "anthropic" are the same upstream under two names.
+            "claude": bool(self.claude_api_key),
+            "anthropic": bool(self.claude_api_key),
+            "mock": True,
+        }
+
     @log_latency()
     async def generate_completion(
         self, request: ChatCompletionRequest, service_name: str | None = None

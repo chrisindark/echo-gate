@@ -715,6 +715,196 @@ Expanding Echo Gate's gateway surface, prompt efficiency, and safety guardrails,
 
 ---
 
+### Phase 6 — Interop & SDK drop-in parity
+
+**Status: ⏳ planned (opened 2026-11-17).** No changes to the cache, resilience,
+or tenancy invariants. Goal: an application written against the official OpenAI
+or Anthropic SDK can switch `base_url` to Echo Gate and keep working without a
+translation proxy, a dummy API key, or client-side header overrides.
+
+Order within the phase is deliberate: these are small, independently shippable
+diffs, and the first three unblock SDK smoke tests that validate the rest.
+
+- [x] **1. Bearer-token auth parity** *(2026-11-17)* — accept
+  `Authorization: Bearer <key>` as an alias for `X-API-Key`, resolved through
+  the same server-side key hash lookup. Never trust any caller-supplied
+  tenant/user value from the header. Extra beyond the original scope:
+  `Authorization: Bearer` also feeds the quota bucket and `request.state.api_key`
+  (so a Bearer caller is not billed to the anonymous fingerprint), and the
+  OpenAPI document advertises `BearerAuth` as an alternative on strict routes.
+  Where: `api/app/core/middlewares.py`, `api/app/core/identity.py`,
+  `api/app/core/constants.py`. Acceptance: the OpenAI Python/TS SDK works with
+  only `base_url` + `api_key`; `X-API-Key` and Anthropic's `x-api-key` keep
+  working; tests cover header precedence, malformed values, and unknown keys.
+- [x] **2. Model discovery `GET /v1/models` (and `/api/v1/models`)** *(2026-11-17)* —
+  returns an OpenAI-shaped list from `DynamicModelRegistry`, including aliases
+  (`fast`, `cheap`, `quality`) and provider availability. Disabled models and
+  models on unconfigured providers stay hidden by default; an admin
+  `?include_unavailable=true` exposes them with `available`/`enabled` flags.
+  The Anthropic Models API envelope (`type`/`display_name`/`created_at`) is
+  selected by the `anthropic-version` header the Anthropic SDK always sends, so
+  `models.list()` works from both SDKs. Where:
+  `api/app/modules/llm/models_{controller,service,schema}.py`,
+  `model_registry.get_aliases()`,
+  `LlmProviderService.service_availability()`. Acceptance: `client.models.list()`
+  succeeds from both SDKs (verified against openai 3.52 and anthropic 2.9);
+  snapshot contract updated; response exposes model id and provider.
+- [x] **3. Error envelope parity** *(2026-11-17)* — non-streaming failures now
+  answer with the provider-native envelope instead of FastAPI `{"detail": ...}`,
+  matching the OpenAI-shaped error the SSE path already emitted: OpenAI
+  `{"error": {...}}` for `/api/v1/chat/completions`, Anthropic
+  `{"type": "error", "error": {...}}` for `/api/v1/messages` and its `/v1`
+  alias. Implemented app-wide in `core/error_envelopes.py`
+  (`install_error_envelopes`, exact-path `surface_for_path`); every other route
+  keeps the default body. `error_code` remains the OpenAI `error.code` and is
+  echoed in `X-EchoGate-Error-Code`; `Retry-After`/`X-RateLimit-*` pass through,
+  and error responses carry `X-Gateway-Degradation` (`none` for `4xx`,
+  `hard_down` for terminal `5xx`). Validation keeps status `422`. Verified
+  against openai 3.52 (`RateLimitError`, `UnprocessableEntityError`) and
+  anthropic 2.9 (`ServiceUnavailableError` on `503`, `RateLimitError` on `429`).
+  Where: `api/app/core/error_envelopes.py`,
+  `chat/chat_controller.py`, `anthropic/anthropic_controller.py`,
+  `core/tests/test_error_envelopes.py`; snapshot updated (additive schemas plus
+  the two intentional operation changes).
+- [x] **4. OpenAI request-field parity + bounded `extra_body`** *(2026-11-18)* — added
+  `stream_options` (`include_usage`), `seed`, `logprobs`/`top_logprobs`,
+  `parallel_tool_calls`, `metadata`, and size-limited `extra_body` passthrough
+  (≤64 keys / 64 KiB, merged into the upstream payload) to
+  `ChatCompletionRequest`. Unsupported fields now raise a 422 instead of being
+  silently dropped; the new answer-affecting fields participate in the exact
+  cache key. Streamed responses emit a final usage chunk when
+  `stream_options.include_usage` is set (upstream passthrough). Where:
+  `chat/chat_schema.py`, `llm/providers/common.py`,
+  `llm/llm_router_service.py`. Acceptance: snapshot updated; cache-key coverage
+  via `_generate_cache_key`.
+- [x] **5. Upstream provider prompt-cache passthrough** *(2026-11-18)* — Anthropic
+  `cache_control` blocks are preserved through the adapter (private annotation on
+  `ChatMessage`, re-attached by the Claude payload builder, block-list `system`
+  when annotated) instead of being flattened away. OpenAI and Gemini implicit
+  cache counts are mapped onto `Usage` (`prompt_tokens_details.cached_tokens`);
+  Anthropic's `cache_read_input_tokens`/`cache_creation_input_tokens` are kept,
+  with `prompt_tokens` normalized to total input. `llm_usage_logs` gains
+  `upstream_cached_tokens`, `upstream_cache_read_input_tokens`, and
+  `upstream_cache_creation_input_tokens` (separate from the gateway cache
+  columns) and the cost job prices them with `core/pricing.py` multipliers
+  (OpenAI 0.5x reads; Anthropic 0.1x reads / 1.25x writes; Gemini 0.25x reads).
+  This is labelled **upstream prompt cache** everywhere, orthogonal to Echo
+  Gate's semantic cache. Where: `anthropic/anthropic_adapter.py`,
+  `llm/providers/{claude,gemini}.py`, `core/pricing.py`,
+  `LlmRouterService._log_usage`, `llm_usage/{model,schema,tasks}.py`,
+  `alembic/versions/a7b8c9d0e1f2_*`.
+- [ ] **6. Multimodal content preservation** — OpenAI `content` arrays (text +
+  `image_url`) and Anthropic `image`/`document` blocks must be forwarded, not
+  flattened or silently dropped (the Anthropic adapter currently drops images).
+  Semantic caching stays text-only: requests carrying non-text blocks bypass
+  the cache unless `cache_enabled: true` is set and a text-only key can be
+  derived; the decision must be visible in `X-Cache`. Where:
+  `chat/chat_schema.py` (`ChatMessage`), `anthropic/anthropic_adapter.py`,
+  provider adapters. Acceptance: an image request returns a provider answer;
+  no request silently loses a content block; streaming and non-streaming paths
+  both preserve content order.
+
+---
+
+### Phase 7 — SaaS operations & compliance
+
+**Status: ⏳ planned (opened 2026-11-17).** What a shared, multi-tenant
+deployment needs before an operator will run customer traffic on it. These are
+operational capabilities, not cache features, and they must stay fail-open: no
+new 5xx path may be introduced by metrics, audit, retention, or delivery code.
+
+- [ ] **1. Prometheus metrics + shipped dashboards** — add a scrapeable
+  `/metrics` endpoint (or OTel metrics exporter) covering request rate, error
+  rate, latency histograms, cache hit rate by layer, estimated time/cost saved,
+  quota rejections, provider errors, circuit-breaker state, and worker queue
+  depth. Ship a Grafana dashboard, a Helm `ServiceMonitor`, and `PrometheusRule`
+  alerts (error rate, breaker open, queue lag, budget exhaustion). Acceptance:
+  scrape works locally; the chart renders with monitoring enabled; metrics
+  initialization failure is logged and never blocks startup.
+- [ ] **2. Log/data retention and tenant erasure** — configurable retention for
+  `gateway_requests`, `llm_usage`, `shadow_cache_evaluations`, and
+  `cache_evaluations`, run by a Celery beat sweep under the system RLS context.
+  Add admin-scoped tenant export and erasure endpoints that remove DB rows and
+  the tenant's Redis/Qdrant cache entries, with a dry-run mode. Acceptance:
+  expired rows are deleted on schedule; erasure removes DB and cache data;
+  export is RLS-scoped and never returns another tenant's rows.
+- [ ] **3. Admin audit trail** — append-only `admin_audit_log` table (actor admin
+  key id, action, target, request id, timestamp) written by every privileged
+  route: key mint/rotate/revoke, quota CRUD, cache evict/warmup, retention, and
+  erasure. Admin read endpoint with filters. Acceptance: no prompt/response
+  text or secret material is stored; every privileged route writes exactly one
+  row; migration and tests included.
+- [ ] **4. Per-tenant fairness** — add `max_concurrency` to quota rules and a
+  per-tenant semaphore alongside the existing global/provider bulkheads.
+  Preserve fail-open semantics: a tenant cap sheds with `429`, never blocks
+  other tenants or strands a half-open circuit-breaker permit. Acceptance: one
+  tenant cannot exhaust `GLOBAL_MAX_CONCURRENCY`; permits are released on
+  success, failure, fallback, shed, and stream cancellation.
+- [ ] **5. Webhook delivery hardening** — sign deliveries with HMAC-SHA256
+  (`X-EchoGate-Signature`, delivery id, timestamp), add bounded exponential
+  retries with jitter, and persist exhausted deliveries in a dead-letter
+  table/queue. Existing "unset URL = dropped before dispatch" and the
+  `EVENTS_ENABLED` kill switch stay unchanged. Acceptance: consumers can verify
+  signatures; transient failures retry; exhausted deliveries are inspectable;
+  no prompt text or credential keys enter the payload.
+- [ ] **6. Idempotency keys** — accept `Idempotency-Key` on completions and
+  messages and replay the stored response for the same tenant + key + request
+  hash, preventing double billing and duplicate traces on client retries.
+  Define and document streaming behavior (bounded buffer replay or an explicit
+  rejection). Acceptance: a retried request returns the same body and does not
+  double-count usage; the same key with a different body returns `409`; expired
+  keys fall through to normal processing.
+
+---
+
+### Phase 8 — Data plane & commercial surface
+
+**Status: ⏳ planned (opened 2026-11-17).** Expands what the gateway sells and
+what a SaaS builder can do without standing up a second service. Every item
+reuses the existing auth, quota, metering, RLS, and observability layers.
+
+- [ ] **1. OpenAI-compatible `/v1/embeddings` and Cohere/Jina-compatible
+  `/v1/rerank`** — serve through `inference-platform/` over HTTP, preserving the
+  no-in-process-ML invariant, with standard auth, quota, metering, and trace
+  logging. Unlike cache lookups, these are primary capabilities: an inference
+  outage returns a structured `503`, not a fail-open fallback. Acceptance:
+  OpenAI SDK embeddings and a standard rerank client both work; quota is
+  consumed; snapshot contract updated; docs state the failure semantics.
+- [ ] **2. Per-tenant BYOK provider credentials** — let a tenant store its own
+  provider keys (envelope-encrypted at rest with a master key/KMS, tenant-scoped
+  lookup before the env fallback, rotation via admin, never logged or emitted in
+  events/traces). Acceptance: tenant A's key is never used for tenant B; env
+  fallback still works; rotation is audited; a compromised key can be revoked
+  without a redeploy.
+- [ ] **3. Per-tenant model allowlists and plan gating** — resolve an effective
+  model set per tenant/key, enforce it in `/chat/completions`, `/messages`, and
+  `/v1/models`, and return `403` with the allowed set on violation. Acceptance:
+  a plan cannot call a gated model through any surface; aliases resolve within
+  the allowed set.
+- [ ] **4. Usage attribution metadata** — accept a bounded `metadata` object
+  (customer id, feature, environment) on requests, persist it on traces and
+  usage, and expose group-by aggregation in analytics. It must not affect cache
+  keys or be interpreted as identity. Acceptance: dashboard can group spend by
+  tag; metadata size is bounded; no free-form prompt text is accepted.
+- [ ] **5. Keys and tenant management UI** — pages built on the existing admin
+  API for key create/list/rotate/revoke and per-tenant usage summary. Acceptance:
+  plaintext is shown exactly once; scopes are enforced server-side; the UI never
+  stores keys in browser storage.
+- [ ] **6. Pricing catalog correctness** — move pricing out of the hardcoded
+  `PRICING_CONFIG` dict into a config/DB-backed catalog with cached read/write
+  rates, and mark unpriced models as `cost_known=false` instead of silently
+  pricing them at `$0` (several providers currently default to zero). Acceptance:
+  analytics shows an "unpriced" bucket; cached-token costs are correct; a model
+  can be re-priced without a code change.
+
+**Explicitly deferred from Phases 6–8:** OpenAI Responses API, Batch API,
+audio/image generation, and an in-repo MCP endpoint (the external MCP server
+decision stands). SSO/SCIM, the hosted portal, and Stripe metering remain
+cloud-tier Phase 4 work. Zero-retention mode and the PII scrubber remain open
+under P3 and are not duplicated here.
+
+---
+
 ### Cross-cutting (independent of phase)
 
 Work that benefits every phase and can be tackled alongside any milestone.

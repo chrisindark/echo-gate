@@ -6,6 +6,7 @@ from fastapi import Depends, Header, HTTPException, Request, Response, status
 
 from app.core.constants import EchoGateHeaders
 from app.core.dependencies import get_llm_quota_service
+from app.core.identity import api_key_from_headers, api_key_from_values
 from app.core.rls import ANONYMOUS_TENANT
 from app.modules.admin.admin_api_keys_service import AdminKeyIdentity
 from app.modules.llm_quota.llm_quota_service import LlmQuotaService
@@ -23,16 +24,19 @@ class LlmQuotaGuard:
         request: Request,
         response: Response,
         x_api_key: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
         llm_quota_service: LlmQuotaService = Depends(get_llm_quota_service),
     ):
+        api_key = api_key_from_values(x_api_key, authorization)
         provider = None
         model = None
-        # Identity is established by TenantContextMiddleware from X-API-Key
-        # alone: the resolved tenant/user, else the anonymous tenant. Nothing
-        # the caller supplies may change it. The body used to be able to
-        # override the user via `body["user"]`, which both minted a fresh Redis
-        # rate-limit bucket per request and split the RPM counter from the TPM
-        # counter (record_tokens keys on the resolved user, not this one).
+        # Identity is established by TenantContextMiddleware from the API key
+        # alone (X-API-Key or Authorization: Bearer): the resolved tenant/user,
+        # else the anonymous tenant. Nothing the caller supplies may change it.
+        # The body used to be able to override the user via `body["user"]`,
+        # which both minted a fresh Redis rate-limit bucket per request and
+        # split the RPM counter from the TPM counter (record_tokens keys on the
+        # resolved user, not this one).
         user = getattr(request.state, "user_id", None) or getattr(
             request.state, "user", None
         )
@@ -48,8 +52,8 @@ class LlmQuotaGuard:
         # isolated from each other. A caller can rotate these values to get a
         # fresh bucket, so this bounds honest anonymous load only; it is not
         # a security boundary.
-        bucket_id = x_api_key
-        if not x_api_key:
+        bucket_id = api_key
+        if not api_key:
             bucket_id = get_anonymous_bucket_id(request)
 
         try:
@@ -64,7 +68,7 @@ class LlmQuotaGuard:
 
         # Check quota
         quota_status = await llm_quota_service.check_quota(
-            api_key=x_api_key,
+            api_key=api_key,
             provider=provider,
             model=model,
             user=user,
@@ -84,8 +88,8 @@ class LlmQuotaGuard:
             for name, value in headers.items():
                 response.headers[name] = value
 
-        # Attach API key to request state
-        request.state.api_key = x_api_key
+        # Attach the resolved credential (not the raw header) to request state
+        request.state.api_key = api_key
         request.state.bucket_id = bucket_id
 
         return True
@@ -120,8 +124,8 @@ def resolve_caller_user(request: Request) -> str:
     if user and user != ANONYMOUS_TENANT:
         return user
 
-    api_key = getattr(request.state, "api_key", None) or request.headers.get(
-        "x-api-key"
+    api_key = getattr(request.state, "api_key", None) or api_key_from_headers(
+        request.headers
     )
     if api_key:
         return f"key:{hashlib.sha256(api_key.encode()).hexdigest()[:16]}"
@@ -138,9 +142,11 @@ llm_quota_guard = LlmQuotaGuard()
 
 
 class ApiKeyAuthGuard:
-    """Route dependency that resolves ``X-API-Key`` to a tenant/user.
+    """Route dependency that resolves an API key to a tenant/user.
 
-    Two modes, selected by ``allow_anonymous``:
+    The credential is read from ``X-API-Key`` or, for OpenAI SDK compatibility,
+    from ``Authorization: Bearer <key>``. The explicit gateway header wins when
+    both are present. Two modes, selected by ``allow_anonymous``:
 
     * **Strict** (``api_key_auth_guard``, the default) — a valid key is
       required. A missing, unknown, or inactive key is a ``401``. Used by the
@@ -167,8 +173,10 @@ class ApiKeyAuthGuard:
         self,
         request: Request,
         x_api_key: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
     ) -> bool:
-        if not x_api_key:
+        api_key = api_key_from_values(x_api_key, authorization)
+        if not api_key:
             if self._allow_anonymous:
                 # No credential offered; the request stays anonymous. Identity
                 # (tenant "anonymous", no user) comes from
@@ -177,14 +185,17 @@ class ApiKeyAuthGuard:
                 return True
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=f"API Key missing. Provide a valid {EchoGateHeaders.API_KEY} header.",
+                detail=(
+                    "API Key missing. Provide a valid "
+                    f"{EchoGateHeaders.API_KEY} header or Authorization: Bearer token."
+                ),
             )
 
         import asyncio
 
         from app.modules.api_keys.api_keys_service import api_key_service
 
-        identity = await asyncio.to_thread(api_key_service.resolve_api_key, x_api_key)
+        identity = await asyncio.to_thread(api_key_service.resolve_api_key, api_key)
         if identity is None:
             # Rejected in both modes: presenting a credential that does not
             # resolve is an error, not a request to fall back to anonymous.
@@ -193,7 +204,7 @@ class ApiKeyAuthGuard:
                 detail="Invalid or inactive API Key.",
             )
 
-        request.state.api_key = x_api_key
+        request.state.api_key = api_key
         request.state.tenant_id = identity.tenant_id
         request.state.user_id = identity.user_id
         return True

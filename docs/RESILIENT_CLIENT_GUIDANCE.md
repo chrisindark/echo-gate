@@ -64,21 +64,8 @@ If the top-ranked provider's circuit breaker is open or its bulkhead is saturate
 
 ## 4. Structured Provider Errors
 
-Upstream provider failures return structured, actionable error codes:
+Upstream provider failures are classified into stable error codes:
 
-```json
-{
-  "error": {
-    "message": "Provider 'gemini' rate limit reached: ...",
-    "type": "invalid_request_error",
-    "code": 429,
-    "error_code": "provider_rate_limit",
-    "provider": "gemini"
-  }
-}
-```
-
-Standard error codes:
 - `provider_content_filter`: Prompt rejected by upstream safety filters (do not retry without modifying the prompt).
 - `provider_rate_limit`: Upstream rate limit exceeded (retry with exponential backoff).
 - `provider_quota_exceeded`: Provider account quota exhausted (switch provider or alert operator).
@@ -86,25 +73,77 @@ Standard error codes:
 - `provider_unavailable`: Upstream 5xx or connection error.
 - `provider_timeout`: Upstream deadline exceeded.
 
-Every gateway-side provider failure uses this shape too, including the ones the
-gateway raises without calling upstream:
+### Non-streaming responses (SDK-native shapes)
 
-- An **open circuit breaker** returns `503` with `error_code:
-  "provider_unavailable"`, `provider` set to the affected provider, and
-  `Retry-After` set to the breaker's remaining recovery window.
-- **Exhausting every candidate** returns `503` with the same shape, carrying
+Buffered errors on the two completion surfaces use the provider's own envelope,
+so the official SDKs raise typed exceptions (`openai.RateLimitError`,
+`anthropic.RateLimitError`, `anthropic.APIStatusError`, …) with the message
+parsed and `Retry-After` preserved on `exc.response`.
+
+```json
+// POST /api/v1/chat/completions
+{
+  "error": {
+    "message": "Provider 'gemini' rate limit reached: ...",
+    "type": "rate_limit_error",
+    "code": "provider_rate_limit"
+  }
+}
+```
+
+```json
+// POST /api/v1/messages
+{
+  "type": "error",
+  "error": {
+    "type": "rate_limit_error",
+    "message": "Provider 'claude' rate limit reached: ..."
+  }
+}
+```
+
+The OpenAI `error.code` is the same string as the `X-EchoGate-Error-Code`
+response header; the Anthropic body carries only `type`/`message`, so read the
+header when you need the machine-readable code. Gateway-native routes (admin,
+analytics, cache diagnostics) keep FastAPI's `{"detail": ...}` shape.
+
+Every gateway-side provider failure uses these envelopes too, including the ones
+the gateway raises without calling upstream:
+
+- An **open circuit breaker** returns `503` with `code:
+  "provider_unavailable"` (OpenAI) or `type: "overloaded_error"` (Anthropic),
+  and `Retry-After` set to the breaker's remaining recovery window.
+- **Exhausting every candidate** returns `503` with the same shapes, carrying
   `Retry-After` (breaker recovery or `RETRY_AFTER_DEFAULT_SECONDS`).
-- Errors raised by the **quota guard** keep their plain string `detail`; their
+- Errors raised by the **quota guard** keep a plain message in the envelope; their
   machine-readable part is the `X-RateLimit-*` / `Retry-After` headers.
 
-Two envelopes carry these fields:
+### Streaming responses
+
+A stream can fail after the response headers have been sent. That path cannot
+change the HTTP status, so the SSE body ends with an `error` event carrying the
+full classification:
+
+```json
+{
+  "error": {
+    "message": "Provider 'gemini' is temporarily unavailable: ...",
+    "type": "server_error",
+    "code": 503,
+    "error_code": "provider_unavailable",
+    "provider": "gemini"
+  }
+}
+```
 
 | Response kind | Where the fields live |
 | --- | --- |
-| `application/json` error response | `body.detail.error_code`, `body.detail.provider`, `body.detail.message` |
+| OpenAI JSON error | `body.error.code` (string `error_code`), `body.error.message` |
+| Anthropic JSON error | `body.error.type`, `body.error.message`; code in `X-EchoGate-Error-Code` |
 | `text/event-stream` error event | `data.error.error_code`, `data.error.provider`, `data.error.message` (the wrapper shown above) |
 
-Parse `error_code` and `provider`; never match on message text.
+Parse `error_code` (or `error.code` on the OpenAI JSON surface) and `provider`
+from the SSE event; never match on message text.
 
 ---
 

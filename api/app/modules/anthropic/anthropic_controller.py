@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 
 from app.core.constants import EchoGateHeaders
 from app.core.dependencies import get_llm_router_service
+from app.core.error_envelopes import ANTHROPIC_ERROR_RESPONSES
 from app.core.guards import api_key_auth_optional_guard, llm_quota_guard
 from app.modules.anthropic.anthropic_adapter import (
     normalize_anthropic_to_chat_request,
@@ -127,6 +128,7 @@ async def _handle_messages_request(
 @anthropic_router.post(
     "/api/v1/messages",
     response_model=AnthropicMessagesResponse,
+    responses=ANTHROPIC_ERROR_RESPONSES,
     dependencies=[Depends(api_key_auth_optional_guard), Depends(llm_quota_guard)],
 )
 async def create_message(

@@ -16,6 +16,9 @@ class LlmUsageLogBase(BaseModel):
     total_tokens: int = 0
     cache_read_tokens: int = 0
     cache_creation_tokens: int = 0
+    upstream_cached_tokens: int = 0
+    upstream_cache_read_input_tokens: int = 0
+    upstream_cache_creation_input_tokens: int = 0
     cost: float = 0.0
     cost_calculated: bool = False
     latency_ms: int | None = None

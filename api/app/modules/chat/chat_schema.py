@@ -62,8 +62,23 @@ class ChatMessage(BaseModel):
     tool_call_id: str | None = None
     tool_calls: list[ToolCall] | None = None
 
+    # Anthropic `cache_control` annotation carried through the internal model.
+    # Private so it never appears in the OpenAI request/response schema or the
+    # cache key; the Claude adapter re-attaches it when building blocks.
+    _cache_control: dict[str, Any] | None = PrivateAttr(default=None)
+
+    @property
+    def cache_control(self) -> dict[str, Any] | None:
+        return self._cache_control
+
+    @cache_control.setter
+    def cache_control(self, value: dict[str, Any] | None) -> None:
+        self._cache_control = value
+
 
 class ChatCompletionRequest(BaseModel):
+    _ALLOWED_INIT_KEYS = None
+
     service_name: str | None = "ollama"
     model: str
     messages: list[ChatMessage]
@@ -95,6 +110,30 @@ class ChatCompletionRequest(BaseModel):
     retries: int | None = Field(default=None, ge=0, le=10)
     stream_pacing: bool | None = None
     stream_pacing_delay_ms: float | None = Field(default=None, ge=0.0, le=1000.0)
+    # OpenAI request-field parity (P4 item 4).
+    seed: int | None = None
+    logprobs: bool | None = None
+    top_logprobs: int | None = Field(default=None, ge=0, le=20)
+    parallel_tool_calls: bool | None = None
+    metadata: dict[str, Any] | None = None
+    stream_options: dict[str, Any] | None = None
+    extra_body: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def _validate_extra_body_size(self) -> ChatCompletionRequest:
+        if self.extra_body is None:
+            return self
+        if not isinstance(self.extra_body, dict):
+            raise ValueError("extra_body must be an object")
+        if len(self.extra_body) > 64:
+            raise ValueError("extra_body may contain at most 64 keys")
+        try:
+            serialized = json.dumps(self.extra_body, sort_keys=True)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"extra_body must be JSON-serializable: {exc}") from exc
+        if len(serialized) > 65536:
+            raise ValueError("extra_body exceeds the 64 KiB size limit")
+        return self
 
     # Resolved identity. These are deliberately *not* body fields: they are set
     # by the chat controller from the tenant/user that ``X-API-Key`` resolved to,
@@ -120,6 +159,21 @@ class ChatCompletionRequest(BaseModel):
     @user_id.setter
     def user_id(self, value: str | None) -> None:
         self._user_id = value
+
+    def __init__(self, **data: Any) -> None:
+        allowed = set(self.__class__.model_fields.keys()) | {"tenant_id", "user_id"}
+        unknown = set(data) - allowed
+        if unknown:
+            raise ValueError(
+                "Unsupported request field(s): " + ", ".join(sorted(unknown))
+            )
+        # Identity is never accepted from the request body, even when a caller
+        # passes it through the constructor (tests, internal callers). Drop it
+        # silently so the request stays anonymous until the controller stamps
+        # the resolved identity.
+        data.pop("tenant_id", None)
+        data.pop("user_id", None)
+        super().__init__(**data)
 
     @model_validator(mode="after")
     def validate_model_for_service(self) -> ChatCompletionRequest:
@@ -173,10 +227,41 @@ class Choice(BaseModel):
     finish_reason: str | None = None
 
 
+class PromptTokensDetails(BaseModel):
+    """OpenAI-style prompt token breakdown.
+
+    ``cached_tokens`` is the subset of ``prompt_tokens`` served from the
+    provider's native prompt cache (OpenAI implicit caching).
+    """
+
+    cached_tokens: int | None = None
+    audio_tokens: int | None = None
+
+
 class Usage(BaseModel):
     prompt_tokens: int | None
     completion_tokens: int | None
     total_tokens: int | None
+    prompt_tokens_details: PromptTokensDetails | None = None
+    # Anthropic reports cache reads/writes outside `input_tokens`. `prompt_tokens`
+    # is normalized to total input for every provider, so non-cached input is
+    # `prompt_tokens - cache_read_input_tokens - cache_creation_input_tokens`.
+    cache_read_input_tokens: int | None = None
+    cache_creation_input_tokens: int | None = None
+
+    @property
+    def cache_read_tokens(self) -> int:
+        """Provider-reported prompt-cache reads (OpenAI details or Anthropic)."""
+        if self.cache_read_input_tokens:
+            return self.cache_read_input_tokens
+        if self.prompt_tokens_details and self.prompt_tokens_details.cached_tokens:
+            return self.prompt_tokens_details.cached_tokens
+        return 0
+
+    @property
+    def cache_creation_tokens(self) -> int:
+        """Provider-reported prompt-cache writes (Anthropic only)."""
+        return self.cache_creation_input_tokens or 0
 
 
 class ChatCompletionResponse(BaseModel):

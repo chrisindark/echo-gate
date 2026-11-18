@@ -1516,7 +1516,7 @@ class TestChatControllerStreamingPhase4(unittest.TestCase):
 
         resp = self.client.post("/api/v1/chat/completions", json=payload)
         self.assertEqual(resp.status_code, 503)
-        self.assertEqual(resp.json()["detail"], "Provider stream unavailable")
+        self.assertEqual(resp.json()["error"]["message"], "Provider stream unavailable")
 
     def test_controller_mid_stream_error_emits_sse_error_event(self):
         async def fail_mid_stream(*args, **kwargs):

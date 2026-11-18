@@ -79,7 +79,7 @@ and response models live in `*_schema.py`, SQLAlchemy tables live in
 
 ## Request lifecycle
 
-The primary public endpoints are `POST /api/v1/chat/completions` (OpenAI format) and `POST /api/v1/messages` (Anthropic format). Both endpoints run identical security and rate-limiting guards: `api_key_auth_optional_guard` followed by `llm_quota_guard`. A supplied `X-API-Key` must resolve to an active tenant key (otherwise `401`); omitting the key proceeds under the `anonymous` tenant with standard quota ceilings.
+The primary public endpoints are `POST /api/v1/chat/completions` (OpenAI format) and `POST /api/v1/messages` (Anthropic format). Both endpoints run identical security and rate-limiting guards: `api_key_auth_optional_guard` followed by `llm_quota_guard`. A supplied `X-API-Key` or `Authorization: Bearer` credential must resolve to an active tenant key (otherwise `401`); omitting the credential proceeds under the `anonymous` tenant with standard quota ceilings.
 
 For Anthropic requests, `AnthropicAdapter` normalizes the incoming payload to an internal `ChatCompletionRequest` and maps the resulting responses and streaming events back into the Anthropic specification.
 
@@ -412,6 +412,7 @@ Echo Gate is designed to be *degradable*, not *down*:
 4. **Dynamic Model Registry & Model Aliasing** (`app/modules/llm/model_registry.py`):
    - Dynamic model registry supporting runtime addition/removal of models and runtime availability toggles.
    - Model aliases (e.g. `fast`, `cheap`, `quality`) map to ranked lists of `(provider, model)` candidate pairs. Router tries candidates in priority order, skipping any whose breaker is open.
+   - The same registry backs model discovery (`GET /v1/models`, `/api/v1/models` in `app/modules/llm/models_controller.py`), so clients see aliases, disabled flags, and per-provider availability without a second catalog to maintain.
 
 5. **Request Timeout Budget Propagation**:
    - Accepts `X-Timeout-Budget-Ms` header; cuts short slow primary attempts to preserve budget for fallbacks and avoids futile retries.
@@ -560,18 +561,21 @@ sets three transaction-local GUCs:
 - `app.current_user` — the acting user (optional).
 - `app.rls_system` — `'on'` for trusted background jobs that must cross tenants.
 
-Identity resolution order (`TenantContextMiddleware`): `X-API-Key` resolved
-server-side to a tenant/user, else the `anonymous` tenant. With no context set,
-every policy comparison is `NULL` and no rows are visible (fail-closed). New rows
-are stamped with the active tenant/user when the caller leaves them unset. See
+Identity resolution order (`TenantContextMiddleware`): `X-API-Key`, or its
+`Authorization: Bearer` alias, resolved server-side to a tenant/user; an
+explicit `X-API-Key` wins when both are present. With no credential the request
+is the `anonymous` tenant. With no context set, every policy comparison is `NULL`
+and no rows are visible (fail-closed). New rows are stamped with the active
+tenant/user when the caller leaves them unset. See
 [DATA_MODEL.md](DATA_MODEL.md) for the policy shapes per table.
 
-`X-API-Key` is the only source of tenant and user identity, and the only
-tenant-scoped credential. There is deliberately no `X-Tenant-ID`/`X-User-ID`
-header path: those headers are caller-supplied, so honouring them meant anyone who
-could reach the gateway could pick the tenant its request ran as. The request body
-cannot supply identity either — `tenant_id`/`user_id` are not body fields, and
-`user` in the body is not read for identity or billing. The RLS context therefore
+`X-API-Key`/`Authorization: Bearer` is the only source of tenant and user
+identity, and the only tenant-scoped credential. There is deliberately no
+`X-Tenant-ID`/`X-User-ID` header path: those headers are caller-supplied, so
+honouring them meant anyone who could reach the gateway could pick the tenant its
+request ran as. The request body cannot supply identity either —
+`tenant_id`/`user_id` are not body fields, and `user` in the body is not read for
+identity or billing. The RLS context therefore
 always traces back to one API key row, and keyed callers rate-limit on their key.
 Anonymous callers rate-limit on a per-caller fingerprint (hashed client address,
 preferring the first `X-Forwarded-For` hop, plus an optional `X-Session-ID`), so

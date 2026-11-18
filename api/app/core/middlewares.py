@@ -8,6 +8,11 @@ from starlette.datastructures import Headers
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.constants import EchoGateHeaders
+from app.core.identity import (
+    API_KEY_HEADER,
+    AUTHORIZATION_HEADER,
+    api_key_from_headers,
+)
 from app.core.logger import correlation_id_ctx_var
 from app.core.rls import ANONYMOUS_TENANT, rls_context
 from app.core.telemetry import correlation_trace_id, trace_context_from_id, trace_span
@@ -97,7 +102,8 @@ class UserMiddleware(BaseHTTPMiddleware):
     """Publish the resolved caller identity as ``request.state.user``.
 
     ``TenantContextMiddleware`` runs first and is the only source of identity:
-    an ``X-API-Key`` resolved server-side to a tenant/user, else ``anonymous``.
+    an ``X-API-Key`` or ``Authorization: Bearer`` credential resolved
+    server-side to a tenant/user, else ``anonymous``.
     This middleware used to read ``X-User-ID``/``X-Session-ID``/``X-Tenant-ID``
     itself, which let a caller name themselves freely even while presenting a
     valid key.
@@ -119,13 +125,15 @@ class TenantContextMiddleware:
 
     Resolution order:
     1. ``X-API-Key`` resolved server-side to a tenant/user (trusted).
-    2. ``anonymous`` tenant.
+    2. ``Authorization: Bearer <key>`` resolved the same way, for OpenAI SDK
+       compatibility. An explicit ``X-API-Key`` wins if both are present.
+    3. ``anonymous`` tenant.
 
     ``X-Tenant-ID``/``X-User-ID`` are deliberately **not** read here. They are
     caller-supplied, so honouring them meant anyone who could reach the gateway
     could pick the tenant its request ran as — and, combined with the request
-    body, read another tenant's cache. ``X-API-Key`` is now the only credential
-    that establishes identity.
+    body, read another tenant's cache. Only the two server-resolved credential
+    headers establish identity.
     """
 
     def __init__(self, app) -> None:
@@ -136,21 +144,28 @@ class TenantContextMiddleware:
             await self.app(scope, receive, send)
             return
 
-        api_key = Headers(scope=scope).get("x-api-key")
+        headers = Headers(scope=scope)
+        api_key = api_key_from_headers(headers)
         tenant_id: str | None = None
         user_id: str | None = None
 
         if api_key:
             # IdentityProvider seam (OSS: ApiKeyIdentityProvider). A cloud
             # overlay registers OidcIdentityProvider here; the resolution
-            # order and trust model are unchanged.
+            # order and trust model are unchanged. Pass the original headers
+            # through so a cloud provider can read a bearer JWT itself.
             from app.core.identity import default_provider
 
             provider = default_provider()
 
             def _resolve() -> None:
                 nonlocal tenant_id, user_id
-                identity = provider.resolve({"x-api-key": api_key})
+                identity = provider.resolve(
+                    {
+                        API_KEY_HEADER: headers.get(API_KEY_HEADER) or "",
+                        AUTHORIZATION_HEADER: headers.get(AUTHORIZATION_HEADER) or "",
+                    }
+                )
                 if identity is not None:
                     tenant_id = identity.tenant_id
                     user_id = identity.user_id
