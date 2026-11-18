@@ -125,9 +125,7 @@ def calculate_cost(
     prompt_price, completion_price = get_model_prices(provider, model)
     read_multiplier, write_multiplier = get_cache_token_multipliers(provider)
 
-    non_cached = max(
-        prompt_tokens - cache_read_tokens - cache_creation_tokens, 0
-    )
+    non_cached = max(prompt_tokens - cache_read_tokens - cache_creation_tokens, 0)
     input_cost = (
         non_cached * prompt_price
         + cache_read_tokens * prompt_price * read_multiplier

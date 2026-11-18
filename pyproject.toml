@@ -26,9 +26,9 @@ fastembed = "^0.8.1"
 billiard = "<4.3"
 fastapi-health = "^0.4.0"
 psycopg = {version = ">=3.1", extras = ["binary"]}
-opentelemetry-api = "^1.45.1"
-opentelemetry-sdk = "^1.45.1"
-opentelemetry-exporter-otlp = "^1.45.1"
+opentelemetry-api = "^1.45.2"
+opentelemetry-sdk = "^1.45.2"
+opentelemetry-exporter-otlp = "^1.45.2"
 
 # No torch here on purpose: dense embeddings, reranking, relevance and NLI are
 # served by `inference-platform/` over HTTP (INFERENCE_BASE_URL). There is no

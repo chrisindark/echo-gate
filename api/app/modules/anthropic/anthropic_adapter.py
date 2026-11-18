@@ -234,9 +234,7 @@ def normalize_chat_to_anthropic_response(
     )
     # `prompt_tokens` is total input; Anthropic's `input_tokens` excludes the
     # cached portions it reports separately.
-    non_cached_input = max(
-        prompt_tokens - cache_read_tokens - cache_creation_tokens, 0
-    )
+    non_cached_input = max(prompt_tokens - cache_read_tokens - cache_creation_tokens, 0)
 
     return AnthropicMessagesResponse(
         id=msg_id,

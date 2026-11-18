@@ -115,7 +115,8 @@ jobs:
         run: npm run build
 
       - name: Dependency vulnerability audit (Node)
-        run: npm audit --audit-level=high
+        working-directory: .
+        run: python3 scripts/audit_node.py
 
   secret-scan:
     name: Secret scanning
