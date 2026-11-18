@@ -34,6 +34,7 @@ from app.modules.chat.chat_schema import (
 from app.modules.llm.providers.common import (
     extract_http_error_detail as _extract_http_error_detail,
 )
+from app.modules.llm.providers.common import to_anthropic_content_blocks
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,11 @@ class ClaudeProvider:
 
         for msg in request.messages:
             if msg.role == "system":
+                if msg.has_non_text_content:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Non-text content blocks are not supported in system messages",
+                    )
                 if msg.content:
                     system_prompts.append(msg.content)
                     if msg.cache_control:
@@ -86,7 +92,13 @@ class ClaudeProvider:
                     )
             elif msg.role == "assistant":
                 blocks: list[dict[str, Any]] = []
-                if msg.content:
+                if msg.content_parts:
+                    blocks.extend(
+                        to_anthropic_content_blocks(
+                            msg.content_parts, msg.cache_control
+                        )
+                    )
+                elif msg.content:
                     text_block: dict[str, Any] = {
                         "type": "text",
                         "text": msg.content,
@@ -129,25 +141,29 @@ class ClaudeProvider:
                 else:
                     anthropic_messages.append({"role": "assistant", "content": blocks})
             else:
-                user_text_block: dict[str, Any] = {
-                    "type": "text",
-                    "text": msg.content or "",
-                }
-                if msg.cache_control:
-                    user_text_block["cache_control"] = msg.cache_control
+                if msg.content_parts:
+                    user_blocks = to_anthropic_content_blocks(
+                        msg.content_parts, msg.cache_control
+                    )
+                else:
+                    user_text_block: dict[str, Any] = {
+                        "type": "text",
+                        "text": msg.content or "",
+                    }
+                    if msg.cache_control:
+                        user_text_block["cache_control"] = msg.cache_control
+                    user_blocks = [user_text_block]
                 if anthropic_messages and anthropic_messages[-1]["role"] == "user":
                     content = anthropic_messages[-1]["content"]
                     if isinstance(content, list):
-                        content.append(user_text_block)
+                        content.extend(user_blocks)
                     else:
                         anthropic_messages[-1]["content"] = [
                             {"type": "text", "text": str(content)},
-                            user_text_block,
+                            *user_blocks,
                         ]
                 else:
-                    anthropic_messages.append(
-                        {"role": "user", "content": [user_text_block]}
-                    )
+                    anthropic_messages.append({"role": "user", "content": user_blocks})
 
         if not anthropic_messages:
             anthropic_messages.append(

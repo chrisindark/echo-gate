@@ -16,8 +16,8 @@ name: echo-gate-dev
 services:
   qdrant:
     image: qdrant/qdrant:latest
-    ports:
-      - "6333:6333"
+    expose:
+      - "6333"
     volumes:
       - qdrant_dev_data:/qdrant/storage
     restart: unless-stopped
@@ -26,16 +26,16 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    expose:
+      - "6379"
     restart: unless-stopped
     networks:
       - app-network
 
   postgres:
     image: postgres:16-alpine
-    ports:
-      - "5432:5432"
+    expose:
+      - "5432"
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
@@ -55,8 +55,8 @@ services:
     build:
       context: ../..
       dockerfile: Dockerfile.dev
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     environment:
       - PYTHON_ENV=development
       - INFERENCE_BASE_URL=${INFERENCE_DOCKER_BASE_URL:-http://host.docker.internal:7997}
@@ -152,8 +152,8 @@ services:
     build:
       context: ../../web
       dockerfile: Dockerfile.dev
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
     environment:
       - NODE_ENV=development
       - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}

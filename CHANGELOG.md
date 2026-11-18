@@ -10,6 +10,16 @@ changes' entry with a `[BREAKING]` marker.
 
 ## [Unreleased]
 
+## [v0.4.0] - 2026-11-18
+
+### Added
+
+- Preserve OpenAI image_url and Anthropic image/document content blocks in order across provider adapters, bypass semantic caching for non-text requests unless explicitly opted in, and expose the decision via X-Cache
+
+### Fixed
+
+- **[deps]** Bump OpenTelemetry to 1.45.2, stop shipping the shadcn CLI as a runtime dependency, and gate Node advisories through a documented exemption script
+
 ## [v0.3.0] - 2026-11-18
 
 ### Added

@@ -17,8 +17,8 @@ services:
       args:
         PREFETCH: ${INFERENCE_PREFETCH:-0}
     image: inference-platform:${INFERENCE_TAG:-local}
-    ports:
-      - "${INFERENCE_PORT:-7997}:7997"
+    expose:
+      - "7997"
     environment:
       INFERENCE_HOST: 0.0.0.0
       INFERENCE_PORT: 7997

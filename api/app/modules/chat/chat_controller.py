@@ -144,7 +144,7 @@ async def create_chat_completion(
             .lower()
         )
         skip_cache_lookup = False
-        if request.cache_enabled is False:
+        if request.cache_bypassed:
             skip_cache_lookup = True
         elif cache_prefer == CACHE_PREFER_INSTANT:
             instant_response = await llmRouterService.get_instant_cache_hit(
@@ -225,7 +225,7 @@ async def create_chat_completion(
             )
             or "none",
         }
-        if request.cache_enabled is False:
+        if request.cache_bypassed:
             stream_headers[EchoGateHeaders.CACHE] = "BYPASS"
         elif (
             first_chunk
@@ -273,7 +273,7 @@ async def create_chat_completion(
             f"tokens={opt_res.tokens_saved},chars={opt_res.chars_saved}"
         )
     cache_info = getattr(llm_response, "cache_info", None) or {}
-    if request.cache_enabled is False:
+    if request.cache_bypassed:
         http_response.headers[EchoGateHeaders.CACHE] = "BYPASS"
     elif cache_info.get("matched"):
         http_response.headers[EchoGateHeaders.CACHE] = "HIT"

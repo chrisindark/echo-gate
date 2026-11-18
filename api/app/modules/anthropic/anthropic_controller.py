@@ -89,22 +89,25 @@ async def _handle_messages_request(
         sse_stream = transform_chat_stream_to_anthropic_sse(
             stream_gen, model=request.model
         )
+        stream_headers = {
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+            "anthropic-version": "2023-06-01",
+        }
+        if chat_req.cache_bypassed:
+            stream_headers[EchoGateHeaders.CACHE] = "BYPASS"
         return StreamingResponse(
             sse_stream,
             media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",
-                "anthropic-version": "2023-06-01",
-            },
+            headers=stream_headers,
         )
 
     response = await llm_router_service.generate_completion(chat_req, api_key=api_key)
 
     # Propagate cache and optimization status headers
     cache_info = getattr(response, "cache_info", None) or {}
-    if chat_req.cache_enabled is False:
+    if chat_req.cache_bypassed:
         cache_status = "BYPASS"
     elif isinstance(cache_info, dict) and cache_info.get("matched"):
         cache_status = "HIT"

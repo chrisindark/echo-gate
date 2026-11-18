@@ -18,10 +18,10 @@ services:
   inference:
     image: michaelfeil/infinity:0.0.76
     restart: unless-stopped
-    ports:
-      # Bind to loopback in single-host deployments. Consumers on the same
-      # docker network should use the service name, not this mapping.
-      - "${INFERENCE_BIND:-127.0.0.1}:7997:7997"
+    # Container-only: no host port is bound. Consumers on the same Docker
+    # network reach this service as http://inference:7997.
+    expose:
+      - "7997"
     command:
       - infinity_emb
       - --port

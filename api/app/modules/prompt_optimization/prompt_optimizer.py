@@ -471,6 +471,10 @@ class PromptOptimizer:
         Fail-open: any unexpected error logs a warning and returns the original request unmodified.
         """
         try:
+            if request.has_non_text_content:
+                # Rewriting/dropping text turns would also drop the blocks attached
+                # to them, so leave multimodal requests untouched.
+                return request, PromptOptimizationResult(applied=False)
             # 1. Resolve configuration
             cfg: PromptOptimizationConfig
             if options is not None:
@@ -683,6 +687,10 @@ class PromptOptimizer:
     ) -> tuple[ChatCompletionRequest, PromptOptimizationResult]:
         """Async variant of optimize; awaits remote inference platform calls when compressing."""
         try:
+            if request.has_non_text_content:
+                # Rewriting/dropping text turns would also drop the blocks attached
+                # to them, so leave multimodal requests untouched.
+                return request, PromptOptimizationResult(applied=False)
             cfg: PromptOptimizationConfig
             if options is not None:
                 cfg = options

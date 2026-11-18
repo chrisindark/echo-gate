@@ -12,10 +12,11 @@
 # Usage:
 #   docker compose -f inference-split.yml --env-file ../.env up -d
 #
-# Wire the gateway to the split services via environment variables:
-#   INFERENCE_EMBED_URL=http://<host>:7997
-#   INFERENCE_RERANK_URL=http://<host>:7998
-#   INFERENCE_NLI_URL=http://<host>:7999
+# Consumers on the same Docker network use the service names (no host ports
+# are published):
+#   INFERENCE_EMBED_URL=http://inference-embed:7997
+#   INFERENCE_RERANK_URL=http://inference-rerank:7998
+#   INFERENCE_NLI_URL=http://inference-classify:7999
 
 services:
   # ---------------------------------------------------------------------------
@@ -24,8 +25,8 @@ services:
   inference-embed:
     image: michaelfeil/infinity:0.0.76
     restart: unless-stopped
-    ports:
-      - "${INFERENCE_BIND:-127.0.0.1}:${INFERENCE_EMBED_PORT:-7997}:7997"
+    expose:
+      - "7997"
     command:
       - infinity_emb
       - --port
@@ -57,8 +58,8 @@ services:
   inference-rerank:
     image: michaelfeil/infinity:0.0.76
     restart: unless-stopped
-    ports:
-      - "${INFERENCE_BIND:-127.0.0.1}:${INFERENCE_RERANK_PORT:-7998}:7998"
+    expose:
+      - "7998"
     command:
       - infinity_emb
       - --port
@@ -100,8 +101,8 @@ services:
   inference-classify:
     image: michaelfeil/infinity:0.0.76
     restart: unless-stopped
-    ports:
-      - "${INFERENCE_BIND:-127.0.0.1}:${INFERENCE_CLASSIFY_PORT:-7999}:7999"
+    expose:
+      - "7999"
     command:
       - infinity_emb
       - --port

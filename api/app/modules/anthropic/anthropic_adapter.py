@@ -8,6 +8,8 @@ import uuid
 from collections.abc import AsyncIterator
 from typing import Any
 
+from fastapi import HTTPException
+
 from app.modules.anthropic.anthropic_schema import (
     AnthropicMessagesRequest,
     AnthropicMessagesResponse,
@@ -48,6 +50,14 @@ def normalize_anthropic_to_chat_request(
                         system_cache_control = block["cache_control"]
                 elif isinstance(block, str):
                     sys_texts.append(block)
+                else:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            "Unsupported Anthropic system block type: "
+                            f"{block.get('type') if isinstance(block, dict) else type(block).__name__!r}"
+                        ),
+                    )
             if sys_texts:
                 system_message = ChatMessage(
                     role="system", content="\n\n".join(sys_texts)
@@ -63,19 +73,25 @@ def normalize_anthropic_to_chat_request(
             chat_messages.append(ChatMessage(role=role, content=msg.content))
         elif isinstance(msg.content, list):
             text_parts: list[str] = []
+            ordered_parts: list[dict[str, Any]] = []
             tool_calls: list[ToolCall] = []
             message_cache_control: dict[str, Any] | None = None
 
             for block in msg.content:
                 if not isinstance(block, dict):
                     text_parts.append(str(block))
+                    ordered_parts.append({"type": "text", "text": str(block)})
                     continue
 
                 b_type = block.get("type")
+                if isinstance(block.get("cache_control"), dict):
+                    message_cache_control = block["cache_control"]
                 if b_type == "text":
-                    text_parts.append(block.get("text", ""))
-                    if isinstance(block.get("cache_control"), dict):
-                        message_cache_control = block["cache_control"]
+                    text = block.get("text", "")
+                    text_parts.append(text)
+                    ordered_parts.append({"type": "text", "text": text})
+                elif b_type in ("image", "document"):
+                    ordered_parts.append(block)
                 elif b_type == "tool_use":
                     tc_id = block.get("id") or f"call_{uuid.uuid4().hex[:24]}"
                     tc_name = block.get("name", "")
@@ -111,14 +127,25 @@ def normalize_anthropic_to_chat_request(
                             content=result_str,
                         )
                     )
+                else:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"Unsupported Anthropic content block type: {b_type!r}"
+                        ),
+                    )
 
-            if text_parts or tool_calls:
+            if text_parts or tool_calls or ordered_parts:
                 combined_text = "\n\n".join(text_parts) if text_parts else None
                 combined_message = ChatMessage(
                     role=role,
                     content=combined_text,
                     tool_calls=tool_calls if tool_calls else None,
                 )
+                # Only multimodal turns need ordered parts: text-only turns keep
+                # the legacy string path so prompt optimization still applies.
+                if any(part["type"] != "text" for part in ordered_parts):
+                    combined_message.content_parts = ordered_parts
                 if message_cache_control:
                     combined_message.cache_control = message_cache_control
                 chat_messages.append(combined_message)

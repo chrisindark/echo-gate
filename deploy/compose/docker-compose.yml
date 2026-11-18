@@ -21,8 +21,8 @@ services:
   qdrant:
     profiles: ["core"]
     image: qdrant/qdrant:v1.13.2
-    ports:
-      - "6333:6333"
+    expose:
+      - "6333"
     volumes:
       - qdrant_data:/qdrant/storage
     restart: always
@@ -32,8 +32,8 @@ services:
   redis:
     profiles: ["core"]
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    expose:
+      - "6379"
     restart: always
     networks:
       - app-network
@@ -41,8 +41,8 @@ services:
   postgres:
     profiles: ["core"]
     image: postgres:16-alpine
-    ports:
-      - "5432:5432"
+    expose:
+      - "5432"
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
@@ -62,8 +62,8 @@ services:
     profiles: ["core"]
     build:
       context: ../..
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     environment:
       # Dense embeddings, reranking, relevance and NLI come from the shared
       # inference platform, which is its own compose project so it can scale and
@@ -152,8 +152,8 @@ services:
       context: ../../web
       args:
         NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
     restart: always
     networks:
       - app-network
