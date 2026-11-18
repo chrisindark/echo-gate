@@ -12,6 +12,7 @@ from app.core.anonymous_telemetry import schedule_anonymous_telemetry
 from app.core.config import config
 from app.core.constants import EchoGateHeaders
 from app.core.dependencies import DependencyContainer
+from app.core.error_envelopes import install_error_envelopes
 from app.core.logger import setup_logger
 from app.core.middlewares import (
     CorrelationIdMiddleware,
@@ -32,6 +33,7 @@ from app.modules.gateway_requests.gateway_requests_controller import (
 )
 from app.modules.health import health_router, root_health_router
 from app.modules.llm.cache_admin_controller import api_v1_router as cache_admin_router
+from app.modules.llm.models_controller import models_router
 from app.modules.llm_quota.llm_quota_controller import api_v1_router as llm_quota_router
 from app.modules.llm_usage.llm_usage_controller import api_v1_router as llm_usage_router
 from app.modules.qdrant.qdrant_controller import api_v1_router as qdrant_router
@@ -100,6 +102,12 @@ app = FastAPI(
 
 API_KEY_HEADER = {"type": "apiKey", "in": "header", "name": EchoGateHeaders.API_KEY}
 ADMIN_KEY_HEADER = {"type": "apiKey", "in": "header", "name": EchoGateHeaders.ADMIN_KEY}
+# Bearer is an alias for the tenant key so OpenAI-compatible SDKs work
+# unchanged; the explicit X-API-Key header takes precedence when both are sent.
+BEARER_AUTH = {"type": "http", "scheme": "bearer"}
+
+# Provider-native error bodies for the two SDK completion surfaces.
+install_error_envelopes(app)
 
 app.add_middleware(CorrelationIdMiddleware)
 app.add_middleware(UserMiddleware)
@@ -140,6 +148,7 @@ app.include_router(root_health_router)
 app.include_router(health_router)
 app.include_router(chat_router)
 app.include_router(anthropic_router)
+app.include_router(models_router)
 app.include_router(conversation_router)
 app.include_router(qdrant_router)
 app.include_router(llm_usage_router)
@@ -220,13 +229,14 @@ def _custom_openapi() -> dict:
     components = schema.setdefault("components", {})
     security_schemes = components.setdefault("securitySchemes", {})
     security_schemes["ApiKeyAuth"] = API_KEY_HEADER
+    security_schemes["BearerAuth"] = BEARER_AUTH
     security_schemes["AdminApiKeyAuth"] = ADMIN_KEY_HEADER
 
     for path, item in schema.get("paths", {}).items():
         security_requirement = (
             [{"AdminApiKeyAuth": []}]
             if path.startswith("/api/v1/admin/")
-            else [{"ApiKeyAuth": []}]
+            else [{"ApiKeyAuth": []}, {"BearerAuth": []}]
             if path.startswith(("/api/v1/analytics", "/api/v1/gateway-requests"))
             else None
         )

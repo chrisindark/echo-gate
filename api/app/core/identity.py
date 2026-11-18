@@ -1,19 +1,59 @@
 """Identity provider seam.
 
-Today, tenant/user identity is resolved only from a server-side ``X-API-Key``
-(see ``TenantContextMiddleware``). This module extracts that resolution behind
-an ``IdentityProvider`` protocol so a cloud overlay can register
+Tenant/user identity is resolved from a server-side API key presented either as
+``X-API-Key`` or as an ``Authorization: Bearer`` token (see
+``TenantContextMiddleware``). This module extracts that resolution behind an
+``IdentityProvider`` protocol so a cloud overlay can register
 ``OidcIdentityProvider`` (plus a session portal) without touching the
 middleware — the middleware is the natural injection point.
 
 OSS behavior is unchanged: ``ApiKeyIdentityProvider`` is the default and only
-registered provider in this build.
+registered provider in this build. The Bearer alias exists so OpenAI-compatible
+SDK clients, which always send ``Authorization: Bearer <key>``, work without a
+client-side header override.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
+
+# Header names are lowercase because Starlette's ``Headers`` lookups are
+# case-insensitive while plain dicts passed to the provider are not.
+API_KEY_HEADER = "x-api-key"
+AUTHORIZATION_HEADER = "authorization"
+
+
+def api_key_from_values(api_key: str | None, authorization: str | None) -> str | None:
+    """Resolve the gateway credential from the two supported header values.
+
+    ``X-API-Key`` wins when both are supplied, so an explicit gateway header is
+    never overridden by a proxy-injected ``Authorization`` header. Only a
+    ``Bearer`` scheme is accepted for the authorization header; any other scheme
+    is ignored, which preserves the existing optional-auth semantics (a missing
+    credential is anonymous, an invalid one is rejected by the route guard).
+
+    Values that are not strings are ignored. This matters because FastAPI's
+    ``Header(default=None)`` parameters arrive as ``Header`` instances when a
+    guard is called directly in tests rather than through dependency injection.
+    """
+    key = api_key.strip() if isinstance(api_key, str) else ""
+    if key:
+        return key
+
+    raw_authorization = authorization if isinstance(authorization, str) else ""
+    scheme, separator, token = raw_authorization.strip().partition(" ")
+    if separator and scheme.lower() == "bearer":
+        return token.strip() or None
+    return None
+
+
+def api_key_from_headers(headers: Mapping[str, str]) -> str | None:
+    """Resolve the gateway credential from a request header mapping."""
+    return api_key_from_values(
+        headers.get(API_KEY_HEADER), headers.get(AUTHORIZATION_HEADER)
+    )
 
 
 @dataclass(frozen=True)
@@ -37,17 +77,18 @@ class IdentityProvider(Protocol):
 
 
 class ApiKeyIdentityProvider:
-    """OSS default: resolves ``X-API-Key`` via the API-key store.
+    """OSS default: resolves an API key via the API-key store.
 
-    Uses the shared ``api_key_service`` instance (the same one the
-    controllers and middleware always used) so resolution caching and
-    test doubles both work through one service.
+    Accepts ``X-API-Key`` or ``Authorization: Bearer``; ``X-API-Key`` takes
+    precedence when both are present. Uses the shared ``api_key_service``
+    instance (the same one the controllers and middleware always used) so
+    resolution caching and test doubles both work through one service.
     """
 
     def resolve(self, headers: dict[str, str]) -> Identity | None:
         from app.modules.api_keys.api_keys_service import api_key_service
 
-        key = (headers.get("x-api-key") or "").strip()
+        key = api_key_from_headers(headers)
         if not key:
             return None
         identity = api_key_service.resolve_api_key(key)

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import task_db_session
 from app.core.helpers import dispatch_task
-from app.core.pricing import get_model_prices
+from app.core.pricing import calculate_cost
 from app.modules.llm_usage.llm_usage_schema import LlmUsageLogUpdate
 from app.modules.llm_usage.llm_usage_service import LlmUsageService
 from app.worker.celery_app import celery_app
@@ -47,15 +47,27 @@ def execute_process_uncalculated_costs_job(
 
             updated_count = 0
             for log in uncalculated_logs:
-                prompt_price, completion_price = get_model_prices(
-                    str(log.service_name), str(log.model)
+                # Provider-native prompt-cache reads/writes are billed at the
+                # provider's discounted multipliers; non-cached prompt tokens
+                # keep the normal rate.
+                cache_read_tokens = max(
+                    log.upstream_cached_tokens or 0,
+                    log.upstream_cache_read_input_tokens or 0,
                 )
-                # Calculate cost based on tokens.
-                prompt_cost = (log.prompt_tokens or 0) * prompt_price
-                completion_cost = (log.completion_tokens or 0) * completion_price
-                total_cost = prompt_cost + completion_cost
+                total_cost = calculate_cost(
+                    str(log.service_name),
+                    str(log.model),
+                    log.prompt_tokens or 0,
+                    log.completion_tokens or 0,
+                    cache_read_tokens=cache_read_tokens,
+                    cache_creation_tokens=(
+                        log.upstream_cache_creation_input_tokens or 0
+                    ),
+                )
                 logger.debug(
-                    f"[{tid}] Log {log.id} - Prompt: {prompt_price}, Completion: {completion_price}, Total: {total_cost}"
+                    f"[{tid}] Log {log.id} - Upstream cache read: {cache_read_tokens}, "
+                    f"write: {log.upstream_cache_creation_input_tokens or 0}, "
+                    f"Total: {total_cost}"
                 )
                 log.cost = Decimal(str(total_cost))
                 log.cost_calculated = True

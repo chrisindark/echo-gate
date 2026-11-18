@@ -4,7 +4,8 @@ The RLS hook reads the contextvar at transaction-begin time, so it must survive
 the ASGI call chain (and any thread-pool hop). These tests use a bare app so they
 need no Redis/Qdrant/Postgres.
 
-``X-API-Key`` is the only source of identity. ``X-Tenant-ID``/``X-User-ID`` are
+``X-API-Key`` or ``Authorization: Bearer`` is the only source of identity;
+``X-API-Key`` wins when both are present. ``X-Tenant-ID``/``X-User-ID`` are
 caller-supplied and are ignored outright, so a request cannot pick the tenant it
 runs as.
 """
@@ -86,6 +87,52 @@ def test_key_without_a_user_stays_userless(resolved_key):
     resolved_key(_identity("acme", None))
     response = client.get("/ctx", headers={"x-api-key": "eg_valid"})
     assert response.json() == {"tenant_id": "acme", "user_id": None}
+
+
+def test_bearer_token_resolves_the_same_identity(monkeypatch):
+    """OpenAI SDK clients send Authorization: Bearer instead of X-API-Key."""
+    seen: dict[str, str] = {}
+
+    def _resolve(key: str):
+        seen["key"] = key
+        return _identity("acme", "user-1")
+
+    import app.modules.api_keys.api_keys_service as svc
+
+    monkeypatch.setattr(svc.api_key_service, "resolve_api_key", _resolve)
+
+    response = client.get("/ctx", headers={"authorization": "Bearer eg_bearer"})
+    assert seen["key"] == "eg_bearer"
+    assert response.json() == {"tenant_id": "acme", "user_id": "user-1"}
+
+
+def test_x_api_key_wins_over_a_bearer_token(monkeypatch):
+    seen: dict[str, str] = {}
+
+    def _resolve(key: str):
+        seen["key"] = key
+        return _identity("acme", "user-1")
+
+    import app.modules.api_keys.api_keys_service as svc
+
+    monkeypatch.setattr(svc.api_key_service, "resolve_api_key", _resolve)
+
+    response = client.get(
+        "/ctx",
+        headers={
+            "x-api-key": "eg_header",
+            "authorization": "Bearer eg_bearer",
+        },
+    )
+    assert seen["key"] == "eg_header"
+    assert response.json() == {"tenant_id": "acme", "user_id": "user-1"}
+
+
+def test_non_bearer_authorization_is_ignored(resolved_key):
+    """A proxy's Basic auth header must not authenticate the gateway."""
+    resolved_key(_identity("acme", "user-1"))
+    response = client.get("/ctx", headers={"authorization": "Basic dXNlcjpwYXNz"})
+    assert response.json() == {"tenant_id": "anonymous", "user_id": None}
 
 
 def test_context_does_not_leak_between_requests(resolved_key):

@@ -371,7 +371,7 @@ curl -X POST http://localhost:8000/api/v1/admin/api-keys/ \
   -d '{"name": "local-dev", "tenant_id": "acme", "user_id": "dev"}'
 ```
 
-The response includes the plaintext `api_key` (shown once). Send it as `X-API-Key` on subsequent requests; the gateway maps it to the tenant/user and sets the Postgres RLS context. When no key is supplied, requests are treated under the `anonymous` tenant isolation bucket.
+The response includes the plaintext `api_key` (shown once). Send it as `X-API-Key` on subsequent requests — or as `Authorization: Bearer <key>`, which is what the OpenAI SDK sends by default; `X-API-Key` wins if both are present. The gateway maps the key to the tenant/user and sets the Postgres RLS context. When no key is supplied, requests are treated under the `anonymous` tenant isolation bucket.
 
 Open [http://localhost:3000](http://localhost:3000) to access the interactive Chat Playground, Multi-Turn Conversations, and Real-Time Trace Waterfall.
 
@@ -426,7 +426,33 @@ curl -X POST "http://localhost:8000/api/v1/messages" \
   }'
 ```
 
-### 4. Inspecting Semantic Cache Directly
+### 4. Model Discovery (OpenAI and Anthropic SDKs)
+
+`GET /v1/models` is served in the envelope each SDK expects, so `base_url` +
+`api_key` is the whole configuration:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(base_url="http://localhost:8000/v1", api_key="<YOUR_API_KEY>")
+for model in client.models.list():
+    print(model.id, model.owned_by)
+```
+
+```python
+from anthropic import Anthropic
+
+client = Anthropic(base_url="http://localhost:8000", api_key="<YOUR_API_KEY>")
+for model in client.models.list():
+    print(model.id, model.display_name)
+```
+
+The list includes routing aliases (`fast`, `cheap`, `quality`). Disabled models
+and models whose provider has no credentials are hidden; an operator can see
+them with `?include_unavailable=true` plus `X-Admin-Key`. See
+[docs/API_REFERENCE.md](docs/API_REFERENCE.md#models--v1models-and-apiv1models).
+
+### 5. Inspecting Semantic Cache Directly
 
 Test candidate retrieval without hitting an LLM provider. This is operator
 tooling: it needs an admin key with `cache:read` (tenant `X-API-Key`s are
@@ -444,7 +470,7 @@ curl -X POST "http://localhost:8000/api/v1/chat/completions/semantic-search?tena
   }'
 ```
 
-### 5. Fetching Request Traces & Analytics
+### 6. Fetching Request Traces & Analytics
 
 - **List Traces**: `GET /api/v1/gateway-requests/?skip=0&limit=20`
 - **Trace Details with Latency Breakdown**: `GET /api/v1/gateway-requests/{log_id}`
@@ -456,10 +482,11 @@ curl -X POST "http://localhost:8000/api/v1/chat/completions/semantic-search?tena
   `GET /api/v1/shadow-cache/summary`
 - **Shadow Evaluations Drill-Down**: `GET /api/v1/shadow-cache/evaluations`
 
-### 6. Other Endpoints
+### 7. Other Endpoints
 
 | Method             | Path                                           | Purpose                                                     |
 | ------------------ | ---------------------------------------------- | ----------------------------------------------------------- |
+| `GET`              | `/v1/models`, `/api/v1/models`                 | Model discovery for OpenAI/Anthropic SDKs.                  |
 | `POST`             | `/api/v1/messages`                             | Native Anthropic Messages API (Claude SDKs, streaming SSE). |
 | `POST`             | `/api/v1/chat/completions/exact-search`        | Test the exact-cache lookup only (admin key, `cache:read`).  |
 | `POST`             | `/api/v1/chat/completions/cache-save`          | Write a `{request, response}` pair into the cache directly (admin key, `cache:write`). |

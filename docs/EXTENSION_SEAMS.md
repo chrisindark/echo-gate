@@ -11,7 +11,7 @@ A seam is a stable, documented extension point with a local OSS default:
 | Seam | File | OSS default | Cloud overlay registers |
 | --- | --- | --- | --- |
 | **Feature flags** | `api/app/core/features.py` | `mode() == "oss"`, no features | `register_cloud()` flips `billing`, `metering_sink`, `event_bus` |
-| **Identity** | `api/app/core/identity.py` | `ApiKeyIdentityProvider` (X-API-Key, server-side) | `OidcIdentityProvider` + session portal, appended in `default_provider()` |
+| **Identity** | `api/app/core/identity.py` | `ApiKeyIdentityProvider` (X-API-Key or `Authorization: Bearer`, server-side) | `OidcIdentityProvider` + session portal, appended in `default_provider()` |
 | **Metering** | `api/app/core/metering.py` | `NoopMeteringSink` (usage still lands in `llm_usage`) | Stripe recorder sink |
 | **Event bus** | `api/app/core/events.py` | `WebhookEventSink` — per-type `EVENTS_WEBHOOK_*` URLs, dropped when unset | Stripe/PagerDuty/Slack fan-out sink via `set_event_sink()` |
 | **Storage** | `api/app/core/storage.py` | Plain `RedisService()` / `QdrantClientService()` URLs | Managed-service clients (TLS, IAM auth, retry policy) |

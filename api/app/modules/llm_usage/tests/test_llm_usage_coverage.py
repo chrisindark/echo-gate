@@ -347,11 +347,14 @@ def test_llm_usage_tasks():
             log1.model = "gpt-4o"
             log1.prompt_tokens = 100
             log1.completion_tokens = 200
+            log1.upstream_cached_tokens = 0
+            log1.upstream_cache_read_input_tokens = 0
+            log1.upstream_cache_creation_input_tokens = 0
             mock_svc.get_pending_cost_calculations.return_value = [log1]
 
             with patch(
-                "app.modules.llm_usage.tasks.get_model_prices",
-                return_value=(0.000005, 0.000015),
+                "app.modules.llm_usage.tasks.calculate_cost",
+                return_value=0.003,
             ):
                 res_updated = execute_process_uncalculated_costs_job(
                     task_id="test-task", db_session=mock_db

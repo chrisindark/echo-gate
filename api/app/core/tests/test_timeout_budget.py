@@ -52,7 +52,7 @@ class TestTimeoutBudget(unittest.TestCase):
             headers={"X-Timeout-Budget-Ms": "50"},
         )
         self.assertEqual(response.status_code, 504)
-        self.assertIn("timeout budget", response.json()["detail"].lower())
+        self.assertIn("timeout budget", response.json()["error"]["message"].lower())
 
 
 if __name__ == "__main__":

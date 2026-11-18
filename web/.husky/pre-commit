@@ -2,5 +2,5 @@
 poetry run pre-commit run
 
 # Run UI pre-commit hooks
-cd ui
+cd web
 npx lint-staged

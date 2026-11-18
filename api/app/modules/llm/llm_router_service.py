@@ -819,6 +819,13 @@ class LlmRouterService:
             "presence_penalty": request.presence_penalty,
             "frequency_penalty": request.frequency_penalty,
             "logit_bias": request.logit_bias,
+            "seed": request.seed,
+            "logprobs": request.logprobs,
+            "top_logprobs": request.top_logprobs,
+            "parallel_tool_calls": request.parallel_tool_calls,
+            "metadata": request.metadata,
+            "stream_options": request.stream_options,
+            "extra_body": request.extra_body,
             "tools": (
                 [t.model_dump() for t in request.tools] if request.tools else None
             ),
@@ -2519,8 +2526,23 @@ class LlmRouterService:
                 else 0
             )
 
+            # Gateway (semantic) cache accounting stays on the original
+            # columns; provider-native prompt cache is tracked separately so
+            # the two are never conflated.
             cache_read_tokens = total_tokens if is_cache_hit else 0
             cache_creation_tokens = 0 if is_cache_hit else total_tokens
+            usage = response.usage if response else None
+            upstream_cached_tokens = (
+                usage.prompt_tokens_details.cached_tokens
+                if usage and usage.prompt_tokens_details
+                else 0
+            ) or 0
+            upstream_cache_read_tokens = (
+                usage.cache_read_input_tokens if usage else 0
+            ) or 0
+            upstream_cache_creation_tokens = (
+                usage.cache_creation_input_tokens if usage else 0
+            ) or 0
 
             finish_reason = None
             if response and response.choices and len(response.choices) > 0:
@@ -2548,6 +2570,9 @@ class LlmRouterService:
                 total_tokens=total_tokens,
                 cache_read_tokens=cache_read_tokens,
                 cache_creation_tokens=cache_creation_tokens,
+                upstream_cached_tokens=upstream_cached_tokens,
+                upstream_cache_read_input_tokens=upstream_cache_read_tokens,
+                upstream_cache_creation_input_tokens=upstream_cache_creation_tokens,
                 cost=0.0,
                 cost_calculated=not is_success,
                 latency_ms=latency_ms,

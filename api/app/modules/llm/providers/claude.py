@@ -56,12 +56,15 @@ class ClaudeProvider:
         }
 
         system_prompts: list[str] = []
+        system_cache_control: dict[str, Any] | None = None
         anthropic_messages: list[dict[str, Any]] = []
 
         for msg in request.messages:
             if msg.role == "system":
                 if msg.content:
                     system_prompts.append(msg.content)
+                    if msg.cache_control:
+                        system_cache_control = msg.cache_control
             elif msg.role == "tool":
                 tool_result_block = {
                     "type": "tool_result",
@@ -84,7 +87,13 @@ class ClaudeProvider:
             elif msg.role == "assistant":
                 blocks: list[dict[str, Any]] = []
                 if msg.content:
-                    blocks.append({"type": "text", "text": msg.content})
+                    text_block: dict[str, Any] = {
+                        "type": "text",
+                        "text": msg.content,
+                    }
+                    if msg.cache_control:
+                        text_block["cache_control"] = msg.cache_control
+                    blocks.append(text_block)
                 if msg.tool_calls:
                     for tc in msg.tool_calls:
                         parsed_input: Any = {}
@@ -120,7 +129,12 @@ class ClaudeProvider:
                 else:
                     anthropic_messages.append({"role": "assistant", "content": blocks})
             else:
-                user_text_block = {"type": "text", "text": msg.content or ""}
+                user_text_block: dict[str, Any] = {
+                    "type": "text",
+                    "text": msg.content or "",
+                }
+                if msg.cache_control:
+                    user_text_block["cache_control"] = msg.cache_control
                 if anthropic_messages and anthropic_messages[-1]["role"] == "user":
                     content = anthropic_messages[-1]["content"]
                     if isinstance(content, list):
@@ -162,7 +176,17 @@ class ClaudeProvider:
             payload_data["temperature"] = 1.0
 
         if system_prompts:
-            payload_data["system"] = "\n\n".join(system_prompts)
+            if system_cache_control and len(system_prompts) > 0:
+                # Anthropic requires `system` as a block list to carry
+                # `cache_control`; a single annotated block preserves the
+                # caller's prompt-cache breakpoint.
+                system_blocks = [
+                    {"type": "text", "text": prompt} for prompt in system_prompts
+                ]
+                system_blocks[-1]["cache_control"] = system_cache_control
+                payload_data["system"] = system_blocks
+            else:
+                payload_data["system"] = "\n\n".join(system_prompts)
 
         if request.temperature is not None:
             payload_data["temperature"] = request.temperature
@@ -288,7 +312,18 @@ class ClaudeProvider:
                 reasoning_text = "".join(thinking_pieces) if thinking_pieces else None
 
                 usage_data = data.get("usage", {})
-                prompt_tokens = usage_data.get("input_tokens", 0)
+                cache_read_tokens = usage_data.get("cache_read_input_tokens", 0) or 0
+                cache_creation_tokens = (
+                    usage_data.get("cache_creation_input_tokens", 0) or 0
+                )
+                # Anthropic reports cached tokens separately; normalize
+                # `prompt_tokens` to total input so cost/pricing is provider-
+                # agnostic.
+                prompt_tokens = (
+                    usage_data.get("input_tokens", 0)
+                    + cache_read_tokens
+                    + cache_creation_tokens
+                )
                 completion_tokens = usage_data.get("output_tokens", 0)
                 total_tokens = prompt_tokens + completion_tokens
 
@@ -312,6 +347,8 @@ class ClaudeProvider:
                         prompt_tokens=prompt_tokens,
                         completion_tokens=completion_tokens,
                         total_tokens=total_tokens,
+                        cache_read_input_tokens=cache_read_tokens or None,
+                        cache_creation_input_tokens=cache_creation_tokens or None,
                     ),
                 )
         except httpx.HTTPStatusError as e:
@@ -364,6 +401,8 @@ class ClaudeProvider:
                     model_name = request.model
                     prompt_tokens = 0
                     completion_tokens = 0
+                    cache_read_tokens = 0
+                    cache_creation_tokens = 0
                     finish_reason_sent = False
                     block_index_to_tool_index: dict[int, int] = {}
                     next_tool_index = 0
@@ -388,7 +427,17 @@ class ClaudeProvider:
                                 msg_id = msg_obj.get("id", msg_id)
                                 model_name = msg_obj.get("model", model_name)
                                 usage_obj = msg_obj.get("usage", {})
-                                prompt_tokens = usage_obj.get("input_tokens", 0)
+                                cache_read_tokens = (
+                                    usage_obj.get("cache_read_input_tokens", 0) or 0
+                                )
+                                cache_creation_tokens = (
+                                    usage_obj.get("cache_creation_input_tokens", 0) or 0
+                                )
+                                prompt_tokens = (
+                                    usage_obj.get("input_tokens", 0)
+                                    + cache_read_tokens
+                                    + cache_creation_tokens
+                                )
 
                                 yield ChatCompletionChunk(
                                     id=msg_id,
@@ -508,6 +557,14 @@ class ClaudeProvider:
                                 stop_reason = delta_obj.get("stop_reason")
                                 usage_obj = event_data.get("usage", {})
                                 completion_tokens = usage_obj.get("output_tokens", 0)
+                                cache_read_tokens = (
+                                    usage_obj.get("cache_read_input_tokens")
+                                    or cache_read_tokens
+                                )
+                                cache_creation_tokens = (
+                                    usage_obj.get("cache_creation_input_tokens")
+                                    or cache_creation_tokens
+                                )
 
                                 if stop_reason == "tool_use":
                                     finish_reason = "tool_calls"
@@ -537,6 +594,12 @@ class ClaudeProvider:
                                         prompt_tokens=prompt_tokens,
                                         completion_tokens=completion_tokens,
                                         total_tokens=total_tokens,
+                                        cache_read_input_tokens=(
+                                            cache_read_tokens or None
+                                        ),
+                                        cache_creation_input_tokens=(
+                                            cache_creation_tokens or None
+                                        ),
                                     ),
                                 )
 
@@ -559,6 +622,12 @@ class ClaudeProvider:
                                             prompt_tokens=prompt_tokens,
                                             completion_tokens=completion_tokens,
                                             total_tokens=total_tokens,
+                                            cache_read_input_tokens=(
+                                                cache_read_tokens or None
+                                            ),
+                                            cache_creation_input_tokens=(
+                                                cache_creation_tokens or None
+                                            ),
                                         ),
                                     )
 

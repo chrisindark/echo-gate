@@ -63,6 +63,43 @@
         "title": "AnalyticsDashboardResponse",
         "type": "object"
       },
+      "AnthropicErrorDetail": {
+        "properties": {
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "description": "Anthropic error class: `invalid_request_error`, `authentication_error`, `permission_error`, `not_found_error`, `request_too_large`, `rate_limit_error`, `api_error`, or `overloaded_error`.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "message"
+        ],
+        "title": "AnthropicErrorDetail",
+        "type": "object"
+      },
+      "AnthropicErrorResponse": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/AnthropicErrorDetail"
+          },
+          "type": {
+            "const": "error",
+            "default": "error",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "AnthropicErrorResponse",
+        "type": "object"
+      },
       "AnthropicMessage": {
         "description": "A conversational turn in an Anthropic Messages request.",
         "properties": {
@@ -436,6 +473,80 @@
           "usage"
         ],
         "title": "AnthropicMessagesResponse",
+        "type": "object"
+      },
+      "AnthropicModelInfo": {
+        "description": "The model shape the Anthropic Models API returns.",
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "type": {
+            "const": "model",
+            "default": "model",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "display_name",
+          "created_at"
+        ],
+        "title": "AnthropicModelInfo",
+        "type": "object"
+      },
+      "AnthropicModelListResponse": {
+        "description": "Anthropic-compatible `GET /v1/models` envelope.",
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/AnthropicModelInfo"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "first_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Id"
+          },
+          "has_more": {
+            "default": false,
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "last_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Id"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "AnthropicModelListResponse",
         "type": "object"
       },
       "AnthropicTool": {
@@ -2836,6 +2947,18 @@
             ],
             "title": "Conversation Id"
           },
+          "extra_body": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extra Body"
+          },
           "frequency_penalty": {
             "anyOf": [
               {
@@ -2862,6 +2985,17 @@
             ],
             "title": "Logit Bias"
           },
+          "logprobs": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logprobs"
+          },
           "max_tokens": {
             "anyOf": [
               {
@@ -2880,6 +3014,18 @@
             "title": "Messages",
             "type": "array"
           },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          },
           "model": {
             "title": "Model",
             "type": "string"
@@ -2895,6 +3041,17 @@
             ],
             "default": 1,
             "title": "N"
+          },
+          "parallel_tool_calls": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parallel Tool Calls"
           },
           "presence_penalty": {
             "anyOf": [
@@ -2958,6 +3115,17 @@
             ],
             "title": "Retries"
           },
+          "seed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seed"
+          },
           "service_name": {
             "anyOf": [
               {
@@ -3006,6 +3174,18 @@
             ],
             "default": false,
             "title": "Stream"
+          },
+          "stream_options": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stream Options"
           },
           "stream_pacing": {
             "anyOf": [
@@ -3087,6 +3267,19 @@
               }
             ],
             "title": "Tools"
+          },
+          "top_logprobs": {
+            "anyOf": [
+              {
+                "maximum": 20.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top Logprobs"
           },
           "top_p": {
             "anyOf": [
@@ -5445,6 +5638,21 @@
             "title": "Total Tokens",
             "type": "integer"
           },
+          "upstream_cache_creation_input_tokens": {
+            "default": 0,
+            "title": "Upstream Cache Creation Input Tokens",
+            "type": "integer"
+          },
+          "upstream_cache_read_input_tokens": {
+            "default": 0,
+            "title": "Upstream Cache Read Input Tokens",
+            "type": "integer"
+          },
+          "upstream_cached_tokens": {
+            "default": 0,
+            "title": "Upstream Cached Tokens",
+            "type": "integer"
+          },
           "user_id": {
             "anyOf": [
               {
@@ -5665,6 +5873,21 @@
             "format": "date-time",
             "title": "Updated At",
             "type": "string"
+          },
+          "upstream_cache_creation_input_tokens": {
+            "default": 0,
+            "title": "Upstream Cache Creation Input Tokens",
+            "type": "integer"
+          },
+          "upstream_cache_read_input_tokens": {
+            "default": 0,
+            "title": "Upstream Cache Read Input Tokens",
+            "type": "integer"
+          },
+          "upstream_cached_tokens": {
+            "default": 0,
+            "title": "Upstream Cached Tokens",
+            "type": "integer"
           },
           "user_id": {
             "anyOf": [
@@ -5937,6 +6160,187 @@
         "title": "ModelCostEstimate",
         "type": "object"
       },
+      "ModelInfo": {
+        "description": "An OpenAI-shaped model card with Echo Gate routing metadata.\n\n``id``/``object``/``created``/``owned_by`` are the OpenAI SDK's required\nfields; everything else is additive metadata that the SDK tolerates.",
+        "properties": {
+          "available": {
+            "description": "True when at least one hosting provider is configured. Configured is not the same as healthy: a provider can still fail at call time.",
+            "title": "Available",
+            "type": "boolean"
+          },
+          "context_window": {
+            "description": "Maximum context window in tokens.",
+            "title": "Context Window",
+            "type": "integer"
+          },
+          "created": {
+            "default": 0,
+            "description": "Unix timestamp. The model registry carries no release dates, so this is 0 ('unknown') rather than an invented date.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "enabled": {
+            "description": "False when the registry marks the model disabled. Aliases have no disable flag and are always enabled.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "object": {
+            "const": "model",
+            "default": "model",
+            "title": "Object",
+            "type": "string"
+          },
+          "owned_by": {
+            "description": "Provider service that serves the model, or 'echo-gate' for a routing alias.",
+            "title": "Owned By",
+            "type": "string"
+          },
+          "providers": {
+            "description": "Provider services hosting the model, or an alias's targets.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Providers",
+            "type": "array"
+          },
+          "targets": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ModelTargetInfo"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Ranked targets for an alias; null for a concrete model.",
+            "title": "Targets"
+          }
+        },
+        "required": [
+          "id",
+          "owned_by",
+          "available",
+          "enabled",
+          "providers",
+          "context_window"
+        ],
+        "title": "ModelInfo",
+        "type": "object"
+      },
+      "ModelListResponse": {
+        "description": "OpenAI-compatible `GET /v1/models` envelope.",
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/ModelInfo"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "object": {
+            "const": "list",
+            "default": "list",
+            "title": "Object",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "ModelListResponse",
+        "type": "object"
+      },
+      "ModelTargetInfo": {
+        "description": "One ranked provider target behind an alias.",
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "service": {
+            "title": "Service",
+            "type": "string"
+          }
+        },
+        "required": [
+          "service",
+          "model",
+          "available",
+          "enabled"
+        ],
+        "title": "ModelTargetInfo",
+        "type": "object"
+      },
+      "OpenAIErrorDetail": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stable gateway/provider error code (for example `provider_unavailable`), or null for gateway validation errors.",
+            "title": "Code"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "param": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Request field that caused the failure.",
+            "title": "Param"
+          },
+          "type": {
+            "description": "OpenAI error class: `invalid_request_error`, `authentication_error`, `permission_error`, `not_found_error`, `rate_limit_error`, `insufficient_quota`, or `server_error`.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "type"
+        ],
+        "title": "OpenAIErrorDetail",
+        "type": "object"
+      },
+      "OpenAIErrorResponse": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/OpenAIErrorDetail"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "OpenAIErrorResponse",
+        "type": "object"
+      },
       "PromptBreakdownItem": {
         "description": "Per-system-prompt cost attribution.\n\n``prompt_hash`` is the SHA-256 of the system prompt (``None`` for rows\nwritten before the column existed and not yet backfilled). Because a system\nprompt usually identifies one downstream application or workflow, this is\nthe per-application cost view that needs no caller tagging.",
         "properties": {
@@ -6092,6 +6496,35 @@
           }
         },
         "title": "PromptOptimizationConfig",
+        "type": "object"
+      },
+      "PromptTokensDetails": {
+        "description": "OpenAI-style prompt token breakdown.\n\n``cached_tokens`` is the subset of ``prompt_tokens`` served from the\nprovider's native prompt cache (OpenAI implicit caching).",
+        "properties": {
+          "audio_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audio Tokens"
+          },
+          "cached_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cached Tokens"
+          }
+        },
+        "title": "PromptTokensDetails",
         "type": "object"
       },
       "QdrantSearchRequest": {
@@ -6829,6 +7262,28 @@
       },
       "Usage": {
         "properties": {
+          "cache_creation_input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cache Creation Input Tokens"
+          },
+          "cache_read_input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cache Read Input Tokens"
+          },
           "completion_tokens": {
             "anyOf": [
               {
@@ -6850,6 +7305,16 @@
               }
             ],
             "title": "Prompt Tokens"
+          },
+          "prompt_tokens_details": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PromptTokensDetails"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "total_tokens": {
             "anyOf": [
@@ -6959,6 +7424,10 @@
         "in": "header",
         "name": "X-API-Key",
         "type": "apiKey"
+      },
+      "BearerAuth": {
+        "scheme": "bearer",
+        "type": "http"
       }
     }
   },
@@ -8218,6 +8687,22 @@
               ],
               "title": "X-Api-Key"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
           }
         ],
         "responses": {
@@ -8245,6 +8730,9 @@
         "security": [
           {
             "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
           }
         ],
         "summary": "Get Dashboard Data",
@@ -8347,6 +8835,22 @@
               ],
               "title": "X-Api-Key"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
           }
         ],
         "responses": {
@@ -8374,6 +8878,9 @@
         "security": [
           {
             "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
           }
         ],
         "summary": "Get Latency Metrics",
@@ -8402,6 +8909,22 @@
               ],
               "title": "X-Api-Key"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
           }
         ],
         "requestBody": {
@@ -8425,15 +8948,85 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenAIErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request (unsupported service or disallowed model)."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenAIErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, unknown, or inactive API key."
+          },
+          "402": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenAIErrorResponse"
+                }
+              }
+            },
+            "description": "Prepaid budget exhausted."
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/OpenAIErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request body failed validation."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenAIErrorResponse"
+                }
+              }
+            },
+            "description": "Quota or bulkhead limit reached; retryable responses carry Retry-After."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenAIErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected gateway error."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenAIErrorResponse"
+                }
+              }
+            },
+            "description": "No provider could answer; retryable responses carry Retry-After."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenAIErrorResponse"
+                }
+              }
+            },
+            "description": "Provider or request timeout."
           }
         },
         "summary": "Create Chat Completion",
@@ -8674,6 +9267,22 @@
               ],
               "title": "X-Api-Key"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
           }
         ],
         "requestBody": {
@@ -8753,6 +9362,22 @@
               ],
               "title": "X-Api-Key"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
           }
         ],
         "responses": {
@@ -8799,6 +9424,22 @@
                 }
               ],
               "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
             }
           }
         ],
@@ -8868,6 +9509,22 @@
               ],
               "title": "X-Api-Key"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
           }
         ],
         "responses": {
@@ -8924,6 +9581,22 @@
               ],
               "title": "X-Api-Key"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
           }
         ],
         "responses": {
@@ -8979,6 +9652,22 @@
                 }
               ],
               "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
             }
           }
         ],
@@ -9047,6 +9736,22 @@
                 }
               ],
               "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
             }
           }
         ],
@@ -9357,6 +10062,22 @@
               ],
               "title": "X-Api-Key"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
           }
         ],
         "responses": {
@@ -9384,6 +10105,9 @@
         "security": [
           {
             "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
           }
         ],
         "summary": "Get Gateway Request Logs",
@@ -9429,6 +10153,9 @@
         "security": [
           {
             "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
           }
         ],
         "summary": "Create Gateway Request Log",
@@ -9466,6 +10193,22 @@
               ],
               "title": "X-Api-Key"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
           }
         ],
         "responses": {
@@ -9493,6 +10236,9 @@
         "security": [
           {
             "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
           }
         ],
         "summary": "Get Gateway Request Log By Hash",
@@ -9520,6 +10266,9 @@
         "security": [
           {
             "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
           }
         ],
         "summary": "Trigger Evaluation",
@@ -9569,6 +10318,9 @@
         "security": [
           {
             "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
           }
         ],
         "summary": "Get Pending Evaluations",
@@ -9617,6 +10369,9 @@
         "security": [
           {
             "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
           }
         ],
         "summary": "Delete Gateway Request Log",
@@ -9652,6 +10407,22 @@
               ],
               "title": "X-Api-Key"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
           }
         ],
         "responses": {
@@ -9679,6 +10450,9 @@
         "security": [
           {
             "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
           }
         ],
         "summary": "Get Gateway Request Log",
@@ -9735,6 +10509,9 @@
         "security": [
           {
             "ApiKeyAuth": []
+          },
+          {
+            "BearerAuth": []
           }
         ],
         "summary": "Update Gateway Request Log",
@@ -10168,6 +10945,22 @@
               ],
               "title": "X-Api-Key"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
           }
         ],
         "requestBody": {
@@ -10191,6 +10984,198 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnthropicErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request (unsupported service or disallowed model)."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnthropicErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, unknown, or inactive API key."
+          },
+          "402": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnthropicErrorResponse"
+                }
+              }
+            },
+            "description": "Prepaid budget exhausted."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnthropicErrorResponse"
+                }
+              }
+            },
+            "description": "Request body failed validation."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnthropicErrorResponse"
+                }
+              }
+            },
+            "description": "Quota or bulkhead limit reached; retryable responses carry Retry-After."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnthropicErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected gateway error."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnthropicErrorResponse"
+                }
+              }
+            },
+            "description": "Upstream overloaded or unavailable; retryable responses carry Retry-After."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnthropicErrorResponse"
+                }
+              }
+            },
+            "description": "Provider or request timeout."
+          }
+        },
+        "summary": "Create Message",
+        "tags": [
+          "Anthropic Messages"
+        ]
+      }
+    },
+    "/api/v1/models": {
+      "get": {
+        "description": "List the models this gateway can serve, including routing aliases (`fast`, `cheap`, `quality`). Disabled models and models whose provider has no credentials are hidden unless `include_unavailable=true`, which requires a valid `X-Admin-Key`. Callers sending `anthropic-version` receive the Anthropic Models API envelope instead.",
+        "operationId": "list_models_api_v1_models_get",
+        "parameters": [
+          {
+            "description": "Include models that are disabled in the registry or whose provider is not configured. Requires a valid X-Admin-Key.",
+            "in": "query",
+            "name": "include_unavailable",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Include models that are disabled in the registry or whose provider is not configured. Requires a valid X-Admin-Key.",
+              "title": "Include Unavailable",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Operator key; only read when include_unavailable=true.",
+            "in": "header",
+            "name": "x-admin-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Operator key; only read when include_unavailable=true.",
+              "title": "X-Admin-Key"
+            }
+          },
+          {
+            "description": "Presence selects the Anthropic Models API response envelope. The Anthropic SDK sends this header on every request.",
+            "in": "header",
+            "name": "anthropic-version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Presence selects the Anthropic Models API response envelope. The Anthropic SDK sends this header on every request.",
+              "title": "Anthropic-Version"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ModelListResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AnthropicModelListResponse"
+                    }
+                  ],
+                  "title": "Response List Models Api V1 Models Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -10202,9 +11187,9 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Create Message",
+        "summary": "List Models",
         "tags": [
-          "Anthropic Messages"
+          "Models"
         ]
       }
     },
@@ -10517,6 +11502,22 @@
               ],
               "title": "X-Api-Key"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
           }
         ],
         "responses": {
@@ -10640,6 +11641,22 @@
                 }
               ],
               "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
             }
           }
         ],
@@ -10804,6 +11821,128 @@
         "summary": "Readiness probe: gates on Postgres only, with a 1s timeout. Redis and Qdrant are degradable (a failure is a cache miss, not a wrong answer) and are reported on /health/deps instead, so a cache blip does not evict every replica",
         "tags": [
           "Health"
+        ]
+      }
+    },
+    "/v1/models": {
+      "get": {
+        "description": "List the models this gateway can serve, including routing aliases (`fast`, `cheap`, `quality`). Disabled models and models whose provider has no credentials are hidden unless `include_unavailable=true`, which requires a valid `X-Admin-Key`. Callers sending `anthropic-version` receive the Anthropic Models API envelope instead.",
+        "operationId": "list_models_v1_models_get",
+        "parameters": [
+          {
+            "description": "Include models that are disabled in the registry or whose provider is not configured. Requires a valid X-Admin-Key.",
+            "in": "query",
+            "name": "include_unavailable",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Include models that are disabled in the registry or whose provider is not configured. Requires a valid X-Admin-Key.",
+              "title": "Include Unavailable",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Operator key; only read when include_unavailable=true.",
+            "in": "header",
+            "name": "x-admin-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Operator key; only read when include_unavailable=true.",
+              "title": "X-Admin-Key"
+            }
+          },
+          {
+            "description": "Presence selects the Anthropic Models API response envelope. The Anthropic SDK sends this header on every request.",
+            "in": "header",
+            "name": "anthropic-version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Presence selects the Anthropic Models API response envelope. The Anthropic SDK sends this header on every request.",
+              "title": "Anthropic-Version"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ModelListResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AnthropicModelListResponse"
+                    }
+                  ],
+                  "title": "Response List Models V1 Models Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Models",
+        "tags": [
+          "Models"
         ]
       }
     }

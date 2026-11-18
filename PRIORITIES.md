@@ -1,6 +1,7 @@
 # Echo Gate Priorities & Active Work Queue
 
-**Status:** Pre-1.0 Production Hardening (baseline verified 2026-11-05: 534 passed, 17 Postgres-dependent skipped; snapshot gate green)
+**Status:** Pre-1.0 Production Hardening (baseline verified 2026-11-05: 534 passed, 17 Postgres-dependent skipped; snapshot gate green).
+**Queue extended 2026-11-17:** P4–P6 added for SDK interop, SaaS operations/compliance, and the data-plane/commercial surface. P0–P3 are complete except the open zero-retention/PII item; start at P4.
 **Baseline Quality Gate:** `poetry run python -m compileall api/app && poetry run pytest tests/contract/test_openapi_snapshot.py && poetry run pytest tests/`
 **Rules:**
 1. Work top to bottom. Implement one priority item or clearly bounded slice at a time.
@@ -54,6 +55,42 @@
 - [ ] **Zero-Retention Mode & In-Flight PII Redaction**:
   - Zero-Retention flag (`disable_log: true` or `X-EchoGate-Disable-Log: true`): serve completions with normal quota checks, but completely skip persistence in PostgreSQL (`gateway_requests_log`, `llm_usage_log`) and cache storage (Redis / Qdrant) for HIPAA/GDPR compliance.
   - Pre-routing PII scrubber: scrub sensitive entities (email, phone, credit card with Luhn verification, SSN, IBAN) in Stage 0 before cache key generation and dense/sparse vectorization to prevent cross-tenant/cross-session PII storage.
+
+### P4 — Interop & SDK Drop-In Parity (start here)
+Goal: official OpenAI/Anthropic SDKs work by changing only `base_url` + `api_key`.
+One PR per item, in this order; every route/schema change updates the OpenAPI snapshot.
+Full detail: [`docs/ROADMAP.md#phase-6--interop--sdk-drop-in-parity`](docs/ROADMAP.md#phase-6--interop--sdk-drop-in-parity).
+
+- [x] **Bearer auth parity** *(2026-11-17)* — `Authorization: Bearer <key>` is an alias for `X-API-Key` via the same server-side hash lookup (`core/identity.py`, `core/middlewares.py`, `core/guards.py`). `X-API-Key` wins when both are sent; the Bearer key also feeds the quota bucket and `request.state.api_key`. OpenAPI advertises `BearerAuth`. Tests: `core/tests/test_auth_headers.py`, middleware provenance, end-to-end chat. No caller-supplied tenant trust.
+- [x] **`GET /v1/models` + `/api/v1/models`** *(2026-11-17)* — OpenAI-shaped list from `DynamicModelRegistry` incl. aliases and availability, collapsed to one entry per model id; `?include_unavailable=true` (valid `X-Admin-Key`, any scope) exposes disabled and unconfigured entries with flags. Anthropic envelope selected by `anthropic-version`, so both SDKs' `models.list()` work. Tests: `llm/tests/test_models_endpoint.py`; snapshot updated.
+- [x] **Error envelope parity** *(2026-11-17)* — OpenAI `{"error": {...}}` for `/chat/completions`, Anthropic envelope for `/messages` (`/v1` alias included) on the non-streaming path; SSE unchanged. App-wide handlers in `core/error_envelopes.py` with exact-path opt-in, so gateway-native routes keep `{"detail": ...}`. `error_code` maps to OpenAI `error.code` and `X-EchoGate-Error-Code`; `Retry-After`/`X-RateLimit-*` pass through; errors carry `X-Gateway-Degradation` (`hard_down` on 5xx). Verification: 16 handler tests plus real openai/anthropic SDK smoke (typed errors, parsed messages); snapshot updated.
+- [x] **OpenAI field parity + `extra_body`** *(2026-11-18)* — `ChatCompletionRequest` now accepts `seed`, `logprobs`/`top_logprobs`, `parallel_tool_calls`, `metadata`, `stream_options` (so `stream_options.include_usage` surfaces a final usage chunk on streamed responses), and a size-bounded `extra_body` passthrough (≤64 keys / 64 KiB) that is merged into the upstream payload. Unknown fields are rejected loudly (422) instead of being silently dropped. All new answer-affecting fields participate in the exact cache key (`_generate_cache_key`). Where: `api/app/modules/chat/chat_schema.py`, `api/app/modules/llm/providers/common.py`, `api/app/modules/llm/llm_router_service.py`; snapshot updated.
+- [x] **Upstream prompt-cache passthrough** *(2026-11-18)* — Anthropic `cache_control` blocks now survive translation (`ChatMessage.cache_control` private annotation; the Claude adapter re-attaches the block and uses a block-list `system` when annotated). OpenAI/Gemini implicit cache counts are normalized onto `Usage` (`prompt_tokens_details.cached_tokens`; Anthropic `cache_read_input_tokens`/`cache_creation_input_tokens`, with `prompt_tokens` normalized to total input). New `llm_usage_logs` columns `upstream_cached_tokens`, `upstream_cache_read_input_tokens`, `upstream_cache_creation_input_tokens` keep provider-native cache accounting separate from Echo Gate's own cache; the reverse Anthropic envelope reports the cache fields. Costing applies provider multipliers in `core/pricing.py` (OpenAI read 0.5x; Anthropic read 0.1x / write 1.25x; Gemini read 0.25x). Where: `chat/chat_schema.py`, `anthropic/anthropic_adapter.py`, `llm/providers/{claude,gemini}.py`, `llm/llm_router_service.py`, `llm_usage/{model,schema,tasks}.py`, `alembic/versions/a7b8c9d0e1f2_*`. Tests: `llm/tests/test_upstream_prompt_cache.py`.
+- [ ] **Multimodal preservation** — forward OpenAI `image_url` and Anthropic `image`/`document` blocks instead of dropping them; non-text requests bypass semantic cache unless explicitly opted in. Test image + streaming path.
+
+**P4 gate:** snapshot test + an SDK smoke test (`openai` and `anthropic` clients against the app) + existing suite.
+
+### P5 — SaaS Operations & Compliance
+Full detail: [`docs/ROADMAP.md#phase-7--saas-operations--compliance`](docs/ROADMAP.md#phase-7--saas-operations--compliance).
+
+- [ ] **Prometheus `/metrics` + dashboards** — request/latency/error, cache hits by layer, saved cost/time, quota rejects, provider errors, breaker state, queue depth; Grafana dashboard + Helm `ServiceMonitor`/`PrometheusRule`. Startup failure stays fail-open.
+- [ ] **Log retention + tenant export/erasure** — Celery beat sweep for `gateway_requests`, `llm_usage`, `shadow_cache_evaluations`, `cache_evaluations`; admin export/erasure covering DB rows and tenant cache entries, dry-run first.
+- [ ] **Admin audit trail** — append-only `admin_audit_log` (actor, action, target, request id) for key mint/rotate/revoke, quota CRUD, cache evict/warmup, retention, erasure; admin read endpoint.
+- [ ] **Per-tenant fairness** — `max_concurrency` on quota rules + per-tenant semaphore beside global/provider bulkheads; guaranteed permit release on success, failure, fallback, shed, and stream cancel.
+- [ ] **Webhook hardening** — HMAC-SHA256 signature + delivery id, bounded retries with jitter, dead-letter persistence; keep unset-URL drop and `EVENTS_ENABLED`.
+- [ ] **Idempotency keys** — `Idempotency-Key` on completions/messages: same tenant + key + request hash replays the response and skips double usage; conflicting body returns `409`; document streaming behavior.
+
+### P6 — Data Plane & Commercial Surface
+Full detail: [`docs/ROADMAP.md#phase-8--data-plane--commercial-surface`](docs/ROADMAP.md#phase-8--data-plane--commercial-surface).
+
+- [ ] **`/v1/embeddings` + `/v1/rerank`** — proxy through `inference-platform/` (no in-process models), with auth/quota/metering/traces. Primary capability: inference outage → structured `503`, not fail-open.
+- [ ] **Per-tenant BYOK provider credentials** — envelope-encrypted at rest, tenant-scoped before env fallback, rotation + revocation, never logged/emitted. Security review required.
+- [ ] **Per-tenant model allowlists / plan gating** — enforce effective model set on completions, messages, and `/v1/models`; `403` on violation.
+- [ ] **Usage attribution metadata** — bounded request tags persisted on traces/usage, group-by in analytics, never part of identity or cache keys.
+- [ ] **Keys/tenant management UI** — key create/list/rotate/revoke + tenant usage summary on the existing admin API; plaintext shown once.
+- [ ] **Pricing catalog correctness** — config/DB-backed prices incl. cached read/write rates; unpriced models reported as `cost_known=false` instead of `$0`.
+
+**Not in P4–P6:** Responses API, Batch API, audio/image generation, in-repo MCP (external by decision), SSO/SCIM, hosted portal, Stripe metering, zero-retention/PII (open under P3).
 
 ---
 

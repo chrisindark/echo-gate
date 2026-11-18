@@ -449,7 +449,8 @@ class TestPromptOptimizationIntegration(unittest.TestCase):
         )
 
         headers = {
-            "Authorization": "Bearer test-api-key",
+            # No credential: this test exercises compression, not auth. A
+            # Bearer header would now be resolved as a tenant key and fail.
             EchoGateHeaders.PROMPT_OPTIMIZATION: "compress",
         }
         resp = self.client.post(

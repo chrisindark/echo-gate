@@ -255,6 +255,24 @@ def test_user_falls_back_to_the_resolved_identity(monkeypatch):
     assert captured["user_id"] == "dev"
 
 
+def test_bearer_token_establishes_the_same_identity(monkeypatch):
+    """OpenAI SDKs send Authorization: Bearer; resolve it like X-API-Key."""
+    _resolve_key(
+        monkeypatch, ApiKeyIdentity(api_key_id=1, tenant_id="acme", user_id="dev")
+    )
+    captured: dict = {}
+    app = _chat_app(captured)
+
+    _post(app, headers={"authorization": "Bearer eg_valid"})
+
+    assert captured["tenant_id"] == "acme"
+    assert captured["user_id"] == "dev"
+    assert captured["api_key"] == "eg_valid"
+    assert captured["quota"]["api_key"] == "eg_valid"
+    assert captured["quota"]["bucket_id"] == "eg_valid"
+    assert captured["quota"]["tenant_id"] == "acme"
+
+
 def test_spoofed_session_id_still_scopes_the_cache(monkeypatch):
     """Session/conversation scope is not identity; it survives for now."""
     _resolve_key(

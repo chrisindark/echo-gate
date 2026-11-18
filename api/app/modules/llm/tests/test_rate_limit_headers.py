@@ -237,9 +237,8 @@ class TestRateLimitHeadersOnResponses(unittest.TestCase):
         self.assertEqual(http_response.status_code, 503)
         self.assertEqual(http_response.headers["retry-after"], "9")
 
-        detail = http_response.json()["detail"]
-        self.assertEqual(detail["error_code"], "provider_unavailable")
-        self.assertEqual(detail["provider"], "openai")
+        detail = http_response.json()["error"]
+        self.assertEqual(detail["code"], "provider_unavailable")
         self.assertIn("circuit breaker is OPEN", detail["message"])
 
 

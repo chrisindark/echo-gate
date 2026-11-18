@@ -9,10 +9,12 @@ logger = logging.getLogger(__name__)
 DEFAULT_ALLOWED_MODELS: dict[str, list[str]] = {
     "ollama": [
         "qwen3:8b",
+        "qwen2.5:3b",
+        "qwen2.5:1.5b",
         "qwen2.5-coder:14b",
-        "qwen2.5-coder:1.5b",
-        "qwen2.5-coder:3b",
         "qwen2.5-coder:7b",
+        "qwen2.5-coder:3b",
+        "qwen2.5-coder:1.5b",
     ],
     "gemini": [
         "gemini-3.1-flash-lite",
@@ -227,6 +229,15 @@ class DynamicModelRegistry:
 
     def get_alias_targets(self, alias: str) -> list[ModelTarget]:
         return self._aliases.get(alias.strip().lower(), [])
+
+    def get_aliases(self) -> dict[str, list[ModelTarget]]:
+        """Snapshot every alias and its ranked targets, sorted by alias.
+
+        Returns copies so callers cannot mutate the registry's routing table.
+        """
+        return {
+            alias: list(targets) for alias, targets in sorted(self._aliases.items())
+        }
 
     def resolve_targets(
         self, service_name: str | None, model: str

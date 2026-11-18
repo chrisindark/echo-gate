@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from app.core.constants import CACHE_PREFER_INSTANT, EchoGateHeaders
 from app.core.dependencies import get_llm_router_service
 from app.core.error_classification import classify_provider_error
+from app.core.error_envelopes import OPENAI_ERROR_RESPONSES
 from app.core.guards import (
     api_key_auth_optional_guard,
     llm_quota_guard,
@@ -54,6 +55,9 @@ RequireCacheWrite = require_admin_scope("cache:write")
 @api_v1_router.post(
     "/completions",
     response_model=ChatCompletionResponse,
+    # Provider-native error bodies (OpenAI envelope) for SDK clients; see
+    # app.core.error_envelopes.
+    responses=OPENAI_ERROR_RESPONSES,
     # Auth runs before the quota guard so a bad key is rejected without
     # consuming a request from the rate-limit bucket. Anonymous access is an
     # intentional feature here: the optional guard authenticates a supplied

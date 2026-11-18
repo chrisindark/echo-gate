@@ -32,13 +32,15 @@ The chat completion endpoint is the exception: it returns a bare
 | Header | Used by | Effect |
 | --- | --- | --- |
 | `X-API-Key` | analytics, gateway-requests, chat, conversations | Resolved server-side to a `tenant_id`/`user_id`; establishes the Postgres RLS context. **Required** by analytics and gateway-requests; **optional but validated** on chat and conversations. |
+| `Authorization: Bearer <key>` | analytics, gateway-requests, chat, conversations | Alias for `X-API-Key` so OpenAI SDK clients work unchanged. `X-API-Key` takes precedence when both are sent. |
 | `X-Admin-Key` | `/api/v1/admin/*` | Scoped operator credential. Required by every admin route; see [Admin authentication](#admin-authentication--x-admin-key). |
 | `X-Session-ID` / `X-EchoGate-Session-ID` | chat | Binds the request to a session cache scope. |
 | `X-Conversation-ID` / `X-EchoGate-Conversation-ID` | chat | Binds the request to a conversation cache scope. |
 | `X-Request-ID` / `X-Correlation-ID` | all | Accepted and echoed back for tracing. |
 
-`X-API-Key` is the **only** source of tenant and user identity. `tenant_id` and
-`user_id` are not request fields at all — they are resolved from the key and
+`X-API-Key` (or its `Authorization: Bearer` alias) is the **only** source of
+tenant and user identity; an explicit `X-API-Key` wins if both are present.
+`tenant_id` and `user_id` are not request fields at all — they are resolved from the key and
 stamped onto the request server-side. A body carrying `tenant_id` or `user_id` is
 parsed and the values discarded, and `user` in the body is not read for identity
 or billing purposes.
@@ -65,7 +67,8 @@ well as the matching headers; body values win.
 | `X-Cache-Prefer` | Request | chat (`stream: true`) | When set to `instant`, an exact/semantic cache hit is served immediately as a single JSON response (`ChatCompletionResponse`) instead of replaying SSE chunks. |
 | `X-EchoGate-Prompt-Optimization` | Response | chat, messages, conversations | Emitted with value `applied` when prompt optimization modified the prompt and saved tokens or characters. |
 | `X-EchoGate-Prompt-Savings` | Response | chat, messages, conversations | Emitted when optimization was applied: `tokens=<saved_tokens>,chars=<saved_chars>` (e.g. `tokens=12,chars=48`). |
-| `X-EchoGate-Gateway-Degradation` | Response | chat, messages, conversations | Gateway resilience indicator: `none`, `fallback`, `cache_degraded`, or other degradation state. |
+| `X-EchoGate-Gateway-Degradation` | Response | chat, messages, conversations | Gateway resilience indicator: `none`, `fallback`, `cache_degraded`, or other degradation state. Error responses use `none` for `4xx` and `hard_down` for terminal `5xx`. |
+| `X-EchoGate-Error-Code` | Response | chat, messages | Stable provider/gateway error classification (for example `provider_rate_limit`, `provider_unavailable`) when the failure was classified. |
 | `X-Cache` | Response | chat, messages | `HIT`, `MISS`, or `BYPASS`. |
 | `anthropic-version` | Response | messages | Always emitted as `2023-06-01` for Anthropic client compatibility. |
 
@@ -73,11 +76,11 @@ well as the matching headers; body values win.
 
 `POST /api/v1/chat/completions` runs two guards, in order:
 
-1. **Optional API key auth.** If an `X-API-Key` is supplied it must resolve to an
-   active tenant key, otherwise the request is a `401`. If no key is supplied the
-   request proceeds as the `anonymous` tenant — anonymous access is an intended
-   feature of the chat endpoint, and those callers fall under the default quota
-   limits.
+1. **Optional API key auth.** If an `X-API-Key` (or `Authorization: Bearer`) is
+   supplied it must resolve to an active tenant key, otherwise the request is a
+   `401`. If no key is supplied the request proceeds as the `anonymous` tenant —
+   anonymous access is an intended feature of the chat endpoint, and those
+   callers fall under the default quota limits.
 2. **`llm_quota_guard`** — RPM/TPM/budget enforcement.
 
 Auth runs first so an invalid key is rejected without consuming a request from
@@ -100,8 +103,8 @@ discover the limit by being rejected:
 | `X-RateLimit-Reset-Tokens` | Seconds until the token window resets. |
 | `Retry-After` | Sent only on `429` / `503`: seconds to wait before retrying. |
 
-The counters are per bucket: `X-API-Key` for keyed callers, or the
-`anon:<sha256-prefix>` fingerprint for anonymous ones (see
+The counters are per bucket: the resolved API key (`X-API-Key` or Bearer) for
+keyed callers, or the `anon:<sha256-prefix>` fingerprint for anonymous ones (see
 [Rate limiting notes](#rate-limiting-notes)). Limits are resolved per
 provider/model/user/tenant, and `remaining` is clamped at zero. Reset values come
 from the live Redis key TTLs, clamped to the 60s window; if Redis is unreachable
@@ -113,10 +116,34 @@ Streamed (`stream: true`) responses carry the same headers: they are set on the
 
 ### Error behavior
 
+The two SDK completion surfaces answer with the provider-native error body so the
+official SDKs raise typed errors instead of failing to parse `{"detail": ...}`.
+Gateway-native routes keep FastAPI's default body.
+
+| Surface | Error body |
+| --- | --- |
+| `POST /api/v1/chat/completions` | `{"error": {"message", "type", "param"?, "code"?}}` (OpenAI) |
+| `POST /api/v1/messages`, `POST /v1/messages` | `{"type": "error", "error": {"type", "message"}}` (Anthropic) |
+| Everything else | `{"detail": ...}` |
+
+On the OpenAI surface `type` is the standard class (`invalid_request_error`,
+`authentication_error`, `permission_error`, `rate_limit_error`,
+`insufficient_quota`, `server_error`) and `code` is the gateway/provider
+`error_code` (for example `provider_rate_limit`) when one exists — never a
+numeric status. On the Anthropic surface `type` is the standard class
+(`invalid_request_error`, `authentication_error`, `rate_limit_error`,
+`overloaded_error`, `api_error`, …). Validation failures keep status `422`; only
+the body shape changes, and the first failing field is named in `param`
+(OpenAI) or prefixed to the message. Any `error_code` is also echoed in
+`X-EchoGate-Error-Code`.
+
+Error responses still carry `X-Gateway-Degradation`: `none` for `4xx`, and
+`hard_down` for terminal `5xx` failures, matching the resilience contract.
+
 - `401` — missing or invalid key. On `/api/v1/admin/*` this means a missing,
   unknown, revoked, or expired `X-Admin-Key`; on analytics/gateway-requests it
-  means a missing or invalid `X-API-Key`; on chat it means an `X-API-Key` that
-  was supplied but did not resolve.
+  means a missing or invalid `X-API-Key`/Bearer token; on chat it means a
+  credential that was supplied but did not resolve.
 - `403` — an admin key that is valid but lacks the scope the route requires.
 - `429` — RPM or TPM quota exceeded (see `llm_quota`), carrying the
   `X-RateLimit-*` headers plus `Retry-After`. The same status is returned when the
@@ -127,12 +154,13 @@ Streamed (`stream: true`) responses carry the same headers: they are set on the
   provider's allowlist.
 - `503` — no candidate provider could answer: every target failed (retries and
   alias/fallback candidates included), a circuit breaker was open, or a stream
-  broke after it had started. All of these carry the structured `detail`
-  (`message`/`error_code`/`provider`); retryable `503`s also carry `Retry-After`:
-  the longest remaining breaker recovery window among the candidates, else
-  `RETRY_AFTER_DEFAULT_SECONDS` (default 5) when no breaker is counting down.
-  When a stream breaks after content was emitted, the SSE body ends with an
-  `error` event and no replay is attempted.
+  broke after it had started. The body carries the classified message and
+  `error_code` (the provider name remains in the message and in the SSE event).
+  Retryable `503`s also carry `Retry-After`: the longest remaining breaker
+  recovery window among the candidates, else `RETRY_AFTER_DEFAULT_SECONDS`
+  (default 5) when no breaker is counting down. When a stream breaks after
+  content was emitted, the SSE body ends with an `error` event and no replay is
+  attempted.
 - `500` — unexpected server error in a controller.
 - `404` — resource not found on CRUD endpoints.
 
@@ -208,6 +236,79 @@ taking a replica out of rotation. Alert on the `status` field instead:
 `status` is `healthy` (all ok), `degraded` (a non-gating dependency failed), or
 `unhealthy` (the gating dependency failed). Page on `unhealthy`; warn on
 `degraded`.
+
+---
+
+## Models — `/v1/models` and `/api/v1/models`
+
+Model discovery for SDK clients. Both paths return the same catalog; the
+response *shape* depends on the caller:
+
+- **OpenAI shape** (default): `{"object": "list", "data": [...]}`. This is what
+  `openai.OpenAI(...).models.list()` parses.
+- **Anthropic shape**: returned when the request carries `anthropic-version`,
+  which `anthropic.Anthropic(...).models.list()` always sends.
+
+The catalog comes from `DynamicModelRegistry`, so a model added through
+`ALLOWED_MODELS_JSON` (or registered at runtime) appears here without a code
+change. Aliases (`fast`, `cheap`, `quality`) are listed as their own entries.
+
+```bash
+curl http://localhost:8000/v1/models
+curl http://localhost:8000/v1/models -H "anthropic-version: 2023-06-01"
+```
+
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "fast",
+      "object": "model",
+      "created": 0,
+      "owned_by": "echo-gate",
+      "available": true,
+      "enabled": true,
+      "providers": ["groq", "google-genai", "openai"],
+      "context_window": 131072,
+      "targets": [
+        {"service": "groq", "model": "openai/gpt-oss-20b", "available": true, "enabled": true},
+        {"service": "google-genai", "model": "gemini-3.1-flash-lite", "available": false, "enabled": true},
+        {"service": "openai", "model": "gpt-4o-mini", "available": true, "enabled": true}
+      ]
+    }
+  ]
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Model name or alias. Use it as `model` on completions. |
+| `object` | Always `"model"`. |
+| `created` | Unix timestamp. The registry has no release dates, so this is `0` (unknown) rather than an invented date. |
+| `owned_by` | Provider service, or `echo-gate` for an alias. |
+| `available` | At least one hosting provider is **configured**. Configured is not healthy: a provider can still fail at call time and is handled by retry/fallback. |
+| `enabled` | `false` when the registry marks the model disabled. Aliases have no disable flag and are always `true`. |
+| `providers` | Every service hosting the model, or an alias's ranked targets. A model id served under two service names (`gemini`/`google-genai`, `claude`/`anthropic`) is listed once. |
+| `context_window` | Maximum context in tokens (`MODEL_CONTEXT_WINDOWS_JSON` / defaults). |
+| `targets` | Alias-only: the ranked `{service, model, available, enabled}` list the router walks. |
+
+By default the list contains only entries that can currently serve a request
+(enabled **and** available). `?include_unavailable=true` reveals disabled models
+and models whose provider is unconfigured, with the flags set accordingly. That
+view is operator metadata and requires a valid `X-Admin-Key` (any scope); it is
+a `401` otherwise.
+
+Authentication is the same optional tenant auth as chat: a supplied
+`X-API-Key`/`Authorization: Bearer` is validated (unknown keys are `401`), and a
+keyless discovery call is allowed. The Anthropic SDK's `x-api-key` header is the
+same header as `X-API-Key` — header names are case-insensitive — so both SDKs
+authenticate without extra configuration.
+
+The Anthropic envelope uses `type: "model"`, `display_name` (the model id), and
+`created_at` (`1970-01-01T00:00:00Z`, the same unknown-date sentinel), plus
+`has_more`, `first_id`, and `last_id`. Pagination parameters are not implemented
+because the catalog is small and fully enumerated in one response.
 
 ---
 
