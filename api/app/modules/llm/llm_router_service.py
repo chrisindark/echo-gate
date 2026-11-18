@@ -82,6 +82,7 @@ from app.modules.chat.chat_schema import (
     ChatCompletionRequest,
     ChatCompletionResponse,
     StreamAccumulator,
+    content_parts_digest,
     response_to_stream_chunks_natural,
 )
 from app.modules.embedding.embedding_service import EmbeddingService
@@ -798,6 +799,10 @@ class LlmRouterService:
                 msg_dict["tool_call_id"] = msg.tool_call_id
             if msg.tool_calls:
                 msg_dict["tool_calls"] = [tc.model_dump() for tc in msg.tool_calls]
+            if msg.content_parts:
+                # Exact opt-in caching must distinguish different images/documents
+                # even though the text-only prompt and embedding do not include them.
+                msg_dict["content_parts"] = content_parts_digest(msg.content_parts)
             messages_list.append(msg_dict)
 
         key_dict = {
@@ -1016,6 +1021,11 @@ class LlmRouterService:
     async def evaluate_semantic_cache(
         self, request: ChatCompletionRequest, force: bool = False
     ) -> dict:
+        if request.has_non_text_content:
+            # Text embeddings cannot represent images/documents. Only exact
+            # lookups (whose keys include a content-parts digest) are safe.
+            logger.debug("Skipping semantic cache for a non-text request")
+            return {}
         prompt_text, system_prompt, user_prompt = self._prepare_prompts(request)
         logger.debug(f"User prompt: {user_prompt}")
 
@@ -2851,9 +2861,9 @@ class LlmRouterService:
         shadow_mode = config.CACHE_MODE == "shadow"
 
         try:
-            if request.cache_enabled is False:
+            if request.cache_bypassed:
                 logger.info(
-                    "cache_enabled=False: bypassing serving-time cache lookups for %s",
+                    "cache bypassed: skipping serving-time cache lookups for %s",
                     exact_hash,
                 )
             elif shadow_mode:
@@ -2954,9 +2964,9 @@ class LlmRouterService:
                 response.cache_info = cache_info
                 breakdown["cache_write_ms"] = 0.0
 
-                if request.cache_enabled is False or request.cache_ttl == 0:
+                if request.cache_bypassed or request.cache_ttl == 0:
                     logger.info(
-                        "cache_enabled=False or cache_ttl=0: skipping cache write for %s",
+                        "cache bypassed or cache_ttl=0: skipping cache write for %s",
                         exact_hash,
                     )
                 elif shadow_mode:
@@ -3133,8 +3143,8 @@ class LlmRouterService:
         because this *is* the serving path for these requests.
         """
         request, opt_result = await self.prompt_optimizer.optimize_async(request)
-        if config.CACHE_MODE == "shadow" or request.cache_enabled is False:
-            # Shadow mode or cache_enabled=False never reads the cache, so there is nothing to serve.
+        if config.CACHE_MODE == "shadow" or request.cache_bypassed:
+            # Shadow mode or a bypassed cache never reads the cache, so there is nothing to serve.
             return None
 
         start_time = time.perf_counter()
@@ -3284,12 +3294,12 @@ class LlmRouterService:
         shadow_mode = config.CACHE_MODE == "shadow"
 
         try:
-            if request.cache_enabled is False or skip_cache_lookup:
+            if request.cache_bypassed or skip_cache_lookup:
                 logger.info(
-                    "Bypassing cache lookups for %s (cache_enabled=%s, skip_cache_lookup=%s); "
+                    "Bypassing cache lookups for %s (cache_bypassed=%s, skip_cache_lookup=%s); "
                     "streaming from the provider",
                     exact_hash,
-                    request.cache_enabled,
+                    request.cache_bypassed,
                     skip_cache_lookup,
                 )
             elif shadow_mode:
@@ -3430,9 +3440,9 @@ class LlmRouterService:
                     response.cache_info = cache_info
                     breakdown["cache_write_ms"] = 0.0
 
-                    if request.cache_enabled is False or request.cache_ttl == 0:
+                    if request.cache_bypassed or request.cache_ttl == 0:
                         logger.info(
-                            "cache_enabled=False or cache_ttl=0: skipping cache write for stream %s",
+                            "cache bypassed or cache_ttl=0: skipping cache write for stream %s",
                             exact_hash,
                         )
                     elif shadow_mode:

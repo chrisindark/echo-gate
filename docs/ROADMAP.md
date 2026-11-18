@@ -793,16 +793,19 @@ diffs, and the first three unblock SDK smoke tests that validate the rest.
   `llm/providers/{claude,gemini}.py`, `core/pricing.py`,
   `LlmRouterService._log_usage`, `llm_usage/{model,schema,tasks}.py`,
   `alembic/versions/a7b8c9d0e1f2_*`.
-- [ ] **6. Multimodal content preservation** — OpenAI `content` arrays (text +
-  `image_url`) and Anthropic `image`/`document` blocks must be forwarded, not
-  flattened or silently dropped (the Anthropic adapter currently drops images).
-  Semantic caching stays text-only: requests carrying non-text blocks bypass
-  the cache unless `cache_enabled: true` is set and a text-only key can be
-  derived; the decision must be visible in `X-Cache`. Where:
-  `chat/chat_schema.py` (`ChatMessage`), `anthropic/anthropic_adapter.py`,
-  provider adapters. Acceptance: an image request returns a provider answer;
-  no request silently loses a content block; streaming and non-streaming paths
-  both preserve content order.
+- [x] **6. Multimodal content preservation** *(2026-11-18)* — OpenAI `content`
+  arrays (text + `image_url`) and Anthropic `image`/`document` blocks are kept as
+  ordered private parts on `ChatMessage` and translated per provider instead of
+  being flattened or dropped. Unsupported block types fail loudly (422/400).
+  Semantic caching stays text-only: non-text requests bypass the cache unless
+  `cache_enabled: true` is set, in which case only exact lookups run and their
+  keys include a digest of the ordered parts. The decision is visible in
+  `X-Cache` on both streaming and non-streaming paths. Where:
+  `chat/chat_schema.py`, `anthropic/anthropic_adapter.py`,
+  `llm/providers/{common,claude,gemini}.py`, `llm/llm_router_service.py`,
+  `chat/chat_controller.py`, `anthropic/anthropic_controller.py`,
+  `prompt_optimization/prompt_optimizer.py`. Tests:
+  `tests/integration/test_multimodal_preservation.py`.
 
 ---
 

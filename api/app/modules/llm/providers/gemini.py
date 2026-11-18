@@ -5,8 +5,11 @@ still operate on the dispatcher instance (``self``), which owns every provider
 credential and client; only the owning class changed.
 """
 
+import base64
+import binascii
 import json
 import logging
+import re
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -34,6 +37,8 @@ from app.modules.chat.chat_schema import (
 
 logger = logging.getLogger(__name__)
 
+_DATA_URI_RE = re.compile(r"^data:([^;,]+);base64,(.*)$", re.DOTALL)
+
 _THOUGHT_SIGNATURES: dict[str, bytes] = {}
 MAX_THOUGHT_SIGNATURES = 2048
 
@@ -48,6 +53,58 @@ def _store_thought_signature(call_id: str, sig: bytes | None) -> None:
     _THOUGHT_SIGNATURES[call_id] = sig
 
 
+def _gemini_parts_from_content(parts: list[dict[str, Any]]) -> list[types.Part]:
+    """Translate ordered internal blocks into Gemini parts."""
+    result: list[types.Part] = []
+    for part in parts:
+        part_type = part.get("type")
+        if part_type == "text":
+            result.append(types.Part.from_text(text=part["text"]))
+        elif part_type == "image_url":
+            url = part["image_url"]["url"]
+            match = _DATA_URI_RE.match(url)
+            if match:
+                result.append(
+                    types.Part.from_bytes(
+                        data=base64.b64decode(match.group(2)),
+                        mime_type=match.group(1),
+                    )
+                )
+            else:
+                result.append(types.Part.from_uri(file_uri=url))
+        elif part_type in ("image", "document"):
+            source = part["source"]
+            src_type = source.get("type")
+            if src_type == "base64":
+                try:
+                    data = base64.b64decode(source.get("data", ""), validate=True)
+                except (binascii.Error, ValueError) as exc:
+                    raise HTTPException(
+                        status_code=400, detail=f"Invalid base64 content block: {exc}"
+                    ) from exc
+                result.append(
+                    types.Part.from_bytes(
+                        data=data,
+                        mime_type=source.get("media_type")
+                        or "application/octet-stream",
+                    )
+                )
+            elif src_type == "text":
+                result.append(types.Part.from_text(text=source.get("data", "")))
+            elif src_type == "url" and isinstance(source.get("url"), str):
+                result.append(types.Part.from_uri(file_uri=source["url"]))
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unsupported {part_type} source: {src_type!r}",
+                )
+        else:
+            raise HTTPException(
+                status_code=400, detail=f"Unsupported content part type: {part_type!r}"
+            )
+    return result
+
+
 class GeminiProvider:
     def _prepare_gemini_payload(
         self, request: ChatCompletionRequest
@@ -58,6 +115,11 @@ class GeminiProvider:
 
         for msg in request.messages:
             if msg.role == "system":
+                if msg.has_non_text_content:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Non-text content blocks are not supported in system messages",
+                    )
                 system_instruction = msg.content
             elif msg.role == "tool":
                 fn_name = msg.name or tool_call_names.get(
@@ -79,7 +141,9 @@ class GeminiProvider:
             else:
                 role = "user" if msg.role == "user" else "model"
                 parts = []
-                if msg.content:
+                if msg.content_parts:
+                    parts.extend(_gemini_parts_from_content(msg.content_parts))
+                elif msg.content:
                     parts.append(types.Part.from_text(text=msg.content))
                 if msg.tool_calls:
                     for tc in msg.tool_calls:

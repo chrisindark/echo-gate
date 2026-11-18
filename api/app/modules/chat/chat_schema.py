@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import time
@@ -54,8 +55,55 @@ class Tool(BaseModel):
     function: FunctionDefinition
 
 
+def _normalize_content_part(raw: Any) -> dict[str, Any]:
+    """Normalize one OpenAI/Anthropic content block into an ordered tagged part.
+
+    The original wire shape is kept so each provider adapter can translate it
+    without losing data. Unknown block types raise instead of being dropped.
+    """
+    if isinstance(raw, str):
+        return {"type": "text", "text": raw}
+    if not isinstance(raw, dict):
+        raise ValueError("content array entries must be strings or objects")
+
+    part_type = raw.get("type")
+    if part_type == "text":
+        text = raw.get("text")
+        if not isinstance(text, str):
+            raise ValueError("text content part requires a string `text`")
+        return {"type": "text", "text": text}
+    if part_type == "image_url":
+        image_url = raw.get("image_url")
+        if not isinstance(image_url, dict) or not isinstance(image_url.get("url"), str):
+            raise ValueError(
+                "image_url content part requires image_url.url as a string"
+            )
+        return {"type": "image_url", "image_url": dict(image_url)}
+    if part_type in ("image", "document"):
+        source = raw.get("source")
+        if not isinstance(source, dict):
+            raise ValueError(f"{part_type} content part requires a source object")
+        return {"type": part_type, "source": dict(source)}
+    raise ValueError(f"Unsupported content part type: {part_type!r}")
+
+
+def _split_message_content(
+    content: list[Any],
+) -> tuple[str | None, list[dict[str, Any]]]:
+    parts = [_normalize_content_part(item) for item in content]
+    texts = [part["text"] for part in parts if part["type"] == "text"]
+    return ("\n".join(texts) if texts else None), parts
+
+
+def content_parts_digest(parts: list[dict[str, Any]] | None) -> str:
+    """Stable digest of a message's ordered blocks for exact cache keys."""
+    return hashlib.sha256(json.dumps(parts or [], sort_keys=True).encode()).hexdigest()
+
+
 class ChatMessage(BaseModel):
     role: str
+    # Always text. Input content arrays are split into this text plus ordered
+    # private parts, so every existing consumer can keep treating it as a string.
     content: str | None = None
     reasoning_content: str | None = None
     name: str | None = None
@@ -66,6 +114,22 @@ class ChatMessage(BaseModel):
     # Private so it never appears in the OpenAI request/response schema or the
     # cache key; the Claude adapter re-attaches it when building blocks.
     _cache_control: dict[str, Any] | None = PrivateAttr(default=None)
+    # Ordered multimodal blocks (text/image_url/image/document). Private for the
+    # same reason: adapters read them explicitly, schema/cache-key/serialization
+    # stay text-only unless an adapter opts in.
+    _content_parts: list[dict[str, Any]] | None = PrivateAttr(default=None)
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def _capture_content_parts(cls, value: Any, handler: Any, info: Any) -> ChatMessage:
+        parts: list[dict[str, Any]] | None = None
+        if isinstance(value, dict) and isinstance(value.get("content"), list):
+            text, parts = _split_message_content(value["content"])
+            value = {**value, "content": text}
+        model = handler(value)
+        if parts is not None:
+            model._content_parts = parts
+        return model
 
     @property
     def cache_control(self) -> dict[str, Any] | None:
@@ -74,6 +138,21 @@ class ChatMessage(BaseModel):
     @cache_control.setter
     def cache_control(self, value: dict[str, Any] | None) -> None:
         self._cache_control = value
+
+    @property
+    def content_parts(self) -> list[dict[str, Any]] | None:
+        return self._content_parts
+
+    @content_parts.setter
+    def content_parts(self, value: list[dict[str, Any]] | None) -> None:
+        self._content_parts = value
+
+    @property
+    def has_non_text_content(self) -> bool:
+        return bool(
+            self._content_parts
+            and any(part["type"] != "text" for part in self._content_parts)
+        )
 
 
 class ChatCompletionRequest(BaseModel):
@@ -186,6 +265,23 @@ class ChatCompletionRequest(BaseModel):
                 f"Model '{self.model}' is not allowed for provider '{service}'. Allowed models are: {allowed}"
             )
         return self
+
+    @property
+    def has_non_text_content(self) -> bool:
+        return any(msg.has_non_text_content for msg in self.messages)
+
+    @property
+    def cache_bypassed(self) -> bool:
+        """Whether serving-time cache reads and writes must be skipped.
+
+        Non-text blocks have no text embedding, so they are excluded from the
+        semantic cache unless a caller explicitly opts in with
+        ``cache_enabled: true``. Explicit opt-in still uses only exact lookups
+        keyed by a digest of the ordered blocks.
+        """
+        if self.cache_enabled is False:
+            return True
+        return self.has_non_text_content and self.cache_enabled is not True
 
 
 class ChatEstimateRequest(BaseModel):
