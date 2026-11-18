@@ -10,6 +10,15 @@ changes' entry with a `[BREAKING]` marker.
 
 ## [Unreleased]
 
+## [v0.3.0] - 2026-11-18
+
+### Added
+
+- Accept Authorization: Bearer as an alias for X-API-Key so OpenAI SDK clients work unchanged
+- Add OpenAI- and Anthropic-compatible GET /v1/models and /api/v1/models model discovery
+- Return OpenAI and Anthropic native error envelopes from the non-streaming completion endpoints
+- Preserve Anthropic cache_control blocks and record/priced provider-native prompt cache tokens separately from the gateway cache
+
 ## [v0.2.0] - 2026-11-11
 
 ### Added
