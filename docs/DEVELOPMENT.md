@@ -14,7 +14,8 @@
 # 1. Environment file
 cp api/app/.env.example api/app/.env.local       # then edit keys/URLs
 
-# 2. Infrastructure (Postgres, Redis, Qdrant)
+# 2. Infrastructure (Postgres, Redis, Qdrant) — no host ports are published
+docker network inspect echo-gate-net >/dev/null 2>&1 || docker network create echo-gate-net
 docker compose --profile core -f deploy/compose/docker-compose.yml up -d postgres redis qdrant
 
 # 3. Backend dependencies
@@ -23,11 +24,15 @@ poetry install
 # 4. Schema (creates tables, the app role, and RLS policies) via the OWNER creds
 poetry run alembic upgrade head
 
-# 5. Create an API key (after the API is running)
+# 5. Create an API key (after the API is running; host-native gateway)
 curl -X POST http://localhost:8000/api/v1/admin/api-keys/ \
   -H "Content-Type: application/json" \
   -d '{"name": "local-dev", "tenant_id": "acme", "user_id": "dev"}'
 ```
+
+For the container-only stack, run the same request from inside the gateway
+container (`docker compose exec -T echo-gate python -c "...urllib.request..."`)
+against `http://127.0.0.1:8000`, as printed by `setup.sh`.
 
 Remember: the cache is off by default (`CACHE_MODE` derives to `disabled` when it
 is unset and no `USE_*` flag is `"true"`). Set `CACHE_MODE=active` plus
@@ -57,7 +62,8 @@ poetry run celery -A app.worker.celery_app beat --loglevel=info
 cd web && npm install && npm run dev   # http://localhost:3000
 ```
 
-Interactive API docs: `http://localhost:8000/docs`.
+Interactive API docs: `http://localhost:8000/docs` for host-native runs, or
+`http://echo-gate:8000/docs` from another container on `echo-gate-net`.
 
 ### Shared inference platform (required)
 
@@ -78,13 +84,16 @@ changes on the consumer side):
 
 ```bash
 docker build -t inference-platform:local .            # CPU-only native server
+docker network inspect echo-gate-net >/dev/null 2>&1 || docker network create echo-gate-net
 docker compose -f deploy/compose/inference-native.yml up -d --build
 helm template deploy/helm/inference-platform          # render the Kubernetes chart
 ```
 
 Then set `INFERENCE_BASE_URL=http://localhost:7997` in `api/app/.env.local`
 (`http://host.docker.internal:7997` if the API runs in a container and the engine
-on the host). `dev.sh` starts the engine, the API, and the UI together.
+on the host). In the container-only Compose stack the gateway uses
+`http://inference:7997` over `echo-gate-net` by default. `dev.sh` starts the
+engine, the API, and the UI together.
 
 Run it natively rather than in a container on macOS: a Linux container has no
 Metal, so containerizing forfeits the GPU for the small models. `evals/check.py`
@@ -98,7 +107,7 @@ INFERENCE_BASE_URL=http://localhost:7997 uv run --project inference-platform \
 
 ### Docker Environments: Development vs Production
 
-Echo Gate provides dedicated Docker configurations for local development (with hot reload) and production:
+Echo Gate provides dedicated Docker configurations for local development (with hot reload) and production. Both publish **no host ports**: services listen only on the shared `echo-gate-net` network and resolve each other by service name. Use `docker compose exec` for host-side checks. Run one stack at a time — dev and prod use the same service aliases on that network:
 
 | Target | Compose File | Backend Dockerfile | Web Dockerfile | Features |
 |---|---|---|---|---|
@@ -108,6 +117,9 @@ Echo Gate provides dedicated Docker configurations for local development (with h
 #### Running the Development Environment (Hot Reload)
 
 ```bash
+# Shared network (once; setup.sh does this for the production stack)
+docker network inspect echo-gate-net >/dev/null 2>&1 || docker network create echo-gate-net
+
 # Start all services with live reload
 docker compose -f docker-compose.dev.yml up --build
 
@@ -117,6 +129,8 @@ docker compose -f docker-compose.dev.yml run --rm \
   echo-gate alembic upgrade head
 ```
 
+- Postgres-backed tests skip when run from the host because no database port is
+  published; run them where `echo-gate-net` is reachable for full coverage.
 - Any change to `api/` on your host instantly reloads FastAPI (`uvicorn --reload`).
 - Any `.py` change automatically restarts the Celery worker process via `watchfiles`.
 - Any edit to `web/` immediately updates the frontend in the browser via Next.js Fast Refresh.

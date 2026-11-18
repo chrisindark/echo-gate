@@ -27,13 +27,13 @@ and is configurable via `NEXT_PUBLIC_API_BASE_URL` (see below).
 
 ## Pages
 
-| Route          | Description                                                                                                                                                                                                                                          |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/`            | Single-turn Playground. Provider/model selection, temperature, max tokens, structured-output modes (`text` / `json_object` / `json_schema` with presets), prompt optimization toggle, API key, and cache status badges. Supports `?hash=<exact_hash>` to reload a stored trace. |
-| `/conversations` | Stateful multi-turn conversations. Persistent thread history with collapsible sidebar (grouped by date, rename, delete), SSE streaming, collapsible thinking blocks, and prompt optimization savings telemetry. Supports `?c=<conversation_id>`. |
-| `/traces`      | Table of gateway request traces.                                                                                                                                                                                                                     |
-| `/traces/[id]` | Trace detail with a latency waterfall, intent metadata, and evaluation scores.                                                                                                                                                                       |
-| `/analytics`   | Dashboard KPIs, cache performance, model breakdown, and latency metrics.                                                                                                                                                                             |
+| Route            | Description                                                                                                                                                                                                                                                                     |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/`              | Single-turn Playground. Provider/model selection, temperature, max tokens, structured-output modes (`text` / `json_object` / `json_schema` with presets), prompt optimization toggle, API key, and cache status badges. Supports `?hash=<exact_hash>` to reload a stored trace. |
+| `/conversations` | Stateful multi-turn conversations. Persistent thread history with collapsible sidebar (grouped by date, rename, delete), SSE streaming, collapsible thinking blocks, and prompt optimization savings telemetry. Supports `?c=<conversation_id>`.                                |
+| `/traces`        | Table of gateway request traces.                                                                                                                                                                                                                                                |
+| `/traces/[id]`   | Trace detail with a latency waterfall, intent metadata, and evaluation scores.                                                                                                                                                                                                  |
+| `/analytics`     | Dashboard KPIs, cache performance, model breakdown, and latency metrics.                                                                                                                                                                                                        |
 
 The sidebar (`src/components/app-sidebar.tsx`) also links `/settings`.
 
@@ -48,11 +48,12 @@ npm run lint    # eslint
 
 ## Notes
 
-- **API base URL** defaults to `http://localhost:8000` and is configurable via
-  `NEXT_PUBLIC_API_BASE_URL` at build time (`src/lib/api.ts`; Next.js inlines
-  `NEXT_PUBLIC_*` variables into the client bundle during `next build`, so the
-  value cannot be changed at runtime). Copy `.env.example` to `.env.local` to
-  override it in development.
+- **API base URL** defaults to `http://localhost:8000` for host-native runs and is
+  configurable via `NEXT_PUBLIC_API_BASE_URL` at build time (`src/lib/api.ts`;
+  Next.js inlines `NEXT_PUBLIC_*` variables into the client bundle during
+  `next build`, so the value cannot be changed at runtime). Copy `.env.example`
+  to `.env.local` to override it in development. The Compose images build with
+  `http://echo-gate:8000` because no host ports are published.
 - The gateway enforces a per-provider model allowlist that this UI mirrors in
   `src/app/page.tsx` (`PROVIDERS`). Keep them in sync with
   `app/modules/chat/chat_schema.py`.

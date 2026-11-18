@@ -2,6 +2,11 @@ name: echo-gate
 #
 # Echo Gate self-hosting compose.
 #
+# No host ports are published. All services listen only on the shared external
+# network `echo-gate-net`, created by deploy/compose/setup.sh (or manually with
+# `docker network create echo-gate-net`). Reach them from another container on
+# that network or with `docker compose exec`.
+#
 # Profiles gate every service — nothing starts without a profile:
 #
 #   docker compose --profile core up -d     # gateway + infra + workers
@@ -27,7 +32,7 @@ services:
       - qdrant_data:/qdrant/storage
     restart: always
     networks:
-      - app-network
+      - echo-gate-net
 
   redis:
     profiles: ["core"]
@@ -36,7 +41,7 @@ services:
       - "6379"
     restart: always
     networks:
-      - app-network
+      - echo-gate-net
 
   postgres:
     profiles: ["core"]
@@ -56,7 +61,7 @@ services:
       retries: 10
     restart: always
     networks:
-      - app-network
+      - echo-gate-net
 
   echo-gate:
     profiles: ["core"]
@@ -69,8 +74,9 @@ services:
       # inference platform, which is its own compose project so it can scale and
       # deploy independently:
       #   docker compose -f inference-platform/deploy/compose/inference-native.yml up -d
-      # Override with the engine's service name when both share a network.
-      - INFERENCE_BASE_URL=${INFERENCE_DOCKER_BASE_URL:-http://host.docker.internal:7997}
+      # Default targets the engine service on echo-gate-net; override for an
+      # external engine.
+      - INFERENCE_BASE_URL=${INFERENCE_DOCKER_BASE_URL:-http://inference:7997}
       - QDRANT_URL=http://qdrant:6333
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1
@@ -96,7 +102,7 @@ services:
         condition: service_healthy
     restart: always
     networks:
-      - app-network
+      - echo-gate-net
 
   celery_worker:
     profiles: ["core"]
@@ -107,8 +113,9 @@ services:
       # inference platform, which is its own compose project so it can scale and
       # deploy independently:
       #   docker compose -f inference-platform/deploy/compose/inference-native.yml up -d
-      # Override with the engine's service name when both share a network.
-      - INFERENCE_BASE_URL=${INFERENCE_DOCKER_BASE_URL:-http://host.docker.internal:7997}
+      # Default targets the engine service on echo-gate-net; override for an
+      # external engine.
+      - INFERENCE_BASE_URL=${INFERENCE_DOCKER_BASE_URL:-http://inference:7997}
       - QDRANT_URL=http://qdrant:6333
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1
@@ -125,7 +132,7 @@ services:
     command: celery -A app.worker.celery_app worker --loglevel=info
     restart: always
     networks:
-      - app-network
+      - echo-gate-net
 
   celery_beat:
     profiles: ["core"]
@@ -144,24 +151,24 @@ services:
     command: celery -A app.worker.celery_app beat --loglevel=info
     restart: always
     networks:
-      - app-network
+      - echo-gate-net
 
   web:
     profiles: ["ui"]
     build:
       context: ../../web
       args:
-        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://echo-gate:8000}
     expose:
       - "3000"
     restart: always
     networks:
-      - app-network
+      - echo-gate-net
 
 volumes:
   qdrant_data:
   postgres_data:
 
 networks:
-  app-network:
-    driver: bridge
+  echo-gate-net:
+    external: true

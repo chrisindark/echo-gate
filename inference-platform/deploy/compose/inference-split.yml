@@ -10,6 +10,7 @@
 #      reserving heavy GPU nodes for rerankers.
 #
 # Usage:
+#   docker network create echo-gate-net   # once, if it does not exist
 #   docker compose -f inference-split.yml --env-file ../.env up -d
 #
 # Consumers on the same Docker network use the service names (no host ports
@@ -25,6 +26,8 @@ services:
   inference-embed:
     image: michaelfeil/infinity:0.0.76
     restart: unless-stopped
+    networks:
+      - echo-gate-net
     expose:
       - "7997"
     command:
@@ -58,6 +61,8 @@ services:
   inference-rerank:
     image: michaelfeil/infinity:0.0.76
     restart: unless-stopped
+    networks:
+      - echo-gate-net
     expose:
       - "7998"
     command:
@@ -101,6 +106,8 @@ services:
   inference-classify:
     image: michaelfeil/infinity:0.0.76
     restart: unless-stopped
+    networks:
+      - echo-gate-net
     expose:
       - "7999"
     command:
@@ -127,6 +134,10 @@ services:
       timeout: 5s
       retries: 5
       start_period: 120s
+
+networks:
+  echo-gate-net:
+    external: true
 
 volumes:
   inference_hf_cache:

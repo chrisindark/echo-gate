@@ -299,9 +299,16 @@ The repository root includes a setup script that brings up the inference engine,
 ./setup.sh --no-ui
 ```
 
+The stack publishes **no host ports**. `setup.sh` creates the shared Docker
+network `echo-gate-net` and prints container-side URLs; use `docker compose exec`
+to reach services from the host.
+
 You can also run directly with Docker Compose using profiles (`core`, `ui`):
 
 ```bash
+# Shared network (once; setup.sh does this automatically)
+docker network inspect echo-gate-net >/dev/null 2>&1 || docker network create echo-gate-net
+
 # Production stack with UI
 docker compose --profile core --profile ui up -d --build
 
@@ -320,6 +327,9 @@ For local development inside containers without manually installing Python/Node 
 - Data is stored in isolated volumes (`postgres_dev_data`, `qdrant_dev_data`).
 
 ```bash
+# Shared network (once)
+docker network inspect echo-gate-net >/dev/null 2>&1 || docker network create echo-gate-net
+
 # Start all development services with live host bind-mounts
 docker compose -f docker-compose.dev.yml up --build
 
@@ -362,7 +372,15 @@ poetry run python -m app.scripts.create_admin_key create --name "local-admin" --
 docker compose exec echo-gate python -m app.scripts.create_admin_key create --name "local-admin" --scopes "admin:*"
 ```
 
-Store the displayed admin key (`ega_...`). Then create a tenant API key:
+Store the displayed admin key (`ega_...`). Then create a tenant API key.
+
+For the container-only Compose stack (the gateway image has no `curl`):
+
+```bash
+docker compose exec -T echo-gate python -c "import urllib.request,json; req=urllib.request.Request('http://127.0.0.1:8000/api/v1/admin/api-keys/', data=json.dumps({'name':'local-dev','tenant_id':'acme','user_id':'dev'}).encode(), headers={'Content-Type':'application/json','X-Admin-Key':'<YOUR_ADMIN_KEY>'}); print(urllib.request.urlopen(req).read().decode())"
+```
+
+For a host-native gateway (`./dev.sh` / `uvicorn`):
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/admin/api-keys/ \
@@ -373,7 +391,11 @@ curl -X POST http://localhost:8000/api/v1/admin/api-keys/ \
 
 The response includes the plaintext `api_key` (shown once). Send it as `X-API-Key` on subsequent requests — or as `Authorization: Bearer <key>`, which is what the OpenAI SDK sends by default; `X-API-Key` wins if both are present. The gateway maps the key to the tenant/user and sets the Postgres RLS context. When no key is supplied, requests are treated under the `anonymous` tenant isolation bucket.
 
-Open [http://localhost:3000](http://localhost:3000) to access the interactive Chat Playground, Multi-Turn Conversations, and Real-Time Trace Waterfall.
+In the container-only Compose stack the UI is at `http://web:3000` (reachable
+from another container on `echo-gate-net`); no host port is published. For
+host-native development, `npm run dev` serves the UI at
+[http://localhost:3000](http://localhost:3000) with the Chat Playground,
+Multi-Turn Conversations, and Real-Time Trace Waterfall.
 
 ---
 

@@ -1,6 +1,10 @@
 # Native (CPU) inference server, containerized.
 #
+#   docker network create echo-gate-net   # once, if it does not exist
 #   docker compose -f deploy/compose/inference-native.yml up -d --build
+#
+# No host ports are published; consumers on `echo-gate-net` use
+# http://inference:7997.
 #
 # For a GPU host use inference.yml (Infinity, single container) or
 # inference-split.yml (one container per role pool) instead. All three serve the
@@ -17,6 +21,8 @@ services:
       args:
         PREFETCH: ${INFERENCE_PREFETCH:-0}
     image: inference-platform:${INFERENCE_TAG:-local}
+    networks:
+      - echo-gate-net
     expose:
       - "7997"
     environment:
@@ -41,6 +47,10 @@ services:
       retries: 3
       start_period: 180s
     restart: unless-stopped
+
+networks:
+  echo-gate-net:
+    external: true
 
 volumes:
   inference-models:
