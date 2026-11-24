@@ -1,9 +1,11 @@
 import hashlib
 import json
 import logging
+from dataclasses import dataclass
 
 from fastapi import Depends, Header, HTTPException, Request, Response, status
 
+from app.core.config import config
 from app.core.constants import EchoGateHeaders
 from app.core.dependencies import get_llm_quota_service
 from app.core.identity import api_key_from_headers, api_key_from_values
@@ -177,7 +179,7 @@ class ApiKeyAuthGuard:
     ) -> bool:
         api_key = api_key_from_values(x_api_key, authorization)
         if not api_key:
-            if self._allow_anonymous:
+            if self._allow_anonymous and config.ALLOW_ANONYMOUS:
                 # No credential offered; the request stays anonymous. Identity
                 # (tenant "anonymous", no user) comes from
                 # TenantContextMiddleware, and the quota guard applies the
@@ -193,10 +195,29 @@ class ApiKeyAuthGuard:
 
         import asyncio
 
+        from app.core.identity import (
+            API_KEY_HEADER,
+            AUTHORIZATION_HEADER,
+            default_provider,
+        )
         from app.modules.api_keys.api_keys_service import api_key_service
 
         identity = await asyncio.to_thread(api_key_service.resolve_api_key, api_key)
         if identity is None:
+            # Fall back to identity provider chain (e.g. Supabase JWT)
+            provider_identity = await asyncio.to_thread(
+                default_provider().resolve,
+                {
+                    API_KEY_HEADER: x_api_key or "",
+                    AUTHORIZATION_HEADER: authorization or "",
+                },
+            )
+            if provider_identity is not None:
+                request.state.api_key = api_key
+                request.state.tenant_id = provider_identity.tenant_id
+                request.state.user_id = provider_identity.user_id
+                return True
+
             # Rejected in both modes: presenting a credential that does not
             # resolve is an error, not a request to fall back to anonymous.
             raise HTTPException(
@@ -212,6 +233,105 @@ class ApiKeyAuthGuard:
 
 api_key_auth_guard = ApiKeyAuthGuard()
 api_key_auth_optional_guard = ApiKeyAuthGuard(allow_anonymous=True)
+
+
+@dataclass(frozen=True)
+class UserSessionIdentity:
+    """Identity resolved from a verified human user session (e.g. Supabase Auth JWT)."""
+
+    user_id: str
+    tenant_id: str
+    email: str | None = None
+    role: str | None = None
+
+
+class UserAuthGuard:
+    """Route dependency requiring a valid user session Bearer token (Supabase Auth).
+
+    Guards self-service endpoints (/api/v1/user/*) where logged-in human operators
+    manage their own personal tenant's API keys, profiles, and settings.
+    """
+
+    async def __call__(
+        self,
+        request: Request,
+        authorization: str | None = Header(default=None),
+    ) -> UserSessionIdentity:
+        if not authorization:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required. Provide a valid Bearer token.",
+            )
+
+        scheme, _, token = authorization.strip().partition(" ")
+        if scheme.lower() != "bearer" or not token.strip():
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authorization scheme. Use 'Authorization: Bearer <token>'.",
+            )
+
+        jwt_token = token.strip()
+
+        if not config.SUPABASE_JWT_SECRET:
+            logger.error("SUPABASE_JWT_SECRET is not configured on the gateway.")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Supabase JWT authentication is not configured on the gateway.",
+            )
+
+        import jwt
+
+        try:
+            options = {"verify_aud": bool(config.SUPABASE_JWT_AUDIENCE)}
+            payload = jwt.decode(
+                jwt_token,
+                config.SUPABASE_JWT_SECRET,
+                algorithms=config.SUPABASE_JWT_ALGORITHMS,
+                audience=config.SUPABASE_JWT_AUDIENCE
+                if config.SUPABASE_JWT_AUDIENCE
+                else None,
+                options=options,
+            )
+        except jwt.ExpiredSignatureError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token has expired.",
+            )
+        except jwt.PyJWTError as e:
+            logger.warning("Supabase JWT validation failed: %s", e)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authentication token.",
+            )
+
+        sub = payload.get("sub")
+        if not sub:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token is missing required subject claim.",
+            )
+
+        user_meta = payload.get("user_metadata") or {}
+        app_meta = payload.get("app_metadata") or {}
+        tenant_id = (
+            user_meta.get("tenant_id") or app_meta.get("tenant_id") or f"usr_{sub}"
+        )
+        email = payload.get("email") or user_meta.get("email")
+        role = payload.get("role")
+
+        session_identity = UserSessionIdentity(
+            user_id=str(sub),
+            tenant_id=str(tenant_id),
+            email=str(email) if email else None,
+            role=str(role) if role else None,
+        )
+
+        request.state.user_id = session_identity.user_id
+        request.state.tenant_id = session_identity.tenant_id
+        return session_identity
+
+
+user_auth_guard = UserAuthGuard()
 
 
 class AdminApiKeyGuard:

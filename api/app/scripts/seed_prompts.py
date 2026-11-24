@@ -10,7 +10,7 @@ API_URL = os.getenv(
     "http://localhost:8000/api/v1/chat/completions",
 )
 RESULTS_CSV = os.getenv("ECHO_GATE_RESULTS_CSV", "send_prompt_results.csv")
-API_KEY = "development"
+API_KEY = os.getenv("ECHO_GATE_API_KEY", "development")
 
 THRESHOLD_TESTS = [
     {

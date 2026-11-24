@@ -42,6 +42,10 @@ scoring goes through the same `CrossEncoderService` the gateway uses, so the
 numbers match production. The audit source only needs the gateway database.
 """
 
+from app.core.env import load_app_env
+
+load_app_env()
+
 import argparse
 import csv
 import json

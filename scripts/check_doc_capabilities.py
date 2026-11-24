@@ -25,6 +25,7 @@ def main() -> None:
     if not REGISTRY_PATH.exists():
         fail(f"Missing {REGISTRY_PATH}")
 
+    registry = dict()
     try:
         with open(REGISTRY_PATH, encoding="utf-8") as f:
             registry = json.load(f)

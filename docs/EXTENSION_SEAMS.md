@@ -14,7 +14,7 @@ A seam is a stable, documented extension point with a local OSS default:
 | **Identity** | `api/app/core/identity.py` | `ApiKeyIdentityProvider` (X-API-Key or `Authorization: Bearer`, server-side) | `OidcIdentityProvider` + session portal, appended in `default_provider()` |
 | **Metering** | `api/app/core/metering.py` | `NoopMeteringSink` (usage still lands in `llm_usage`) | Stripe recorder sink |
 | **Event bus** | `api/app/core/events.py` | `WebhookEventSink` — per-type `EVENTS_WEBHOOK_*` URLs, dropped when unset | Stripe/PagerDuty/Slack fan-out sink via `set_event_sink()` |
-| **Storage** | `api/app/core/storage.py` | Plain `RedisService()` / `QdrantClientService()` URLs | Managed-service clients (TLS, IAM auth, retry policy) |
+| **Storage** | `api/app/core/storage.py` | Plain `RedisService()` / `QdrantClientService()` URLs (cache-backend selection planned under P7 / Phase 9; see `docs/adr/0004-pgvector-cache-backend.md`) | Managed-service clients (TLS, IAM auth, retry policy) |
 | **Admin surface** | `api/app/main.py` | `/api/v1/admin/*` only | `billing:*` routes, mounted only when `features.is_enabled("billing")` |
 
 Behavior in the OSS build is unchanged: these are wiring refactorings, not

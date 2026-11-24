@@ -33,6 +33,14 @@ run_test_results.csv
 .idea/
 .DS_Store
 
+# Local AI/agent tooling configs (generated per-machine; contain absolute paths)
+.codex/
+.cursor/
+.kiro/
+.mcp.json
+opencode.jsonc
+.github/copilot-instructions.md
+
 # SQLite Database
 sqlite3.db
 sqlite3.db-shm

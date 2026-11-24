@@ -161,12 +161,12 @@ class LlmRouterService:
     def __init__(
         self,
         llm_provider_service: LlmProviderService,
-        embedding_service: EmbeddingService,
-        llm_cache_service: LlmCacheCollectionService,
+        embedding_service: EmbeddingService | None,
+        llm_cache_service: LlmCacheCollectionService | None,
         redis_service: RedisService,
-        reranker_service: RerankerService,
-        intent_classifier_service: IntentClassifierService,
-        entity_extractor_service: EntityExtractorService,
+        reranker_service: RerankerService | None,
+        intent_classifier_service: IntentClassifierService | None,
+        entity_extractor_service: EntityExtractorService | None,
         llm_usage_service: LlmUsageService,
         llm_quota_service: LlmQuotaService | None = None,
         gateway_requests_service: GatewayRequestsService | None = None,
@@ -847,7 +847,7 @@ class LlmRouterService:
     async def _get_embeddings(
         self, text: str, get_sparse: bool = True, prefix: str = ""
     ) -> tuple[list[float] | None, dict[str, list] | None]:
-        if not text:
+        if not text or self.embedding_service is None:
             return None, None
 
         cache_key = f"{prefix}:{get_sparse}:{hashlib.sha256(text.encode()).hexdigest()}"

@@ -21,6 +21,10 @@ Usage:
     poetry run python -m app.scripts.calibrate_intent_thresholds --clear-intent code_generation
 """
 
+from app.core.env import load_app_env
+
+load_app_env()
+
 import argparse
 import asyncio
 import sys

@@ -95,4 +95,4 @@ EXPOSE 8000
 # Requires INFERENCE_BASE_URL to point at the inference platform. Without it the
 # gateway refuses to start (`InferenceConfigError`): there is no in-process model
 # path to fall back to.
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

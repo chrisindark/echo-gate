@@ -33,18 +33,9 @@ sys.path.insert(0, ROOT_DIR)
 sys.path.insert(0, os.path.join(ROOT_DIR, "api"))
 
 
-BASE_DIR = Path(__file__).resolve().parent
+from app.core.env import load_app_env
 
-PYTHON_ENV = os.getenv("PYTHON_ENV", "local")
-
-ENV_FILE = BASE_DIR / "../api/app" / f".env.{PYTHON_ENV}"
-if not ENV_FILE.exists():
-    ENV_FILE = BASE_DIR / "../app" / f".env.{PYTHON_ENV}"
-
-if ENV_FILE.exists():
-    load_dotenv(ENV_FILE)
-
-load_dotenv()
+load_app_env()
 
 # Migrations must run as the table owner (a superuser/owner role), because RLS
 # policies do not apply to the role that owns the tables. The application itself

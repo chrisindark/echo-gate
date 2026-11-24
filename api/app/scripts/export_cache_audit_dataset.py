@@ -11,6 +11,10 @@ Usage:
     poetry run python -m app.scripts.export_cache_audit_dataset --format csv
 """
 
+from app.core.env import load_app_env
+
+load_app_env()
+
 import argparse
 import csv
 import json

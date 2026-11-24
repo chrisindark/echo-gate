@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "echo-gate"
-version = "0.4.0"
+version = "0.4.1"
 description = "Echo Gate LLM Gateway"
 authors = ["Christopher Paul <14836101+chrisindark@users.noreply.github.com>"]
 license = "AGPL-3.0-only"
@@ -26,6 +26,7 @@ fastembed = "^0.8.1"
 billiard = "<4.3"
 fastapi-health = "^0.4.0"
 psycopg = {version = ">=3.1", extras = ["binary"]}
+pyjwt = "^2.8.0"
 opentelemetry-api = "^1.45.2"
 opentelemetry-sdk = "^1.45.2"
 opentelemetry-exporter-otlp = "^1.45.2"
@@ -36,6 +37,8 @@ opentelemetry-exporter-otlp = "^1.45.2"
 tiktoken = "^0.14.0"
 pytest-cov = "^7.1.0"
 pytest = "^9.2.0"
+psycopg2 = "^2.9.13"
+psycopg2-binary = "^2.9.13"
 
 [build-system]
 requires = ["poetry-core"]
