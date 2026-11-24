@@ -57,32 +57,41 @@ class DependencyContainer:
 
     @classmethod
     async def initialize(cls) -> None:
-        await cls.get_redis_service()
-        cls.get_embedding_service()
-        cls.get_qdrant_client_service()
-        cache_service = cls.get_llm_cache_collection_service()
-        await cache_service.ensure_indexes_async()
+        cache_enabled = config.cache_enabled
+
+        # Redis is always constructed: LlmQuotaService binds to it. Only ping
+        # when the cache is enabled; with no server, quota operations fail open.
+        await cls.get_redis_service(ping=cache_enabled)
+
+        if cache_enabled:
+            cls.get_embedding_service()
+            cls.get_qdrant_client_service()
+            cache_service = cls.get_llm_cache_collection_service()
+            await cache_service.ensure_indexes_async()
+            cls.get_reranker_service()
+            await cls.get_intent_classifier_service()
+            cls.get_entity_extractor_service()
+            cls.get_cross_encoder_service()
+            cls.get_instruction_service()
+            cls.get_judge_service()
+            cls.get_shadow_cache_service()
+
         cls.get_llm_provider_service()
-        cls.get_reranker_service()
-        await cls.get_intent_classifier_service()
-        cls.get_entity_extractor_service()
         await cls.get_llm_router_service()
         cls.get_llm_usage_service()
         cls.get_llm_quota_service()
-        cls.get_cross_encoder_service()
-        cls.get_instruction_service()
-        cls.get_judge_service()
         cls.get_gateway_requests_service()
-        cls.get_shadow_cache_service()
-        # Last, because it is the only check that can refuse to start: every role
-        # is served over HTTP now, so an unreachable or skewed engine means a
-        # process that answers every request with no cache.
-        engine = await cls.get_inference_client().verify()
-        logger.info(
-            "inference engine verified (roles=%s, device=%s)",
-            sorted(engine.get("loaded") or {}),
-            engine.get("device"),
-        )
+
+        if cache_enabled:
+            # Last, because it is the only check that can refuse to start: every
+            # role is served over HTTP now, so an unreachable or skewed engine
+            # means a process that answers every request with no cache.
+            engine = await cls.get_inference_client().verify()
+            logger.info(
+                "inference engine verified (roles=%s, device=%s)",
+                sorted(engine.get("loaded") or {}),
+                engine.get("device"),
+            )
 
     @classmethod
     async def shutdown(cls) -> None:
@@ -160,10 +169,11 @@ class DependencyContainer:
         return cls._llm_cache_collection_service
 
     @classmethod
-    async def get_redis_service(cls) -> RedisService:
+    async def get_redis_service(cls, *, ping: bool = True) -> RedisService:
         if cls._redis_service is None:
             cls._redis_service = RedisService()
-        await cls._redis_service.ping()
+        if ping:
+            await cls._redis_service.ping()
         return cls._redis_service
 
     @classmethod
@@ -198,20 +208,37 @@ class DependencyContainer:
     @classmethod
     async def get_llm_router_service(cls) -> LlmRouterService:
         if cls._llm_router_service is None:
+            cache_enabled = config.cache_enabled
             cls._llm_router_service = LlmRouterService(
                 llm_provider_service=cls.get_llm_provider_service(),
-                embedding_service=cls.get_embedding_service(),
-                llm_cache_service=cls.get_llm_cache_collection_service(),
-                redis_service=await cls.get_redis_service(),
-                reranker_service=cls.get_reranker_service(),
-                intent_classifier_service=await cls.get_intent_classifier_service(),
-                entity_extractor_service=cls.get_entity_extractor_service(),
+                embedding_service=(
+                    cls.get_embedding_service() if cache_enabled else None
+                ),
+                llm_cache_service=(
+                    cls.get_llm_cache_collection_service() if cache_enabled else None
+                ),
+                redis_service=await cls.get_redis_service(ping=False),
+                reranker_service=(
+                    cls.get_reranker_service() if cache_enabled else None
+                ),
+                intent_classifier_service=(
+                    await cls.get_intent_classifier_service() if cache_enabled else None
+                ),
+                entity_extractor_service=(
+                    cls.get_entity_extractor_service() if cache_enabled else None
+                ),
                 llm_usage_service=cls.get_llm_usage_service(),
                 llm_quota_service=cls.get_llm_quota_service(),
                 gateway_requests_service=cls.get_gateway_requests_service(),
-                shadow_cache_service=cls.get_shadow_cache_service(),
-                judge_service=cls.get_judge_service(),
-                cache_audit_service=cls.get_cache_audit_service(),
+                shadow_cache_service=(
+                    cls.get_shadow_cache_service() if cache_enabled else None
+                ),
+                judge_service=(
+                    cls.get_judge_service() if cache_enabled else None
+                ),
+                cache_audit_service=(
+                    cls.get_cache_audit_service() if cache_enabled else None
+                ),
                 prompt_optimizer=cls.get_prompt_optimizer(),
             )
         return cls._llm_router_service

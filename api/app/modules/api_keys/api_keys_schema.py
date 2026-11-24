@@ -39,3 +39,19 @@ class ApiKeyRotateRequest(BaseModel):
 class ApiKeyRotateResponse(BaseModel):
     new_key: ApiKeyCreatedResponse
     expiring_key: ApiKeyResponse
+
+
+class UserApiKeyCreate(BaseModel):
+    name: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="A recognizable label for the API key, e.g. 'Production Backend'",
+    )
+
+
+class UserProfileResponse(BaseModel):
+    user_id: str
+    tenant_id: str
+    email: str | None = None
+    role: str | None = None

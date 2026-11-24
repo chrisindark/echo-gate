@@ -10,6 +10,19 @@ changes' entry with a `[BREAKING]` marker.
 
 ## [Unreleased]
 
+### Added
+- LLM-only minimal gateway profile: `CACHE_MODE=disabled` + `ENABLED_SURFACES` to run with no Redis/Qdrant/inference/Celery/web stack
+- Supabase Auth integration (AuthProvider, login/signup, user API keys)
+- `ALLOW_ANONYMOUS` request-time enforcement in `ApiKeyAuthGuard`
+
+### Fixed
+- Web: conversations route infinite re-render ("Maximum update depth exceeded") in `ConversationSidebar`
+- Web: gateway error messages showing `[object Object]` (nested `detail` payloads)
+- Minimal gateway: `ApiKeyAuthGuard` now honors `config.ALLOW_ANONYMOUS=false` (was ignored)
+
+### Changed
+- Cache/inference services are skipped entirely when `CACHE_MODE=disabled`
+
 ## [v0.4.0] - 2026-11-18
 
 ### Added

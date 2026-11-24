@@ -15,7 +15,7 @@ TESTS = []
 
 TESTS.extend(TEST_DATASET)
 
-API_KEY = "development"
+API_KEY = os.getenv("ECHO_GATE_API_KEY", "development")
 
 
 def main():

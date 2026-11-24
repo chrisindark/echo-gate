@@ -82,10 +82,35 @@ class ApiKeyService:
             stmt = select(ApiKey).order_by(ApiKey.id).offset(skip).limit(limit)
             return list(session.execute(stmt).scalars().all())
 
+    def list_api_keys_for_tenant(
+        self, tenant_id: str, skip: int = 0, limit: int = 100
+    ) -> list[ApiKey]:
+        """List keys belonging strictly to a specific tenant."""
+        with self._get_session() as session:
+            stmt = (
+                select(ApiKey)
+                .where(ApiKey.tenant_id == tenant_id)
+                .order_by(ApiKey.id.desc())
+                .offset(skip)
+                .limit(limit)
+            )
+            return list(session.execute(stmt).scalars().all())
+
     def revoke_api_key(self, key_id: int) -> bool:
         with self._get_session() as session:
             record = session.get(ApiKey, key_id)
             if record is None:
+                return False
+            record.is_active = False
+            session.commit()
+        self._resolve_cache.clear()
+        return True
+
+    def revoke_api_key_for_tenant(self, key_id: int, tenant_id: str) -> bool:
+        """Revoke a key only if it belongs to the given tenant."""
+        with self._get_session() as session:
+            record = session.get(ApiKey, key_id)
+            if record is None or record.tenant_id != tenant_id:
                 return False
             record.is_active = False
             session.commit()
@@ -99,6 +124,38 @@ class ApiKeyService:
         with self._get_session() as session:
             old_record = session.get(ApiKey, key_id)
             if old_record is None or not old_record.is_active:
+                return None
+
+            plaintext = self.generate_key()
+            new_record = ApiKey(
+                name=f"{old_record.name} (rotated)",
+                key_prefix=plaintext[: len(_KEY_PREFIX) + 8],
+                key_hash=hash_api_key(plaintext),
+                tenant_id=old_record.tenant_id,
+                user_id=old_record.user_id,
+                is_active=True,
+                expires_at=None,
+            )
+            session.add(new_record)
+            old_record.expires_at = datetime.now(UTC) + timedelta(hours=grace_hours)
+            session.commit()
+            session.refresh(new_record)
+            session.refresh(old_record)
+
+        self._resolve_cache.clear()
+        return new_record, plaintext, old_record
+
+    def rotate_api_key_for_tenant(
+        self, key_id: int, tenant_id: str, grace_hours: int = 24
+    ) -> tuple[ApiKey, str, ApiKey] | None:
+        """Rotate a key only if it belongs to the given tenant."""
+        with self._get_session() as session:
+            old_record = session.get(ApiKey, key_id)
+            if (
+                old_record is None
+                or old_record.tenant_id != tenant_id
+                or not old_record.is_active
+            ):
                 return None
 
             plaintext = self.generate_key()

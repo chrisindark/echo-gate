@@ -922,6 +922,29 @@ class TestRouterCachePipeline(unittest.IsolatedAsyncioTestCase):
             ]
             self.assertEqual(len(chunks), 0)
 
+    async def test_router_without_cache_dependencies(self):
+        """Constructing router with None for cache-only dependencies is safe,
+        and _get_embeddings returns (None, None)."""
+        router = LlmRouterService(
+            llm_provider_service=self.mock_provider,
+            embedding_service=None,
+            llm_cache_service=None,
+            redis_service=self.mock_redis,
+            reranker_service=None,
+            intent_classifier_service=None,
+            entity_extractor_service=None,
+            llm_usage_service=self.mock_usage,
+            llm_quota_service=None,
+            gateway_requests_service=None,
+            shadow_cache_service=None,
+            judge_service=None,
+            cache_audit_service=None,
+            prompt_optimizer=None,
+        )
+        dense, sparse = await router._get_embeddings("hello world")
+        self.assertIsNone(dense)
+        self.assertIsNone(sparse)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -92,6 +92,25 @@ Full detail: [`docs/ROADMAP.md#phase-8--data-plane--commercial-surface`](docs/RO
 
 **Not in P4–P6:** Responses API, Batch API, audio/image generation, in-repo MCP (external by decision), SSO/SCIM, hosted portal, Stripe metering, zero-retention/PII (open under P3).
 
+### P7 — Cache backend portability (tracked, not yet scheduled)
+Optional pgvector cache backend for self-hosters, dense-first, opt-in. Qdrant stays
+the default and reference. Full scope and decision record:
+[`docs/adr/0004-pgvector-cache-backend.md`](docs/adr/0004-pgvector-cache-backend.md) and
+[`docs/ROADMAP.md#phase-9--cache-backend-portability-pgvector-dense-first`](docs/ROADMAP.md#phase-9--cache-backend-portability-pgvector-dense-first).
+
+- [ ] **Backend port + seam** — narrow cache-backend interface; move Qdrant-specific
+  model construction behind it; extend `StorageFactory` with `CACHE_BACKEND`.
+- [ ] **pgvector schema + dense path** — 3 vector columns + HNSW, exact-hash unique
+  index, scope indexes, upsert, dense fast path, dense semantic search, record-hit,
+  value-aware eviction/retention.
+- [ ] **Hybrid parity (deferred)** — Postgres FTS or ParadeDB + versioned tokenizer
+  contract + per-backend calibrated thresholds.
+- [ ] **Docs & support** — limitations, architecture map, capability evidence, health
+  naming, backend-scoped or backend-neutral admin endpoints.
+
+**Not in P7:** replacing Qdrant as default, claiming behavioral equivalence, or
+pgvector multi-region federation.
+
 ---
 
 ## Historical Record

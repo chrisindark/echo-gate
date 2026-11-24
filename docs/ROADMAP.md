@@ -908,6 +908,33 @@ under P3 and are not duplicated here.
 
 ---
 
+### Phase 9 — Cache backend portability (pgvector, dense-first)
+
+**Status: ⏳ tracked (opened 2026-11-20).** Optional cache backend for self-hosters
+who do not want to run a separate vector database. Qdrant remains the default and
+reference; pgvector is opt-in. See `docs/adr/0004-pgvector-cache-backend.md`.
+
+- [ ] **1. Backend port + seam** — define a narrow cache-backend interface
+  (`search_exact`, `query_dense`, `upsert`, `record_hit`, `delete_point`,
+  eviction/retention) and move Qdrant-specific `models.Filter`/`Prefetch`/`PointStruct`
+  construction behind it; extend `StorageFactory` (`api/app/core/storage.py`) with
+  `CACHE_BACKEND=qdrant|pgvector`. Acceptance: router and admin controller depend
+  only on the port; Qdrant behavior unchanged (snapshot green).
+- [ ] **2. pgvector schema + dense path** — 3 vector columns (prompt/system/user)
+  with HNSW, exact-hash unique index, payload/scope indexes, upsert, dense fast
+  path (`>= 0.98` cosine gate), dense semantic search feeding the reranker,
+  record-hit, and value-aware eviction/retention. Acceptance: exact + dense cache
+  hits work end-to-end; fail-open preserved; contract tests pass on both backends.
+- [ ] **3. Hybrid parity (deferred)** — sparse retrieval via Postgres FTS or
+  ParadeDB, with a versioned sparse tokenizer contract and per-backend calibrated
+  thresholds. Not in scope for the first slice; documented as unavailable otherwise.
+- [ ] **4. Docs & support** — `docs/limitations.md`, architecture map,
+  `docs/capability-evidence.json`, and `/deps`/health naming updated; admin
+  endpoints either backend-neutral or backend-gated.
+
+**Explicitly not in scope:** replacing Qdrant as default, claiming behavioral
+equivalence, or pgvector multi-region federation.
+
 ### Cross-cutting (independent of phase)
 
 Work that benefits every phase and can be tackled alongside any milestone.

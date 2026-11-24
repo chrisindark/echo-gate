@@ -24,7 +24,13 @@ from app.core.telemetry import init_telemetry
 from app.modules.analytics.analytics_controller import api_v1_router as analytics_router
 from app.modules.anthropic.anthropic_controller import anthropic_router
 from app.modules.api_keys.api_keys_controller import api_v1_router as api_keys_router
-from app.modules.chat.chat_controller import api_v1_router as chat_router
+from app.modules.api_keys.user_api_keys_controller import user_api_v1_router
+from app.modules.chat.chat_controller import (
+    api_v1_router as chat_router,
+)
+from app.modules.chat.chat_controller import (
+    cache_admin_router as chat_cache_admin_router,
+)
 from app.modules.conversation.conversation_controller import (
     api_v1_router as conversation_router,
 )
@@ -47,26 +53,17 @@ setup_logger()
 
 logger = logging.getLogger(__name__)
 
-BASE_DIR = Path(__file__).resolve().parent
+from app.core.database import reload_db_engine
+from app.core.env import load_app_env
 
 PYTHON_ENV = os.getenv("PYTHON_ENV", "local")
-
-ENV_FILE = BASE_DIR / f".env.{PYTHON_ENV}"
-
-if ENV_FILE.exists():
-    load_dotenv(ENV_FILE)
-    logger.info(f"Loaded environment file: {ENV_FILE}")
-else:
-    logger.info(
-        f"Environment file not found at {ENV_FILE}; using system environment variables."
-    )
-
-load_dotenv()
+load_app_env(PYTHON_ENV)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     config.load()
+    reload_db_engine()
     init_telemetry()
     # Opt-in anonymous usage ping (config.TELEMETRY_ENABLED, default off).
     # Fail-open: scheduling never blocks startup or serving.
@@ -97,6 +94,10 @@ app = FastAPI(
             "description": "Cross-tenant quota rule management (X-Admin-Key).",
         },
         {"name": "API Keys", "description": "Tenant API key management."},
+        {
+            "name": "User Management",
+            "description": "Tenant-scoped user endpoints and self-service API key management.",
+        },
     ],
 )
 
@@ -144,21 +145,28 @@ def root():
 
 
 # Register routers
-app.include_router(root_health_router)
-app.include_router(health_router)
-app.include_router(chat_router)
-app.include_router(anthropic_router)
-app.include_router(models_router)
-app.include_router(conversation_router)
-app.include_router(qdrant_router)
-app.include_router(llm_usage_router)
-app.include_router(verifier_router)
-app.include_router(gateway_requests_router)
-app.include_router(analytics_router)
-app.include_router(shadow_cache_router)
-app.include_router(api_keys_router)
-app.include_router(llm_quota_router)
-app.include_router(cache_admin_router)
+def _include(surface: str, router) -> None:
+    if config.surface_enabled(surface):
+        app.include_router(router)
+
+
+_include("health", root_health_router)
+_include("health", health_router)
+_include("chat", chat_router)
+_include("cache_admin", chat_cache_admin_router)
+_include("anthropic", anthropic_router)
+_include("models", models_router)
+_include("conversations", conversation_router)
+_include("cache_admin", qdrant_router)
+_include("usage", llm_usage_router)
+_include("verifier", verifier_router)
+_include("gateway", gateway_requests_router)
+_include("analytics", analytics_router)
+_include("shadow", shadow_cache_router)
+_include("api_keys", api_keys_router)
+_include("api_keys", user_api_v1_router)
+_include("quota", llm_quota_router)
+_include("cache_admin", cache_admin_router)
 
 # Extension seam: cloud-only surfaces (e.g. /api/v1/billing/*) register here,
 # and only when the ee overlay has flipped the feature registry. The OSS
@@ -238,6 +246,8 @@ def _custom_openapi() -> dict:
             if path.startswith("/api/v1/admin/")
             else [{"ApiKeyAuth": []}, {"BearerAuth": []}]
             if path.startswith(("/api/v1/analytics", "/api/v1/gateway-requests"))
+            else [{"BearerAuth": []}]
+            if path.startswith("/api/v1/user/")
             else None
         )
         if security_requirement is None:

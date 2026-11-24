@@ -64,23 +64,12 @@ def shutdown_worker(**kwargs):
     logger.info("DependencyContainer shut down in Celery worker.")
 
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+from app.core.database import reload_db_engine
+from app.core.env import load_app_env
 
 PYTHON_ENV = os.getenv("PYTHON_ENV", "local")
-
-ENV_FILE = BASE_DIR / f".env.{PYTHON_ENV}"
-
-if ENV_FILE.exists():
-    load_dotenv(ENV_FILE)
-    logger.info(f"Loaded environment file: {ENV_FILE}")
-else:
-    logger.info(
-        f"Environment file not found at {ENV_FILE}; using system environment variables."
-    )
-
-load_dotenv()
-
-config.load()
+load_app_env(PYTHON_ENV)
+reload_db_engine()
 
 broker_url = config.CELERY_BROKER_URL
 result_backend_url = config.CELERY_RESULT_BACKEND

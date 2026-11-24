@@ -37,6 +37,10 @@ value-weighted retention.
 
 from __future__ import annotations
 
+from app.core.env import load_app_env
+
+load_app_env()
+
 import argparse
 import logging
 import sys

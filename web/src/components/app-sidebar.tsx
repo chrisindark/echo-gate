@@ -1,6 +1,7 @@
 'use client';
 
 import { useApiKey } from '@/context/api-key-context';
+import { useAuth } from '@/context/auth-context';
 import { cn } from '@/lib/utils';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
@@ -28,6 +29,7 @@ const SIDEBAR_COLLAPSED_KEY = 'echo_gate_sidebar_collapsed';
 export function AppSidebar() {
   const pathname = usePathname();
   const { apiKey } = useApiKey();
+  const { user, isConfigured, tenantId } = useAuth();
 
   // Desktop collapse state (w-64 vs w-16 icon rail)
   const [isCollapsed, setIsCollapsed] = useState(() => {
@@ -207,10 +209,14 @@ export function AppSidebar() {
         {collapsed ? (
           <Link
             href="/settings"
-            title={`Identity: ${apiKey ? 'from API key' : 'anonymous'}`}
+            title={
+              user
+                ? `Account: ${user.email} (${tenantId})`
+                : `Identity: ${apiKey ? 'from API key' : 'anonymous'}`
+            }
             className={cn(
               'w-9 h-9 rounded-lg flex items-center justify-center border transition-colors',
-              apiKey
+              user || apiKey
                 ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400 hover:bg-emerald-500/20'
                 : 'bg-muted/50 border-border/80 text-muted-foreground hover:bg-muted'
             )}
@@ -219,7 +225,28 @@ export function AppSidebar() {
           </Link>
         ) : (
           <>
-            <div className="flex items-center justify-between">
+            {user ? (
+              <div className="flex items-center justify-between text-[11px] pb-1 border-b border-border/40">
+                <div className="truncate max-w-[140px] text-foreground font-medium">
+                  {user.email}
+                </div>
+                <span className="font-mono text-[9px] bg-primary/10 text-primary border border-primary/20 px-1.5 py-0.5 rounded truncate max-w-[80px]">
+                  {tenantId}
+                </span>
+              </div>
+            ) : isConfigured ? (
+              <div className="flex items-center justify-between text-[11px] pb-1 border-b border-border/40">
+                <span className="text-muted-foreground">Production Cloud</span>
+                <Link
+                  href="/login"
+                  className="text-primary hover:underline font-medium text-[11px]"
+                >
+                  Sign in →
+                </Link>
+              </div>
+            ) : null}
+
+            <div className="flex items-center justify-between pt-0.5">
               <span className="text-[11px] font-medium text-muted-foreground flex items-center gap-1.5">
                 <Key className="w-3.5 h-3.5" />
                 <span>Identity</span>

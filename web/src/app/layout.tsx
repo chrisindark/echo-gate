@@ -1,5 +1,6 @@
 import { AppSidebar } from '@/components/app-sidebar';
 import { ApiKeyProvider } from '@/context/api-key-context';
+import { AuthProvider } from '@/context/auth-context';
 import { Theme } from '@radix-ui/themes';
 import '@radix-ui/themes/styles.css';
 import type { Metadata } from 'next';
@@ -39,14 +40,16 @@ export default function RootLayout({
           radius="medium"
           className="flex-1 flex flex-row h-full overflow-hidden"
         >
-          <ApiKeyProvider>
-            <React.Suspense fallback={null}>
-              <AppSidebar />
-            </React.Suspense>
-            <main className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
-              {children}
-            </main>
-          </ApiKeyProvider>
+          <AuthProvider>
+            <ApiKeyProvider>
+              <React.Suspense fallback={null}>
+                <AppSidebar />
+              </React.Suspense>
+              <main className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
+                {children}
+              </main>
+            </ApiKeyProvider>
+          </AuthProvider>
         </Theme>
       </body>
     </html>

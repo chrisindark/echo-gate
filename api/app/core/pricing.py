@@ -7,17 +7,61 @@ PRICING_CONFIG = {
         "gpt-4o": {"prompt": 5.0 / 1_000_000, "completion": 15.0 / 1_000_000},
     },
     "google-genai": {
-        "gemini-3.1-flash-lite": {
-            "prompt": 0.075 / 1_000_000,
-            "completion": 0.300 / 1_000_000,
+        # Gemini 3.x
+        "gemini-3.8-flash": {
+            "prompt": 0.75 / 1_000_000,
+            "completion": 3.75 / 1_000_000,
         },
         "gemini-3.5-flash-lite": {
             "prompt": 1.25 / 1_000_000,
             "completion": 5.00 / 1_000_000,
         },
-        "gemini-3.8-flash": {
+        "gemini-3.1-pro-preview": {
+            "prompt": 2.00 / 1_000_000,
+            "completion": 12.00 / 1_000_000,
+        },
+        "gemini-3.1-pro": {
+            "prompt": 2.00 / 1_000_000,
+            "completion": 12.00 / 1_000_000,
+        },
+        "gemini-3.1-flash-lite": {
+            "prompt": 0.25 / 1_000_000,
+            "completion": 1.50 / 1_000_000,
+        },
+        # Gemini 2.5
+        "gemini-2.5-pro": {
+            "prompt": 1.25 / 1_000_000,
+            "completion": 10.00 / 1_000_000,
+        },
+        "gemini-2.5-flash": {
+            "prompt": 0.30 / 1_000_000,
+            "completion": 2.50 / 1_000_000,
+        },
+        "gemini-2.5-flash-lite": {
+            "prompt": 0.10 / 1_000_000,
+            "completion": 0.40 / 1_000_000,
+        },
+        # Gemini 2.0
+        "gemini-2.0-flash": {
+            "prompt": 0.10 / 1_000_000,
+            "completion": 0.40 / 1_000_000,
+        },
+        "gemini-2.0-flash-lite": {
             "prompt": 0.075 / 1_000_000,
             "completion": 0.300 / 1_000_000,
+        },
+        # Gemini 1.5
+        "gemini-1.5-pro": {
+            "prompt": 1.25 / 1_000_000,
+            "completion": 5.00 / 1_000_000,
+        },
+        "gemini-1.5-flash": {
+            "prompt": 0.075 / 1_000_000,
+            "completion": 0.300 / 1_000_000,
+        },
+        "default": {
+            "prompt": 0.30 / 1_000_000,
+            "completion": 2.50 / 1_000_000,
         },
     },
     "ollama": {

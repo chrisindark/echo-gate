@@ -43,6 +43,7 @@ class CacheSavePayload(BaseModel):
 logger = logging.getLogger(__name__)
 
 api_v1_router = APIRouter(prefix="/api/v1/chat", tags=["Chat"])
+cache_admin_router = APIRouter(prefix="/api/v1/chat", tags=["Chat"])
 
 # The cache diagnostics below read (and, for cache-save, write) cache rows by
 # tenant. They are operator tooling, not part of the tenant API surface: a
@@ -295,7 +296,7 @@ async def estimate_chat_cost(request: ChatEstimateRequest) -> ChatEstimateRespon
     return chat_estimate_service.estimate(request)
 
 
-@api_v1_router.post(
+@cache_admin_router.post(
     "/completions/semantic-search",
     response_model=BaseAPIResponse[dict],
 )
@@ -337,7 +338,7 @@ async def semantic_search(
     return BaseAPIResponse.success_response(result)
 
 
-@api_v1_router.post(
+@cache_admin_router.post(
     "/completions/exact-search",
     response_model=BaseAPIResponse[dict],
 )
@@ -373,7 +374,7 @@ async def exact_search(
     return BaseAPIResponse.success_response({"payload": payload, "point_id": point_id})
 
 
-@api_v1_router.post(
+@cache_admin_router.post(
     "/completions/cache-save",
     response_model=BaseAPIResponse[dict],
 )

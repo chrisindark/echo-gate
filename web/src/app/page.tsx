@@ -32,7 +32,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useApiKey } from '@/context/api-key-context';
-import { API_ROOT } from '@/lib/api';
+import { API_ROOT, errorMessageFrom } from '@/lib/api';
 
 const SCHEMA_PRESETS = [
   {
@@ -186,7 +186,7 @@ export default function Home() {
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.detail || `HTTP ${res.status}`);
+        throw new Error(errorMessageFrom(data, `HTTP ${res.status}`));
       }
 
       const log = data.response || data.data;
@@ -302,7 +302,7 @@ export default function Home() {
         let errorMsg = `HTTP ${res.status}`;
         try {
           const errData = await res.json();
-          errorMsg = errData.detail || errData.error_message || errorMsg;
+          errorMsg = errorMessageFrom(errData, errorMsg);
         } catch {
           // ignore json parse error
         }

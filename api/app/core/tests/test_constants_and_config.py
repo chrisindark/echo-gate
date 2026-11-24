@@ -169,6 +169,52 @@ class TestConstantsAndConfig(unittest.TestCase):
                     os.environ[k] = v
             config.load()
 
+    def test_enabled_surfaces_and_surface_enabled(self):
+        backup_env = {
+            "ENABLED_SURFACES": os.environ.get("ENABLED_SURFACES"),
+            "CACHE_MODE": os.environ.get("CACHE_MODE"),
+        }
+        try:
+            # Default / unset -> 'all'
+            os.environ.pop("ENABLED_SURFACES", None)
+            config.load()
+            self.assertEqual(config.ENABLED_SURFACES, {"all"})
+            self.assertTrue(config.surface_enabled("chat"))
+            self.assertTrue(config.surface_enabled("analytics"))
+
+            # Empty or whitespace string -> falls back to 'all'
+            os.environ["ENABLED_SURFACES"] = "   "
+            config.load()
+            self.assertEqual(config.ENABLED_SURFACES, {"all"})
+            self.assertTrue(config.surface_enabled("chat"))
+
+            # Explicit CSV surfaces
+            os.environ["ENABLED_SURFACES"] = "health, models, chat, anthropic"
+            config.load()
+            self.assertEqual(
+                config.ENABLED_SURFACES, {"health", "models", "chat", "anthropic"}
+            )
+            self.assertTrue(config.surface_enabled("chat"))
+            self.assertTrue(config.surface_enabled("models"))
+            self.assertFalse(config.surface_enabled("analytics"))
+            self.assertFalse(config.surface_enabled("cache_admin"))
+
+            # cache_enabled property
+            os.environ["CACHE_MODE"] = "disabled"
+            config.load()
+            self.assertFalse(config.cache_enabled)
+
+            os.environ["CACHE_MODE"] = "active"
+            config.load()
+            self.assertTrue(config.cache_enabled)
+        finally:
+            for k, v in backup_env.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+            config.load()
+
 
 if __name__ == "__main__":
     unittest.main()

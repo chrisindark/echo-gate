@@ -17,6 +17,10 @@ analytics prompt breakdown.
 Safe to re-run: it only touches rows whose ``prompt_hash`` is still NULL.
 """
 
+from app.core.env import load_app_env
+
+load_app_env()
+
 import argparse
 
 from app.core.config import config

@@ -97,8 +97,73 @@ class ApiKeyIdentityProvider:
         return Identity(tenant_id=identity.tenant_id, user_id=identity.user_id)
 
 
+class SupabaseJwtIdentityProvider:
+    """Resolves a Supabase JWT (Bearer token) to an authenticated tenant/user identity.
+
+    When ``SUPABASE_AUTH_ENABLED`` or ``SUPABASE_JWT_SECRET`` is configured, this
+    provider verifies incoming Bearer JWT tokens and maps the subject (user UUID)
+    to a personal tenant (``usr_<uuid>``) or an explicit ``tenant_id`` set in metadata.
+    """
+
+    def resolve(self, headers: dict[str, str]) -> Identity | None:
+        from app.core.config import config
+
+        if not config.SUPABASE_AUTH_ENABLED and not config.SUPABASE_JWT_SECRET:
+            return None
+
+        token = api_key_from_headers(headers)
+        if not token or token.count(".") != 2:
+            return None
+
+        if not config.SUPABASE_JWT_SECRET:
+            return None
+
+        try:
+            import jwt
+
+            options = {"verify_aud": bool(config.SUPABASE_JWT_AUDIENCE)}
+            payload = jwt.decode(
+                token,
+                config.SUPABASE_JWT_SECRET,
+                algorithms=config.SUPABASE_JWT_ALGORITHMS,
+                audience=config.SUPABASE_JWT_AUDIENCE
+                if config.SUPABASE_JWT_AUDIENCE
+                else None,
+                options=options,
+            )
+            sub = payload.get("sub")
+            if not sub:
+                return None
+
+            user_meta = payload.get("user_metadata") or {}
+            app_meta = payload.get("app_metadata") or {}
+            tenant_id = (
+                user_meta.get("tenant_id") or app_meta.get("tenant_id") or f"usr_{sub}"
+            )
+            return Identity(tenant_id=str(tenant_id), user_id=str(sub))
+        except Exception:
+            return None
+
+
+class ChainedIdentityProvider:
+    """Evaluates multiple identity providers in order, returning the first match."""
+
+    def __init__(self, providers: list[IdentityProvider]) -> None:
+        self._providers = providers
+
+    def resolve(self, headers: dict[str, str]) -> Identity | None:
+        for provider in self._providers:
+            identity = provider.resolve(headers)
+            if identity is not None:
+                return identity
+        return None
+
+
 def default_provider() -> IdentityProvider:
     """The provider the OSS gateway uses (a cloud overlay overrides this)."""
-    providers: list[IdentityProvider] = [ApiKeyIdentityProvider()]
-    # The ee overlay appends OidcIdentityProvider here.
-    return providers[0] if providers else ApiKeyIdentityProvider()
+    return ChainedIdentityProvider(
+        [
+            ApiKeyIdentityProvider(),
+            SupabaseJwtIdentityProvider(),
+        ]
+    )

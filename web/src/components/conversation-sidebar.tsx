@@ -28,12 +28,28 @@ interface ConversationSidebarProps {
   loading?: boolean;
 }
 
-const emptySubscribe = () => () => {};
+// Shared clock for the date groups. The snapshot must be a stable value:
+// returning Date.now() straight from getSnapshot makes every render look like a
+// store change, so React re-renders until it throws "Maximum update depth
+// exceeded". The store is filled on subscribe (after hydration, so the server
+// and first client render agree) and refreshed once a minute so labels roll
+// over at midnight.
+let clockNow: number | null = null;
+
+function subscribeToClock(onStoreChange: () => void) {
+  clockNow = Date.now();
+  onStoreChange();
+  const timer = setInterval(() => {
+    clockNow = Date.now();
+    onStoreChange();
+  }, 60_000);
+  return () => clearInterval(timer);
+}
 
 function useClientTime(): number | null {
   return useSyncExternalStore(
-    emptySubscribe,
-    () => Date.now(),
+    subscribeToClock,
+    () => clockNow,
     () => null
   );
 }

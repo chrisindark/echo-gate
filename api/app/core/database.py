@@ -21,6 +21,8 @@ DB_POOL_PRE_PING = config.DB_POOL_PRE_PING
 
 
 def _create_db_engine(url: str):
+    if url.startswith("sqlite"):
+        return create_engine(url, pool_pre_ping=DB_POOL_PRE_PING)
     return create_engine(
         url,
         pool_size=DB_POOL_SIZE,
@@ -77,6 +79,48 @@ def receive_invalidate(dbapi_connection, connection_record, exception):
 def receive_close(dbapi_connection, connection_record):
     """Fired when a connection is closed during pool cleanup, recycle, or shutdown."""
     logger.debug("Database connection closed by pool.")
+
+
+def _attach_engine_events(target_engine) -> None:
+    if not event.contains(target_engine, "checkout", receive_checkout):
+        event.listen(target_engine, "checkout", receive_checkout)
+    if not event.contains(target_engine, "checkin", receive_checkin):
+        event.listen(target_engine, "checkin", receive_checkin)
+    if not event.contains(target_engine, "invalidate", receive_invalidate):
+        event.listen(target_engine, "invalidate", receive_invalidate)
+    if not event.contains(target_engine, "close", receive_close):
+        event.listen(target_engine, "close", receive_close)
+
+
+def reload_db_engine() -> None:
+    """Recreate engine and rebind SessionLocal after config changes (e.g. after loading env files)."""
+    global SQLALCHEMY_DATABASE_URL, SQLALCHEMY_DATABASE_URL_READ, engine, read_engine, SessionLocal, SessionLocalRead
+    SQLALCHEMY_DATABASE_URL = config.DATABASE_URL
+    SQLALCHEMY_DATABASE_URL_READ = config.DATABASE_URL_READ
+
+    try:
+        engine.dispose()
+    except Exception:
+        pass
+    if read_engine is not engine:
+        try:
+            read_engine.dispose()
+        except Exception:
+            pass
+
+    engine = _create_db_engine(SQLALCHEMY_DATABASE_URL)
+    read_engine = (
+        engine
+        if SQLALCHEMY_DATABASE_URL_READ == SQLALCHEMY_DATABASE_URL
+        else _create_db_engine(SQLALCHEMY_DATABASE_URL_READ)
+    )
+
+    SessionLocal.configure(bind=engine)
+    SessionLocalRead.configure(bind=read_engine)
+
+    _attach_engine_events(engine)
+    if read_engine is not engine:
+        _attach_engine_events(read_engine)
 
 
 def get_db():

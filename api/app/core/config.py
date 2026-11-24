@@ -85,6 +85,21 @@ class Config:
             ]
         self.CORS_ALLOW_CREDENTIALS = _bool_env("CORS_ALLOW_CREDENTIALS", True)
 
+        # Supabase & Control-Plane Authentication
+        self.SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
+        self.SUPABASE_PUBLISHABLE_KEY = os.getenv("SUPABASE_PUBLISHABLE_KEY", "").strip()
+        self.SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "").strip()
+        self.SUPABASE_AUTH_ENABLED = _bool_env(
+            "SUPABASE_AUTH_ENABLED", bool(self.SUPABASE_JWT_SECRET)
+        )
+        self.SUPABASE_JWT_AUDIENCE = os.getenv(
+            "SUPABASE_JWT_AUDIENCE", "authenticated"
+        ).strip()
+        raw_algos = os.getenv("SUPABASE_JWT_ALGORITHMS", "HS256").strip()
+        self.SUPABASE_JWT_ALGORITHMS = [
+            algo.strip() for algo in raw_algos.split(",") if algo.strip()
+        ]
+
         # Telemetry & Observability
         self.OTEL_ENABLED = os.getenv("OTEL_ENABLED", "true").lower() == "true"
         self.OTEL_SERVICE_NAME = os.getenv("OTEL_SERVICE_NAME", "echo-gate")
@@ -379,6 +394,13 @@ class Config:
                     ", ".join(CACHE_MODES),
                 )
             self.CACHE_MODE = self._legacy_cache_mode()
+
+        # Deployment profile switches.
+        self.ALLOW_ANONYMOUS = _bool_env("ALLOW_ANONYMOUS", True)
+        raw_surfaces = os.getenv("ENABLED_SURFACES", "all")
+        self.ENABLED_SURFACES = {
+            part.strip().lower() for part in raw_surfaces.split(",") if part.strip()
+        } or {"all"}
 
         # Shadow cache pipeline (CACHE_MODE=shadow). The pipeline runs out of
         # band, so these knobs throttle how much work it may do per request.
@@ -706,6 +728,15 @@ class Config:
         if flag is None:
             raise ValueError(f"Unknown cache layer: {layer!r}")
         return (getattr(self, flag, "false") or "").strip().lower() == "true"
+
+    @property
+    def cache_enabled(self) -> bool:
+        """True when cache services may be constructed or read."""
+        return self.CACHE_MODE != "disabled"
+
+    def surface_enabled(self, name: str) -> bool:
+        """Whether an API surface should be mounted. `all` mounts everything."""
+        return "all" in self.ENABLED_SURFACES or name in self.ENABLED_SURFACES
 
 
 config = Config()

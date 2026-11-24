@@ -16,6 +16,10 @@ Usage:
     poetry run python -m app.scripts.inspect_semantic_cache --json > report.json
 """
 
+from app.core.env import load_app_env
+
+load_app_env()
+
 import argparse
 import json
 from typing import Any

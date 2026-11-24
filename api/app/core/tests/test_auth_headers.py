@@ -172,3 +172,37 @@ async def test_quota_guard_buckets_a_bearer_caller_on_the_key():
     assert captured["bucket_id"] == "eg_bearer"
     assert request.state.api_key == "eg_bearer"
     assert request.state.bucket_id == "eg_bearer"
+
+
+@pytest.mark.asyncio
+async def test_auth_guard_allow_anonymous_toggle(monkeypatch):
+    from app.core.config import config
+    from app.core.guards import api_key_auth_optional_guard
+
+    request = _auth_request()
+
+    # 1. With ALLOW_ANONYMOUS=true (default), optional guard allows keyless access
+    monkeypatch.setattr(config, "ALLOW_ANONYMOUS", True)
+    assert (
+        await api_key_auth_optional_guard(
+            request=request, x_api_key=None, authorization=None
+        )
+        is True
+    )
+
+    # 2. With ALLOW_ANONYMOUS=false, keyless access is rejected with 401
+    monkeypatch.setattr(config, "ALLOW_ANONYMOUS", False)
+    with pytest.raises(HTTPException) as exc_info:
+        await api_key_auth_optional_guard(
+            request=request, x_api_key=None, authorization=None
+        )
+    assert exc_info.value.status_code == 401
+    assert "API Key missing" in exc_info.value.detail
+
+    # 3. With ALLOW_ANONYMOUS=false, a valid key still proceeds
+    _stub_resolution(monkeypatch)
+    accepted = await api_key_auth_optional_guard(
+        request=request, x_api_key="eg_valid", authorization=None
+    )
+    assert accepted is True
+    assert request.state.api_key == "eg_valid"

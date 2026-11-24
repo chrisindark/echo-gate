@@ -15,6 +15,10 @@ The plaintext key is printed exactly once, on creation. Only its SHA-256 hash is
 stored.
 """
 
+from app.core.env import load_app_env
+
+load_app_env()
+
 import argparse
 import sys
 from datetime import UTC, datetime
