@@ -2,9 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
     "api/index.py": {
-      "maxDuration": 60,
-      "memory": 1024,
-      "runtime": "python3.11"
+      "maxDuration": 60
     }
   },
   "rewrites": [
@@ -12,10 +10,5 @@
       "source": "/(.*)",
       "destination": "/api/index"
     }
-  ],
-  "env": {
-    "ENABLED_SURFACES": "health,models,chat,anthropic",
-    "CACHE_MODE": "disabled",
-    "ALLOW_ANONYMOUS": "false"
-  }
+  ]
 }
