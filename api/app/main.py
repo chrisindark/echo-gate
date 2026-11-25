@@ -1,9 +1,9 @@
+import importlib
 import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
@@ -21,7 +21,13 @@ from app.core.middlewares import (
 )
 from app.core.responses import BaseAPIResponse
 from app.core.telemetry import init_telemetry
-from app.modules.analytics.analytics_controller import api_v1_router as analytics_router
+
+try:
+    analytics_router = importlib.import_module(
+        "app.modules.analytics.analytics_controller"
+    ).api_v1_router
+except Exception:
+    analytics_router = None
 from app.modules.anthropic.anthropic_controller import anthropic_router
 from app.modules.api_keys.api_keys_controller import api_v1_router as api_keys_router
 from app.modules.api_keys.user_api_keys_controller import user_api_v1_router
@@ -31,30 +37,67 @@ from app.modules.chat.chat_controller import (
 from app.modules.chat.chat_controller import (
     cache_admin_router as chat_cache_admin_router,
 )
-from app.modules.conversation.conversation_controller import (
-    api_v1_router as conversation_router,
-)
-from app.modules.gateway_requests.gateway_requests_controller import (
-    api_v1_router as gateway_requests_router,
-)
+
+try:
+    conversation_router = importlib.import_module(
+        "app.modules.conversation.conversation_controller"
+    ).api_v1_router
+except Exception:
+    conversation_router = None
+try:
+    gateway_requests_router = importlib.import_module(
+        "app.modules.gateway_requests.gateway_requests_controller"
+    ).api_v1_router
+except Exception:
+    gateway_requests_router = None
 from app.modules.health import health_router, root_health_router
-from app.modules.llm.cache_admin_controller import api_v1_router as cache_admin_router
+
+try:
+    cache_admin_router = importlib.import_module(
+        "app.modules.llm.cache_admin_controller"
+    ).api_v1_router
+except Exception:
+    cache_admin_router = None
 from app.modules.llm.models_controller import models_router
-from app.modules.llm_quota.llm_quota_controller import api_v1_router as llm_quota_router
-from app.modules.llm_usage.llm_usage_controller import api_v1_router as llm_usage_router
-from app.modules.qdrant.qdrant_controller import api_v1_router as qdrant_router
-from app.modules.shadow_cache.shadow_cache_controller import (
-    api_v1_router as shadow_cache_router,
-)
-from app.modules.verifier.verifier_controller import api_v1_router as verifier_router
+
+try:
+    llm_quota_router = importlib.import_module(
+        "app.modules.llm.llm_quota_controller"
+    ).api_v1_router
+except Exception:
+    llm_quota_router = None
+try:
+    llm_usage_router = importlib.import_module(
+        "app.modules.llm.llm_usage_controller"
+    ).api_v1_router
+except Exception:
+    llm_usage_router = None
+try:
+    qdrant_router = importlib.import_module(
+        "app.modules.qdrant.qdrant_controller"
+    ).api_v1_router
+except Exception:
+    qdrant_router = None
+try:
+    shadow_cache_router = importlib.import_module(
+        "app.modules.shadow_cache.shadow_cache_controller"
+    ).api_v1_router
+except Exception:
+    shadow_cache_router = None
+try:
+    verifier_router = importlib.import_module(
+        "app.modules.verifier.verifier_controller"
+    ).api_v1_router
+except Exception:
+    verifier_router = None
 
 # Initialize the custom colored logger with correlation ID
 setup_logger()
 
 logger = logging.getLogger(__name__)
 
-from app.core.database import reload_db_engine
-from app.core.env import load_app_env
+from app.core.database import reload_db_engine  # noqa: E402
+from app.core.env import load_app_env  # noqa: E402
 
 PYTHON_ENV = os.getenv("PYTHON_ENV", "local")
 load_app_env(PYTHON_ENV)
@@ -146,6 +189,8 @@ def root():
 
 # Register routers
 def _include(surface: str, router) -> None:
+    if router is None:
+        return
     if config.surface_enabled(surface):
         app.include_router(router)
 

@@ -17,13 +17,13 @@ This guide covers deploying the Echo Gate Next.js frontend (`web/`) to **Vercel*
 
 Configure these in **Project Settings → Environment Variables** (available to Production and Preview):
 
-| Variable | Required | Description |
-| --- | --- | --- |
-| `NEXT_PUBLIC_SUPABASE_URL` | Yes (for SaaS auth) | Your Supabase project URL (`https://<ref>.supabase.co`). |
-| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Yes (for SaaS auth) | Your Supabase publishable / anon key. |
-| `NEXT_PUBLIC_API_BASE_URL` | When backend is live | HTTPS base URL of your Echo Gate FastAPI gateway (e.g. `https://echo-gate-api.onrender.com`). Defaults to `http://localhost:8000` if unset. |
-| `NEXT_PUBLIC_APP_URL` | Optional | Canonical origin if using a custom domain (otherwise `VERCEL_PROJECT_PRODUCTION_URL` / `VERCEL_URL` are used for metadata, `robots.txt`, and `sitemap.xml`). |
-| `NEXT_PUBLIC_SUPABASE_OAUTH_PROVIDERS` | Optional | Comma-separated OAuth providers enabled in Supabase Auth (supports `github`, `google`). |
+| Variable                               | Required             | Description                                                                                                                                                  |
+| -------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `NEXT_PUBLIC_SUPABASE_URL`             | Yes (for SaaS auth)  | Your Supabase project URL (`https://<ref>.supabase.co`).                                                                                                     |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Yes (for SaaS auth)  | Your Supabase publishable / anon key.                                                                                                                        |
+| `NEXT_PUBLIC_API_BASE_URL`             | When backend is live | HTTPS base URL of your Echo Gate FastAPI gateway (e.g. `https://echo-gate-api.onrender.com`). Defaults to `http://localhost:8000` if unset.                  |
+| `NEXT_PUBLIC_APP_URL`                  | Optional             | Canonical origin if using a custom domain (otherwise `VERCEL_PROJECT_PRODUCTION_URL` / `VERCEL_URL` are used for metadata, `robots.txt`, and `sitemap.xml`). |
+| `NEXT_PUBLIC_SUPABASE_OAUTH_PROVIDERS` | Optional             | Comma-separated OAuth providers enabled in Supabase Auth (supports `github`, `google`).                                                                      |
 
 > **Note on `NEXT_PUBLIC_*` variables:** Next.js inlines `NEXT_PUBLIC_*` environment variables at build time. Trigger a **Redeploy** on Vercel whenever you change `NEXT_PUBLIC_API_BASE_URL` or Supabase keys.
 
@@ -40,6 +40,7 @@ In your Supabase Dashboard (**Authentication → URL Configuration**):
    - `http://localhost:3000/auth/callback` (for local development)
 
 This enables:
+
 - Email verification links (`/signup` → `/auth/callback` → `/settings`)
 - Password recovery links (`/forgot-password` → `/auth/callback?next=/reset-password` → `/reset-password`)
 - OAuth callbacks (when `NEXT_PUBLIC_SUPABASE_OAUTH_PROVIDERS` is configured)
@@ -63,7 +64,7 @@ Once your Echo Gate backend is deployed (see [`llm-only-free-tier.md`](./llm-onl
    SUPABASE_JWT_ALGORITHMS=HS256
    ANONYMOUS_ALLOWED_PROVIDERS=groq,openrouter
    ```
-   *(When `SUPABASE_AUTH_ENABLED=true` or `PYTHON_ENV=production`, `ANONYMOUS_ALLOWED_PROVIDERS` automatically defaults to `groq,openrouter` unless overridden.)*
+   _(When `SUPABASE_AUTH_ENABLED=true` or `PYTHON_ENV=production`, `ANONYMOUS_ALLOWED_PROVIDERS` automatically defaults to `groq,openrouter` unless overridden.)_
 4. Mount the `api_keys` / user surface on the gateway (`ENABLED_SURFACES=all`, or include `api_keys` alongside `health,models,chat,anthropic`).
 
 ---
@@ -76,3 +77,26 @@ Once your Echo Gate backend is deployed (see [`llm-only-free-tier.md`](./llm-onl
    - `/signup` creates a Supabase user and handles email confirmation + resend.
    - `/login`, `/forgot-password`, `/reset-password`, and **Sign out** (both in the top navbar and workspace sidebar) work end-to-end.
 3. **API Key provisioning:** Once the backend is connected, signing in and opening `/settings` loads `/api/v1/user/me` and lets the user create, rotate, and revoke `eg_...` keys.
+
+---
+
+## 6. Deploying the FastAPI Gateway to Vercel (optional)
+
+Echo Gate's FastAPI gateway can also run on Vercel as a Python serverless function, which is convenient for end-to-end testing before moving to Render/Railway/Docker.
+
+1. Create a **second Vercel project** importing the same repository.
+2. Set **Root Directory** to `api`.
+3. Vercel detects `api/vercel.json` and `api/requirements.txt` automatically.
+4. Configure environment variables (same as Docker, see `.env.example`), at minimum:
+   - `PYTHON_ENV=production`
+   - `SUPABASE_AUTH_ENABLED=true` (if using Supabase auth)
+   - `SUPABASE_JWT_SECRET`, `SUPABASE_JWT_AUDIENCE`, `SUPABASE_JWT_ALGORITHMS`
+   - `DATABASE_URL` (Postgres with RLS role) and `REDIS_URL` (optional; degrades gracefully)
+   - `INFERENCE_BASE_URL` (point at your inference-platform deployment)
+   - `CORS_ORIGINS` including your web Vercel origin
+5. Set `NEXT_PUBLIC_API_BASE_URL` on the **web** project to this API project's URL and redeploy `web/`.
+
+Notes:
+
+- Vercel serverless functions have execution-time limits; heavy workloads (embeddings/rerank) should stay on a dedicated host. This setup is intended for testing the full UI/API/Supabase flow.
+- Celery background workers are not available on Vercel; cache warming/shadow tasks run only where a worker is deployed.

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import hashlib
 import json
@@ -11,7 +13,11 @@ from collections.abc import AsyncIterator, Coroutine
 from typing import Any
 
 from fastapi import HTTPException
-from qdrant_client.http import models
+
+try:
+    from qdrant_client.http import models
+except Exception:  # pragma: no cover - lightweight deployments
+    models = None
 
 from app.core.bulkhead import BulkheadLimitExceededException, bulkhead_manager
 from app.core.circuit_breaker import (
@@ -75,8 +81,13 @@ from app.core.telemetry import (
     SPAN_PROVIDER_CALL,
     trace_span,
 )
-from app.modules.cache_audit.cache_audit_schema import CacheAuditCreate
-from app.modules.cache_audit.cache_audit_service import CacheAuditService
+
+try:
+    from app.modules.cache_audit.cache_audit_schema import CacheAuditCreate
+    from app.modules.cache_audit.cache_audit_service import CacheAuditService
+except Exception:  # pragma: no cover - lightweight deployments
+    CacheAuditCreate = None
+    CacheAuditService = None
 from app.modules.chat.chat_schema import (
     ChatCompletionChunk,
     ChatCompletionRequest,
@@ -85,21 +96,34 @@ from app.modules.chat.chat_schema import (
     content_parts_digest,
     response_to_stream_chunks_natural,
 )
-from app.modules.embedding.embedding_service import EmbeddingService
+
+try:
+    from app.modules.embedding.embedding_service import EmbeddingService
+except Exception:  # pragma: no cover - lightweight deployments
+    EmbeddingService = None
 from app.modules.gateway_requests.gateway_requests_schema import (
     EvaluationStatus,
     GatewayRequestLogCreate,
     RoutingDecision,
 )
 from app.modules.gateway_requests.gateway_requests_service import GatewayRequestsService
-from app.modules.inference.inference_client import InferenceUnavailable
-from app.modules.intent_classifier.entity_extractor_service import (
-    EntityExtractorService,
-)
-from app.modules.intent_classifier.intent_classifier_service import (
-    IntentClassifierService,
-)
-from app.modules.intent_classifier.intent_schema import IntentEnum
+
+try:
+    from app.modules.inference.inference_client import InferenceUnavailable
+except Exception:  # pragma: no cover - lightweight deployments
+    InferenceUnavailable = Exception
+try:
+    from app.modules.intent_classifier.entity_extractor_service import (
+        EntityExtractorService,
+    )
+    from app.modules.intent_classifier.intent_classifier_service import (
+        IntentClassifierService,
+    )
+    from app.modules.intent_classifier.intent_schema import IntentEnum
+except Exception:  # pragma: no cover - lightweight deployments
+    EntityExtractorService = None
+    IntentClassifierService = None
+    IntentEnum = None
 from app.modules.llm.cache_confidence import CacheConfidenceEvaluator
 from app.modules.llm.llm_provider_service import LlmProviderService
 from app.modules.llm.model_registry import ModelTarget, model_registry
@@ -107,21 +131,47 @@ from app.modules.llm_quota.llm_quota_service import LlmQuotaService
 from app.modules.llm_usage.llm_usage_schema import LlmUsageLogCreate
 from app.modules.llm_usage.llm_usage_service import LlmUsageService
 from app.modules.prompt_optimization.prompt_optimizer import PromptOptimizer
-from app.modules.qdrant.llm_cache_collection_service import LlmCacheCollectionService
-from app.modules.qdrant.qdrant_schema import CacheScope
-from app.modules.qdrant.retention_policy import (
-    calculate_ttl_seconds,
-    compute_retention_value,
-    estimate_provider_cost,
-)
+
+try:
+    from app.modules.qdrant.llm_cache_collection_service import (
+        LlmCacheCollectionService,
+    )
+except Exception:  # pragma: no cover - lightweight deployments
+    LlmCacheCollectionService = None
+try:
+    from app.modules.qdrant.qdrant_schema import CacheScope
+except Exception:  # pragma: no cover - lightweight deployments
+    CacheScope = None
+try:
+    from app.modules.qdrant.retention_policy import (
+        calculate_ttl_seconds,
+        compute_retention_value,
+        estimate_provider_cost,
+    )
+except Exception:  # pragma: no cover - lightweight deployments
+    calculate_ttl_seconds = None
+    compute_retention_value = None
+    estimate_provider_cost = None
 from app.modules.redis.redis_service import RedisService
-from app.modules.reranking.reranker_service import RerankerService
-from app.modules.shadow_cache.shadow_cache_schema import (
-    ShadowCacheEvaluationCreate,
-    ShadowMatchType,
-)
-from app.modules.shadow_cache.shadow_cache_service import ShadowCacheService
-from app.modules.verifier.judge_service import JudgeService
+
+try:
+    from app.modules.reranking.reranker_service import RerankerService
+except Exception:  # pragma: no cover - lightweight deployments
+    RerankerService = None
+try:
+    from app.modules.shadow_cache.shadow_cache_schema import (
+        ShadowCacheEvaluationCreate,
+        ShadowMatchType,
+    )
+    from app.modules.shadow_cache.shadow_cache_service import ShadowCacheService
+except Exception:  # pragma: no cover - lightweight deployments
+    ShadowCacheEvaluationCreate = None
+    ShadowMatchType = None
+    ShadowCacheService = None
+try:
+    from app.modules.verifier.judge_service import JudgeService
+except Exception:  # pragma: no cover - lightweight deployments
+    JudgeService = None
 
 logger = logging.getLogger(__name__)
 
