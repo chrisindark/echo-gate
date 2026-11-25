@@ -1,4 +1,5 @@
 import { API_ROOT } from '@/lib/api';
+import { buildAuthHeaders } from '@/lib/providers';
 
 export interface ConversationMessage {
   id: string;
@@ -21,15 +22,17 @@ export interface ConversationWithMessages extends ConversationItem {
 }
 
 export async function fetchConversations(
-  apiKey?: string
+  apiKey?: string,
+  accessToken?: string | null
 ): Promise<ConversationItem[]> {
-  const headers: Record<string, string> = {};
-  if (apiKey) headers['X-API-Key'] = apiKey;
+  const headers = buildAuthHeaders(apiKey, accessToken);
 
   const res = await fetch(`${API_ROOT}/api/v1/conversations`, { headers });
   if (!res.ok) {
     const errorText = await res.text().catch(() => '');
-    throw new Error(`Failed to fetch conversations: ${res.status} ${errorText}`);
+    throw new Error(
+      `Failed to fetch conversations: ${res.status} ${errorText}`
+    );
   }
   const json = await res.json();
   return json.response ?? json.data ?? [];
@@ -37,12 +40,13 @@ export async function fetchConversations(
 
 export async function createConversation(
   title?: string,
-  apiKey?: string
+  apiKey?: string,
+  accessToken?: string | null
 ): Promise<ConversationItem> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    ...buildAuthHeaders(apiKey, accessToken),
   };
-  if (apiKey) headers['X-API-Key'] = apiKey;
 
   const res = await fetch(`${API_ROOT}/api/v1/conversations`, {
     method: 'POST',
@@ -51,7 +55,9 @@ export async function createConversation(
   });
   if (!res.ok) {
     const errorText = await res.text().catch(() => '');
-    throw new Error(`Failed to create conversation: ${res.status} ${errorText}`);
+    throw new Error(
+      `Failed to create conversation: ${res.status} ${errorText}`
+    );
   }
   const json = await res.json();
   return json.response ?? json.data;
@@ -59,14 +65,17 @@ export async function createConversation(
 
 export async function getConversation(
   conversationId: string,
-  apiKey?: string
+  apiKey?: string,
+  accessToken?: string | null
 ): Promise<ConversationWithMessages> {
-  const headers: Record<string, string> = {};
-  if (apiKey) headers['X-API-Key'] = apiKey;
+  const headers = buildAuthHeaders(apiKey, accessToken);
 
-  const res = await fetch(`${API_ROOT}/api/v1/conversations/${conversationId}`, {
-    headers,
-  });
+  const res = await fetch(
+    `${API_ROOT}/api/v1/conversations/${conversationId}`,
+    {
+      headers,
+    }
+  );
   if (!res.ok) {
     const errorText = await res.text().catch(() => '');
     throw new Error(`Failed to load conversation: ${res.status} ${errorText}`);
@@ -78,21 +87,27 @@ export async function getConversation(
 export async function updateConversationTitle(
   conversationId: string,
   title: string,
-  apiKey?: string
+  apiKey?: string,
+  accessToken?: string | null
 ): Promise<ConversationItem> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    ...buildAuthHeaders(apiKey, accessToken),
   };
-  if (apiKey) headers['X-API-Key'] = apiKey;
 
-  const res = await fetch(`${API_ROOT}/api/v1/conversations/${conversationId}`, {
-    method: 'PATCH',
-    headers,
-    body: JSON.stringify({ title }),
-  });
+  const res = await fetch(
+    `${API_ROOT}/api/v1/conversations/${conversationId}`,
+    {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({ title }),
+    }
+  );
   if (!res.ok) {
     const errorText = await res.text().catch(() => '');
-    throw new Error(`Failed to update conversation: ${res.status} ${errorText}`);
+    throw new Error(
+      `Failed to update conversation: ${res.status} ${errorText}`
+    );
   }
   const json = await res.json();
   return json.response ?? json.data;
@@ -100,18 +115,23 @@ export async function updateConversationTitle(
 
 export async function deleteConversation(
   conversationId: string,
-  apiKey?: string
+  apiKey?: string,
+  accessToken?: string | null
 ): Promise<boolean> {
-  const headers: Record<string, string> = {};
-  if (apiKey) headers['X-API-Key'] = apiKey;
+  const headers = buildAuthHeaders(apiKey, accessToken);
 
-  const res = await fetch(`${API_ROOT}/api/v1/conversations/${conversationId}`, {
-    method: 'DELETE',
-    headers,
-  });
+  const res = await fetch(
+    `${API_ROOT}/api/v1/conversations/${conversationId}`,
+    {
+      method: 'DELETE',
+      headers,
+    }
+  );
   if (!res.ok) {
     const errorText = await res.text().catch(() => '');
-    throw new Error(`Failed to delete conversation: ${res.status} ${errorText}`);
+    throw new Error(
+      `Failed to delete conversation: ${res.status} ${errorText}`
+    );
   }
   return true;
 }

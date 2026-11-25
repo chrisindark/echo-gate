@@ -222,6 +222,7 @@ class ChatCompletionRequest(BaseModel):
     # read them off the request object.
     _tenant_id: str | None = PrivateAttr(default=None)
     _user_id: str | None = PrivateAttr(default=None)
+    _allowed_providers: frozenset[str] | None = PrivateAttr(default=None)
 
     @property
     def tenant_id(self) -> str | None:
@@ -238,6 +239,14 @@ class ChatCompletionRequest(BaseModel):
     @user_id.setter
     def user_id(self, value: str | None) -> None:
         self._user_id = value
+
+    @property
+    def allowed_providers(self) -> frozenset[str] | None:
+        return self._allowed_providers
+
+    @allowed_providers.setter
+    def allowed_providers(self, value: frozenset[str] | None) -> None:
+        self._allowed_providers = value
 
     def __init__(self, **data: Any) -> None:
         allowed = set(self.__class__.model_fields.keys()) | {"tenant_id", "user_id"}

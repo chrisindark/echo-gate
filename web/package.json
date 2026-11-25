@@ -7,13 +7,14 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "prepare": "cd .. && husky web/.husky"
+    "prepare": "node -e \"if (require('fs').existsSync('../.git')) require('child_process').execSync('cd .. && husky web/.husky', { stdio: 'inherit' })\""
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
     "@radix-ui/themes": "^3.3.0",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.119.2",
+    "@vercel/analytics": "^2.0.1",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.4.0",
     "framer-motion": "^14.0.0",

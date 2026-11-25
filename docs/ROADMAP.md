@@ -876,9 +876,20 @@ reuses the existing auth, quota, metering, RLS, and observability layers.
 - [ ] **2. Per-tenant BYOK provider credentials** — let a tenant store its own
   provider keys (envelope-encrypted at rest with a master key/KMS, tenant-scoped
   lookup before the env fallback, rotation via admin, never logged or emitted in
-  events/traces). Acceptance: tenant A's key is never used for tenant B; env
-  fallback still works; rotation is audited; a compromised key can be revoked
+  events/traces). Acceptance: tenant A's key is never used for tenant B; the
+  platform env credential is used only when the tenant has **no** credential for
+  that provider (a present-but-unusable BYOK credential fails closed, never
+  silently falls back); rotation is audited; a compromised key can be revoked
   without a redeploy.
+  **Designed 2026-11-25, not started** — see
+  [`docs/adr/0005-byok-provider-credentials.md`](adr/0005-byok-provider-credentials.md)
+  for the threat model, schema, delivery slices, and residual risks. Decisions
+  already locked: separate `provider_credentials` resource (never reuse
+  `api_keys`); AES-256-GCM with the KEK outside the DB and `AAD` binding
+  tenant/provider/row; per-call credential passing (never mutate the provider
+  singleton); **fail closed with no silent env fallback**; credential-scoped
+  breakers; platform quota skipped but metering kept (`billed=false`); cache key
+  unchanged (already tenant-scoped). Security review required before slice 1.
 - [ ] **3. Per-tenant model allowlists and plan gating** — resolve an effective
   model set per tenant/key, enforce it in `/chat/completions`, `/messages`, and
   `/v1/models`, and return `403` with the allowed set on violation. Acceptance:

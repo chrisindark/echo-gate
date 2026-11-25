@@ -3,8 +3,29 @@
 # Prices are per 1 token
 PRICING_CONFIG = {
     "openai": {
+        # GPT-6
+        "gpt-6.2-astra": {"prompt": 8.00 / 1_000_000, "completion": 40.00 / 1_000_000},
+        "gpt-6.2-sol": {"prompt": 2.00 / 1_000_000, "completion": 10.00 / 1_000_000},
+        "gpt-6.1-sol": {"prompt": 2.00 / 1_000_000, "completion": 10.00 / 1_000_000},
+        "gpt-6-luna": {"prompt": 0.10 / 1_000_000, "completion": 0.50 / 1_000_000},
+        # GPT-5.x
+        "gpt-5.4": {"prompt": 2.50 / 1_000_000, "completion": 15.00 / 1_000_000},
+        "gpt-5.4-mini": {"prompt": 0.75 / 1_000_000, "completion": 4.50 / 1_000_000},
+        "gpt-5.4-nano": {"prompt": 0.20 / 1_000_000, "completion": 1.25 / 1_000_000},
+        "gpt-5.2": {"prompt": 1.75 / 1_000_000, "completion": 14.00 / 1_000_000},
+        "gpt-5": {"prompt": 1.25 / 1_000_000, "completion": 10.00 / 1_000_000},
+        "gpt-5-mini": {"prompt": 0.25 / 1_000_000, "completion": 2.00 / 1_000_000},
+        "gpt-5-nano": {"prompt": 0.05 / 1_000_000, "completion": 0.40 / 1_000_000},
+        # GPT-4.1 & GPT-4o
+        "gpt-4.1": {"prompt": 2.00 / 1_000_000, "completion": 8.00 / 1_000_000},
+        "gpt-4.1-mini": {"prompt": 0.40 / 1_000_000, "completion": 1.60 / 1_000_000},
+        "gpt-4.1-nano": {"prompt": 0.10 / 1_000_000, "completion": 0.40 / 1_000_000},
+        "gpt-4o": {"prompt": 2.50 / 1_000_000, "completion": 10.00 / 1_000_000},
         "gpt-4o-mini": {"prompt": 0.150 / 1_000_000, "completion": 0.600 / 1_000_000},
-        "gpt-4o": {"prompt": 5.0 / 1_000_000, "completion": 15.0 / 1_000_000},
+        # Reasoning o-series
+        "o3": {"prompt": 2.00 / 1_000_000, "completion": 8.00 / 1_000_000},
+        "o4-mini": {"prompt": 1.10 / 1_000_000, "completion": 4.40 / 1_000_000},
+        "o3-mini": {"prompt": 1.10 / 1_000_000, "completion": 4.40 / 1_000_000},
     },
     "google-genai": {
         # Gemini 3.x
@@ -77,29 +98,59 @@ PRICING_CONFIG = {
         "default": {"prompt": 0.0, "completion": 0.0},
     },
     "claude": {
-        "claude-3-7-sonnet-20250219": {
-            "prompt": 3.0 / 1_000_000,
-            "completion": 15.0 / 1_000_000,
+        # Claude 5.x
+        "claude-fable-5-2": {
+            "prompt": 8.00 / 1_000_000,
+            "completion": 40.00 / 1_000_000,
         },
-        "claude-3-5-sonnet-20241022": {
-            "prompt": 3.0 / 1_000_000,
-            "completion": 15.0 / 1_000_000,
+        "claude-opus-5-5": {
+            "prompt": 4.00 / 1_000_000,
+            "completion": 20.00 / 1_000_000,
         },
-        "claude-3-5-haiku-20241022": {
-            "prompt": 0.80 / 1_000_000,
-            "completion": 4.0 / 1_000_000,
+        "claude-sonnet-5-5": {
+            "prompt": 2.00 / 1_000_000,
+            "completion": 10.00 / 1_000_000,
         },
-        "claude-3-opus-20240229": {
-            "prompt": 15.0 / 1_000_000,
-            "completion": 75.0 / 1_000_000,
+        "claude-haiku-5-5": {
+            "prompt": 0.10 / 1_000_000,
+            "completion": 0.50 / 1_000_000,
         },
-        "claude-3-haiku-20240307": {
-            "prompt": 0.25 / 1_000_000,
-            "completion": 1.25 / 1_000_000,
+        # Claude 4.6
+        "claude-opus-4-6": {
+            "prompt": 5.00 / 1_000_000,
+            "completion": 25.00 / 1_000_000,
         },
-        "default": {"prompt": 3.0 / 1_000_000, "completion": 15.0 / 1_000_000},
-    },
-    "anthropic": {
+        "claude-sonnet-4-6": {
+            "prompt": 3.00 / 1_000_000,
+            "completion": 15.00 / 1_000_000,
+        },
+        # Claude 4.5
+        "claude-opus-4-5-20251101": {
+            "prompt": 5.00 / 1_000_000,
+            "completion": 25.00 / 1_000_000,
+        },
+        "claude-sonnet-4-5-20250929": {
+            "prompt": 3.00 / 1_000_000,
+            "completion": 15.00 / 1_000_000,
+        },
+        "claude-haiku-4-5-20251001": {
+            "prompt": 1.00 / 1_000_000,
+            "completion": 5.00 / 1_000_000,
+        },
+        # Claude 4.x
+        "claude-opus-4-1-20250805": {
+            "prompt": 15.00 / 1_000_000,
+            "completion": 75.00 / 1_000_000,
+        },
+        "claude-sonnet-4-20250514": {
+            "prompt": 3.00 / 1_000_000,
+            "completion": 15.00 / 1_000_000,
+        },
+        "claude-opus-4-20250514": {
+            "prompt": 15.00 / 1_000_000,
+            "completion": 75.00 / 1_000_000,
+        },
+        # Claude 3.x
         "claude-3-7-sonnet-20250219": {
             "prompt": 3.0 / 1_000_000,
             "completion": 15.0 / 1_000_000,
@@ -128,6 +179,7 @@ PRICING_CONFIG = {
 # names (`LlmProviderService.generate_completion` routes both to the Gemini
 # adapter), so a price lookup must not depend on which spelling the caller used.
 PRICING_CONFIG["gemini"] = PRICING_CONFIG["google-genai"]
+PRICING_CONFIG["anthropic"] = PRICING_CONFIG["claude"]
 
 
 # Upstream prompt-cache multipliers applied to the provider's input price.

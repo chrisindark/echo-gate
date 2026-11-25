@@ -16,7 +16,11 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Header, Query, Request
 
 from app.core.dependencies import get_llm_provider_service
-from app.core.guards import AdminApiKeyGuard, api_key_auth_optional_guard
+from app.core.guards import (
+    AdminApiKeyGuard,
+    api_key_auth_optional_guard,
+    get_anonymous_allowed_providers,
+)
 from app.modules.llm.llm_provider_service import LlmProviderService
 from app.modules.llm.models_schema import (
     AnthropicModelListResponse,
@@ -48,7 +52,10 @@ async def _list_models(
     if include_unavailable:
         await _admin_guard(request, x_admin_key=x_admin_key)
 
-    catalog = ModelCatalogService(provider_service)
+    allowed_providers = (
+        None if include_unavailable else get_anonymous_allowed_providers(request)
+    )
+    catalog = ModelCatalogService(provider_service, allowed_providers=allowed_providers)
     if anthropic_version:
         return catalog.anthropic_response(include_unavailable=include_unavailable)
     return catalog.openai_response(include_unavailable=include_unavailable)

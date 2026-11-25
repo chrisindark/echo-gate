@@ -85,6 +85,7 @@ Full detail: [`docs/ROADMAP.md#phase-8--data-plane--commercial-surface`](docs/RO
 
 - [ ] **`/v1/embeddings` + `/v1/rerank`** — proxy through `inference-platform/` (no in-process models), with auth/quota/metering/traces. Primary capability: inference outage → structured `503`, not fail-open.
 - [ ] **Per-tenant BYOK provider credentials** — envelope-encrypted at rest, tenant-scoped before env fallback, rotation + revocation, never logged/emitted. Security review required.
+  *Designed 2026-11-25, not started.* Design, threat model, schema, slices, and residual risks: [`docs/adr/0005-byok-provider-credentials.md`](docs/adr/0005-byok-provider-credentials.md). Locked decisions: separate `provider_credentials` table (not `api_keys`); KEK outside the DB, AES-256-GCM with tenant/provider/row `AAD`; per-call credential passing, never mutate the provider singleton; fail closed, no silent env fallback; credential-scoped breakers; quota skipped but metering kept; cache key unchanged. Residual risk to state plainly: DB-compromise-only is covered, host compromise is not.
 - [ ] **Per-tenant model allowlists / plan gating** — enforce effective model set on completions, messages, and `/v1/models`; `403` on violation.
 - [ ] **Usage attribution metadata** — bounded request tags persisted on traces/usage, group-by in analytics, never part of identity or cache keys.
 - [ ] **Keys/tenant management UI** — key create/list/rotate/revoke + tenant usage summary on the existing admin API; plaintext shown once.

@@ -27,15 +27,23 @@ and is configurable via `NEXT_PUBLIC_API_BASE_URL` (see below).
 
 ## Pages
 
-| Route            | Description                                                                                                                                                                                                                                                                     |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/`              | Single-turn Playground. Provider/model selection, temperature, max tokens, structured-output modes (`text` / `json_object` / `json_schema` with presets), prompt optimization toggle, API key, and cache status badges. Supports `?hash=<exact_hash>` to reload a stored trace. |
-| `/conversations` | Stateful multi-turn conversations. Persistent thread history with collapsible sidebar (grouped by date, rename, delete), SSE streaming, collapsible thinking blocks, and prompt optimization savings telemetry. Supports `?c=<conversation_id>`.                                |
-| `/traces`        | Table of gateway request traces.                                                                                                                                                                                                                                                |
-| `/traces/[id]`   | Trace detail with a latency waterfall, intent metadata, and evaluation scores.                                                                                                                                                                                                  |
-| `/analytics`     | Dashboard KPIs, cache performance, model breakdown, and latency metrics.                                                                                                                                                                                                        |
+| Route              | Description                                                                                                                                                                                                                                                                     |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/`                | SaaS Landing Page with product overview, architecture summary, quickstart SDK snippet, and Supabase auth navigation (`Sign in`, `Sign up`, `Sign out`). Legacy `/?hash=<exact_hash>` links automatically redirect to `/playground?hash=<exact_hash>`.                           |
+| `/playground`      | Single-turn Playground. Provider/model selection, temperature, max tokens, structured-output modes (`text` / `json_object` / `json_schema` with presets), prompt optimization toggle, API key, and cache status badges. Supports `?hash=<exact_hash>` to reload a stored trace. |
+| `/conversations`   | Stateful multi-turn conversations. Persistent thread history with collapsible sidebar (grouped by date, rename, delete), SSE streaming, collapsible thinking blocks, and prompt optimization savings telemetry. Supports `?c=<conversation_id>`.                                |
+| `/traces`          | Table of gateway request traces.                                                                                                                                                                                                                                                |
+| `/traces/[id]`     | Trace detail with a latency waterfall, intent metadata, and evaluation scores.                                                                                                                                                                                                  |
+| `/analytics`       | Dashboard KPIs, cache performance, model breakdown, and latency metrics.                                                                                                                                                                                                        |
+| `/settings`        | Tenant API key management (`eg_...` create/rotate/revoke via Supabase Auth) and manual browser/operator credentials (`X-API-Key`, `X-Admin-Key`).                                                                                                                               |
+| `/login`           | Supabase sign-in page with password visibility toggle, forgot-password link, and optional OAuth providers.                                                                                                                                                                      |
+| `/signup`          | Supabase sign-up page with email verification flow and resend-confirmation support.                                                                                                                                                                                             |
+| `/forgot-password` | Password reset request flow via Supabase Auth email recovery.                                                                                                                                                                                                                   |
+| `/reset-password`  | Password update page after clicking a Supabase recovery link.                                                                                                                                                                                                                   |
+| `/auth/callback`   | Server route handler exchanging Supabase PKCE `code` / `token_hash` parameters for SSR session cookies.                                                                                                                                                                         |
+| `/api/health`      | Frontend health probe returning Supabase & gateway configuration status for Vercel / uptime checks.                                                                                                                                                                             |
 
-The sidebar (`src/components/app-sidebar.tsx`) also links `/settings`.
+The sidebar (`src/components/app-sidebar.tsx`) also links `/quota`, `/admin/cache`, `/admin/explorer`, and auth controls (`Sign in`, `Sign up`, `Sign out`). For deploying `web/` to Vercel, see `../docs/deployment/vercel.md`.
 
 ## Scripts
 
@@ -54,9 +62,10 @@ npm run lint    # eslint
   `next build`, so the value cannot be changed at runtime). Copy `.env.example`
   to `.env.local` to override it in development. The Compose images build with
   `http://echo-gate:8000` because no host ports are published.
-- The gateway enforces a per-provider model allowlist that this UI mirrors in
-  `src/app/page.tsx` (`PROVIDERS`). Keep them in sync with
-  `app/modules/chat/chat_schema.py`.
+- The model and provider selectors in `/playground` and `/conversations` are driven
+  dynamically by `GET /api/v1/models` (`src/lib/providers.ts`), reflecting the
+  backend's `DynamicModelRegistry`, configured provider keys, and anonymous access
+  policy (`ANONYMOUS_ALLOWED_PROVIDERS`).
 - No charting library is installed; analytics renders cards/tables.
 - Before editing, read `AGENTS.md` in this directory — this Next.js version has
   breaking changes versus older releases.

@@ -235,6 +235,94 @@ api_key_auth_guard = ApiKeyAuthGuard()
 api_key_auth_optional_guard = ApiKeyAuthGuard(allow_anonymous=True)
 
 
+_PROVIDER_ALIASES: dict[str, str] = {
+    "gemini": "google-genai",
+    "google-genai": "gemini",
+    "claude": "anthropic",
+    "anthropic": "claude",
+}
+
+
+def is_anonymous_caller(request: Request) -> bool:
+    """Return True when the incoming request has no resolved key or tenant."""
+    if getattr(request.state, "api_key", None):
+        return False
+    tenant_id = getattr(request.state, "tenant_id", None)
+    if tenant_id and tenant_id != ANONYMOUS_TENANT:
+        return False
+    return True
+
+
+def get_anonymous_allowed_providers(request: Request) -> frozenset[str] | None:
+    """Return the provider allowlist for anonymous callers, or None if unrestricted."""
+    if not is_anonymous_caller(request):
+        return None
+    configured = getattr(config, "ANONYMOUS_ALLOWED_PROVIDERS", None)
+    if configured is None:
+        return None
+    expanded: set[str] = set()
+    for provider in configured:
+        norm = provider.strip().lower()
+        if not norm:
+            continue
+        expanded.add(norm)
+        alias = _PROVIDER_ALIASES.get(norm)
+        if alias:
+            expanded.add(alias)
+    return frozenset(expanded)
+
+
+def enforce_anonymous_provider_access(http_request: Request, chat_req) -> None:
+    """Restrict anonymous callers to configured free-tier providers and clamp fallbacks."""
+    from app.modules.llm.model_registry import model_registry
+
+    allowed = get_anonymous_allowed_providers(http_request)
+    chat_req.allowed_providers = allowed
+    if allowed is None:
+        return
+
+    configured_list = sorted(
+        getattr(config, "ANONYMOUS_ALLOWED_PROVIDERS", set()) or set()
+    )
+    allowed_label = ", ".join(configured_list) if configured_list else "none"
+
+    if model_registry.is_alias(chat_req.model):
+        targets = model_registry.resolve_targets(chat_req.service_name, chat_req.model)
+        usable = [t for t in targets if t.service.strip().lower() in allowed]
+        if not usable:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "message": (
+                        f"Model alias '{chat_req.model}' has no targets available for anonymous callers "
+                        f"(allowed providers: {allowed_label}). Sign in or provide an API key."
+                    ),
+                    "error_code": "provider_not_allowed",
+                },
+            )
+        return
+
+    effective_service = (
+        (
+            chat_req.service_name
+            or getattr(config, "DEFAULT_LLM_SERVICE", "google-genai")
+        )
+        .strip()
+        .lower()
+    )
+    if effective_service not in allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "message": (
+                    f"Anonymous requests are limited to: {allowed_label}. "
+                    f"Sign in or provide an API key to use '{effective_service}'."
+                ),
+                "error_code": "provider_not_allowed",
+            },
+        )
+
+
 @dataclass(frozen=True)
 class UserSessionIdentity:
     """Identity resolved from a verified human user session (e.g. Supabase Auth JWT)."""

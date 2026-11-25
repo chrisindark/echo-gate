@@ -53,9 +53,15 @@ class ModelCatalogService:
         self,
         provider_service: LlmProviderService,
         registry: DynamicModelRegistry | None = None,
+        allowed_providers: frozenset[str] | None = None,
     ) -> None:
         self.registry = registry or model_registry
         self.availability = provider_service.service_availability()
+        self.allowed_providers = (
+            frozenset(p.strip().lower() for p in allowed_providers)
+            if allowed_providers is not None
+            else None
+        )
 
     def entries(self, *, include_unavailable: bool = False) -> list[CatalogEntry]:
         entries = self._alias_entries() + self._model_entries()
@@ -104,6 +110,14 @@ class ModelCatalogService:
     def _alias_entries(self) -> list[CatalogEntry]:
         entries: list[CatalogEntry] = []
         for alias, targets in self.registry.get_aliases().items():
+            filtered_targets = [
+                target
+                for target in targets
+                if self.allowed_providers is None
+                or target.service.strip().lower() in self.allowed_providers
+            ]
+            if not filtered_targets:
+                continue
             target_info = tuple(
                 ModelTargetInfo(
                     service=target.service,
@@ -113,7 +127,7 @@ class ModelCatalogService:
                         target.service, target.model
                     ),
                 )
-                for target in targets
+                for target in filtered_targets
             )
             # The router walks the ranked targets, so the alias works if any of
             # them is both configured and enabled.
@@ -139,6 +153,11 @@ class ModelCatalogService:
         # registry would pick for routing.
         hosts: dict[str, list[tuple[str, bool, bool]]] = {}
         for service, models in self.registry.get_allowed_models_dict().items():
+            if (
+                self.allowed_providers is not None
+                and service.strip().lower() not in self.allowed_providers
+            ):
+                continue
             for model in models:
                 hosts.setdefault(model, []).append(
                     (
@@ -151,10 +170,20 @@ class ModelCatalogService:
         entries: list[CatalogEntry] = []
         for model in sorted(hosts):
             services = [service for service, _, _ in hosts[model]]
+            canonical_owner = self.registry.get_service_for_model(model)
+            owned_by = (
+                canonical_owner
+                if canonical_owner
+                and (
+                    self.allowed_providers is None
+                    or canonical_owner.strip().lower() in self.allowed_providers
+                )
+                else services[0]
+            )
             entries.append(
                 CatalogEntry(
                     id=model,
-                    owned_by=self.registry.get_service_for_model(model) or services[0],
+                    owned_by=owned_by,
                     available=any(available for _, available, _ in hosts[model]),
                     enabled=any(enabled for _, _, enabled in hosts[model]),
                     providers=tuple(services),

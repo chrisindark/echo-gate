@@ -3,9 +3,18 @@
 // Configurable at build time via NEXT_PUBLIC_API_BASE_URL — Next.js inlines
 // NEXT_PUBLIC_* variables into the client bundle during `next build`, so the
 // value must be set at build time and cannot be changed at runtime. Falls
-// back to the local development gateway when unset.
-export const API_ROOT =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8000';
+// back to the local development gateway when unset or empty.
+const rawApiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || '';
+
+export const isGatewayUrlConfigured = Boolean(rawApiBaseUrl);
+
+export const API_ROOT = (rawApiBaseUrl || 'http://localhost:8000').replace(
+  /\/+$/,
+  ''
+);
+
+export const isLocalGatewayUrl =
+  /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(API_ROOT);
 
 /**
  * Pull a human-readable message out of an error response body.

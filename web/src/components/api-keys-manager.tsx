@@ -2,6 +2,7 @@
 
 import { useApiKey } from '@/context/api-key-context';
 import { useAuth } from '@/context/auth-context';
+import { API_ROOT, isLocalGatewayUrl } from '@/lib/api';
 import {
   ApiKeyCreated,
   ApiKeyItem,
@@ -37,7 +38,9 @@ export function ApiKeysManager() {
   const { apiKey, setApiKey } = useApiKey();
 
   const [keys, setKeys] = useState<ApiKeyItem[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(() => Boolean(accessToken));
+  const [isLoading, setIsLoading] = useState<boolean>(() =>
+    Boolean(accessToken)
+  );
   const [error, setError] = useState<string | null>(null);
 
   // Create Key Modal State
@@ -173,7 +176,10 @@ export function ApiKeysManager() {
   };
 
   return (
-    <Card size="3" className="relative overflow-hidden p-6 sm:p-7 border-border/80 bg-gradient-to-br from-card via-card to-primary/[0.03] space-y-6 shadow-xs">
+    <Card
+      size="3"
+      className="relative overflow-hidden p-6 sm:p-7 border-border/80 bg-gradient-to-br from-card via-card to-primary/[0.03] space-y-6 shadow-xs"
+    >
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-border/50">
         <div className="space-y-1.5">
@@ -181,10 +187,18 @@ export function ApiKeysManager() {
             <div className="p-2 rounded-xl bg-primary/10 text-primary border border-primary/20 shrink-0">
               <Building2 className="w-5 h-5" />
             </div>
-            <Heading size="4" className="tracking-tight font-semibold text-foreground">
+            <Heading
+              size="4"
+              className="tracking-tight font-semibold text-foreground"
+            >
               Production Tenant API Keys
             </Heading>
-            <Badge color="blue" variant="surface" size="1" className="font-mono text-[10px] tracking-wide">
+            <Badge
+              color="blue"
+              variant="surface"
+              size="1"
+              className="font-mono text-[10px] tracking-wide"
+            >
               {tenantId || 'Personal Tenant'}
             </Badge>
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
@@ -193,8 +207,8 @@ export function ApiKeysManager() {
             </span>
           </div>
           <Text size="2" color="gray" className="leading-relaxed">
-            Keys belong strictly to your isolated tenant. Generate credentials for your
-            applications and client SDKs.
+            Keys belong strictly to your isolated tenant. Generate credentials
+            for your applications and client SDKs.
           </Text>
         </div>
 
@@ -227,7 +241,11 @@ export function ApiKeysManager() {
 
               <div className="flex justify-end gap-3 pt-2">
                 <Dialog.Close>
-                  <Button variant="soft" color="gray" className="cursor-pointer">
+                  <Button
+                    variant="soft"
+                    color="gray"
+                    className="cursor-pointer"
+                  >
                     Cancel
                   </Button>
                 </Dialog.Close>
@@ -246,9 +264,32 @@ export function ApiKeysManager() {
       </div>
 
       {error && (
-        <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-xs flex items-center gap-2">
-          <AlertTriangle className="w-4 h-4 shrink-0" />
-          <span>{error}</span>
+        <div className="p-3.5 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-xs space-y-1.5">
+          <div className="flex items-center gap-2 font-medium">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span>{error}</span>
+          </div>
+          {(error.toLowerCase().includes('fetch') || isLocalGatewayUrl) && (
+            <p className="text-[11px] text-muted-foreground leading-relaxed pl-6">
+              Unable to reach the Echo Gate backend at{' '}
+              <code className="font-mono bg-muted px-1 py-0.5 rounded text-foreground">
+                {API_ROOT}
+              </code>
+              . When deploying the frontend first to Vercel, set{' '}
+              <code className="font-mono bg-muted px-1 py-0.5 rounded text-foreground">
+                NEXT_PUBLIC_API_BASE_URL
+              </code>{' '}
+              to your live HTTPS gateway URL, allow this origin in backend{' '}
+              <code className="font-mono bg-muted px-1 py-0.5 rounded text-foreground">
+                CORS_ORIGINS
+              </code>
+              , and enable{' '}
+              <code className="font-mono bg-muted px-1 py-0.5 rounded text-foreground">
+                SUPABASE_AUTH_ENABLED=true
+              </code>{' '}
+              on the gateway.
+            </p>
+          )}
         </div>
       )}
 
@@ -282,7 +323,9 @@ export function ApiKeysManager() {
                       <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary border border-primary/20 flex items-center justify-center mx-auto">
                         <KeyRound className="w-5 h-5" />
                       </div>
-                      <p className="text-xs text-muted-foreground">No API keys generated for this tenant yet.</p>
+                      <p className="text-xs text-muted-foreground">
+                        No API keys generated for this tenant yet.
+                      </p>
                       <button
                         type="button"
                         onClick={() => setIsCreateOpen(true)}
@@ -437,7 +480,11 @@ export function ApiKeysManager() {
                   <span>Use as Active Key in Playground</span>
                 </button>
                 <Dialog.Close>
-                  <Button variant="solid" color="gray" className="cursor-pointer">
+                  <Button
+                    variant="solid"
+                    color="gray"
+                    className="cursor-pointer"
+                  >
                     Done
                   </Button>
                 </Dialog.Close>

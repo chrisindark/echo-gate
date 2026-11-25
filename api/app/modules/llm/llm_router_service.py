@@ -334,6 +334,20 @@ class LlmRouterService:
                     )
                 )
 
+        allowed_providers = getattr(request, "allowed_providers", None)
+        if allowed_providers is not None:
+            candidates = [
+                c for c in candidates if c.service.strip().lower() in allowed_providers
+            ]
+            if not candidates:
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "message": "Requested provider is not available for anonymous callers.",
+                        "error_code": "provider_not_allowed",
+                    },
+                )
+
         last_exception: BaseException | None = None
 
         for idx, candidate in enumerate(candidates):
@@ -563,6 +577,20 @@ class LlmRouterService:
                         service=fallback_service,
                         model=fallback_model or request.model,
                     )
+                )
+
+        allowed_providers = getattr(request, "allowed_providers", None)
+        if allowed_providers is not None:
+            candidates = [
+                c for c in candidates if c.service.strip().lower() in allowed_providers
+            ]
+            if not candidates:
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "message": "Requested provider is not available for anonymous callers.",
+                        "error_code": "provider_not_allowed",
+                    },
                 )
 
         last_exception: BaseException | None = None
@@ -2925,6 +2953,11 @@ class LlmRouterService:
                 if (
                     config.USE_FALLBACK_LLM == "true"
                     and config.FALLBACK_LLM_SERVICE
+                    and (
+                        getattr(request, "allowed_providers", None) is None
+                        or config.FALLBACK_LLM_SERVICE.strip().lower()
+                        in request.allowed_providers
+                    )
                     and not (
                         isinstance(e, HTTPException)
                         and e.status_code in (400, 401, 403, 500)
@@ -3389,6 +3422,11 @@ class LlmRouterService:
                 if (
                     config.USE_FALLBACK_LLM == "true"
                     and config.FALLBACK_LLM_SERVICE
+                    and (
+                        getattr(request, "allowed_providers", None) is None
+                        or config.FALLBACK_LLM_SERVICE.strip().lower()
+                        in request.allowed_providers
+                    )
                     and not (
                         isinstance(e, HTTPException)
                         and e.status_code in (400, 401, 403, 500)

@@ -8,3 +8,4 @@ This directory contains records of significant architectural decisions made duri
 | **0002** | [Out-of-Process HTTP Inference Platform](0002-http-inference-platform.md) | Accepted | 2026-10-18 |
 | **0003** | [PostgreSQL Row-Level Security (RLS) Multi-Tenancy](0003-postgres-rls-tenancy.md) | Accepted | 2026-10-20 |
 | **0004** | [Optional pgvector Cache Backend (dense-first)](0004-pgvector-cache-backend.md) | Proposed | 2026-11-20 |
+| **0005** | [Per-Tenant BYOK Provider Credentials](0005-byok-provider-credentials.md) | Proposed | 2026-11-25 |

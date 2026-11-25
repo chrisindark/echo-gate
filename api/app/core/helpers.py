@@ -66,7 +66,7 @@ _CHARS_PER_TOKEN = 4
 _TOKENIZER_CACHE: dict[str, Any] = {}
 
 # Model-family prefixes whose tokenizer is a different BPE vocabulary.
-_O200K_PREFIXES = ("gpt-4o", "gpt-4.1", "gpt-5", "o1", "o3", "o4")
+_O200K_PREFIXES = ("gpt-4o", "gpt-4.1", "gpt-5", "gpt-6", "o1", "o3", "o4")
 
 
 def tokenizer_name_for_model(model: str | None) -> str:

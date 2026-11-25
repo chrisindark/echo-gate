@@ -43,8 +43,12 @@ poetry run uvicorn app.main:app --port 8000 --reload
 
 ## Layout
 
-- `src/app/layout.tsx` — root layout and providers.
-- `src/app/page.tsx` — single-turn completion playground with provider/model selectors, temperature/tokens sliders, structured-output modes (`text` / `json_object` / `json_schema` with presets), prompt optimization toggle, thinking blocks, and semantic cache status badges. Supports `?hash=<exact_hash>` to reload a stored trace.
+- `src/app/layout.tsx` — root layout, metadata, and providers.
+- `src/proxy.ts` — Next.js 16 proxy refreshing Supabase SSR session cookies.
+- `src/components/app-shell.tsx` — switches between the public SaaS header (`SiteNavbar`) on `/`, `/login`, `/signup`, `/forgot-password`, `/reset-password` and the console sidebar (`AppSidebar`) on app routes.
+- `src/components/site-navbar.tsx` — responsive public top navigation bar with auth links (`Sign in`, `Sign up`, `Sign out`).
+- `src/app/page.tsx` — SaaS landing page (features, pipeline overview, SDK quickstart, auth CTAs, and `/?hash=` redirect to `/playground`).
+- `src/app/playground/page.tsx` — single-turn completion playground with provider/model selectors, temperature/tokens sliders, structured-output modes (`text` / `json_object` / `json_schema` with presets), prompt optimization toggle, thinking blocks, and semantic cache status badges. Supports `?hash=<exact_hash>` to reload a stored trace.
 - `src/app/conversations/page.tsx` — stateful multi-turn conversational chat with persistent thread history, collapsible sidebar (grouped date categories, rename, delete), SSE streaming, thinking blocks, and prompt optimization telemetry. Supports `?c=<conversation_id>`.
 - `src/components/conversation-sidebar.tsx` — collapsible conversation history sidebar with grouped date categories (Today, Yesterday, etc.), New Chat, rename, and delete actions.
 - `src/lib/conversations.ts` — API client for `/api/v1/conversations`.
@@ -84,10 +88,7 @@ poetry run uvicorn app.main:app --port 8000 --reload
   `next build`, so the value cannot be changed at runtime). The Compose images
   build with `http://echo-gate:8000` because no host ports are published. See
   `.env.example`.
-- **Keep the model allowlist in sync.** `src/app/page.tsx` has a `PROVIDERS` map that
-  mirrors the gateway's per-provider allowlist in
-  `../app/modules/chat/chat_schema.py` (`ALLOWED_MODELS`). When the backend adds or
-  removes a model, update both.
+- **Models & Providers are backend-driven.** Playground (`/playground`) and Conversations (`/conversations`) load available providers and models dynamically from `GET /api/v1/models` (`src/lib/providers.ts`). Anonymous requests can be restricted to free-tier providers (`ANONYMOUS_ALLOWED_PROVIDERS=groq,openrouter` on the backend).
 - The cache pages (`/admin/cache`, `/admin/explorer`) are admin surfaces and
   require an `X-Admin-Key` configured in Settings, exactly like `/quota`. The
   inspector deliberately shows expired and cross-tenant entries; it reuses the
