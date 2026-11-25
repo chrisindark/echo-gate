@@ -6,6 +6,31 @@ from app.core.config import config
 
 logger = logging.getLogger(__name__)
 
+_CLAUDE_MODELS: tuple[str, ...] = (
+    # Claude 5.x
+    "claude-fable-5-2",
+    "claude-opus-5-5",
+    "claude-sonnet-5-5",
+    "claude-haiku-5-5",
+    # Claude 4.6
+    "claude-opus-4-6",
+    "claude-sonnet-4-6",
+    # Claude 4.5
+    "claude-opus-4-5-20251101",
+    "claude-sonnet-4-5-20250929",
+    "claude-haiku-4-5-20251001",
+    # Claude 4.x
+    "claude-opus-4-1-20250805",
+    "claude-sonnet-4-20250514",
+    "claude-opus-4-20250514",
+    # Claude 3.x
+    "claude-3-7-sonnet-20250219",
+    "claude-3-5-sonnet-20241022",
+    "claude-3-5-haiku-20241022",
+    "claude-3-opus-20240229",
+    "claude-3-haiku-20240307",
+)
+
 DEFAULT_ALLOWED_MODELS: dict[str, list[str]] = {
     "ollama": [
         "qwen3:8b",
@@ -45,28 +70,38 @@ DEFAULT_ALLOWED_MODELS: dict[str, list[str]] = {
         "gemini-1.5-flash",
     ],
     "openai": [
+        # GPT-6
+        "gpt-6.2-astra",
+        "gpt-6.2-sol",
+        "gpt-6.1-sol",
+        "gpt-6-luna",
+        # GPT-5.x
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.4-nano",
+        "gpt-5.2",
+        "gpt-5",
+        "gpt-5-mini",
+        "gpt-5-nano",
+        # GPT-4.1 & GPT-4o
+        "gpt-4.1",
+        "gpt-4.1-mini",
+        "gpt-4.1-nano",
+        "gpt-4o",
         "gpt-4o-mini",
+        # Reasoning o-series
+        "o3",
+        "o4-mini",
+        "o3-mini",
     ],
-    "groq": ["openai/gpt-oss-20b", "openai/gpt-oss-safeguard-20b"],
+    "groq": ["openai/gpt-oss-20b", "openai/gpt-oss-safeguard-20b", "qwen/qwen3.8-27b"],
     "openrouter": [
         "qwen/qwen3.8-27b:free",
         "google/gemma-4-26b-a4b-it:free",
         "google/gemma-4-31b-it:free",
     ],
-    "claude": [
-        "claude-3-7-sonnet-20250219",
-        "claude-3-5-sonnet-20241022",
-        "claude-3-5-haiku-20241022",
-        "claude-3-opus-20240229",
-        "claude-3-haiku-20240307",
-    ],
-    "anthropic": [
-        "claude-3-7-sonnet-20250219",
-        "claude-3-5-sonnet-20241022",
-        "claude-3-5-haiku-20241022",
-        "claude-3-opus-20240229",
-        "claude-3-haiku-20240307",
-    ],
+    "claude": list(_CLAUDE_MODELS),
+    "anthropic": list(_CLAUDE_MODELS),
 }
 
 DEFAULT_MODEL_ALIASES: dict[str, list[dict[str, str]]] = {
@@ -89,8 +124,25 @@ DEFAULT_MODEL_ALIASES: dict[str, list[dict[str, str]]] = {
 
 DEFAULT_MODEL_CONTEXT_WINDOWS: dict[str, int] = {
     # OpenAI
-    "gpt-4o-mini": 128_000,
+    "gpt-6.2-astra": 1_050_000,
+    "gpt-6.2-sol": 1_050_000,
+    "gpt-6.1-sol": 1_050_000,
+    "gpt-6-luna": 1_050_000,
+    "gpt-5.4": 1_050_000,
+    "gpt-5.4-mini": 400_000,
+    "gpt-5.4-nano": 400_000,
+    "gpt-5.2": 400_000,
+    "gpt-5": 400_000,
+    "gpt-5-mini": 400_000,
+    "gpt-5-nano": 400_000,
+    "gpt-4.1": 1_047_576,
+    "gpt-4.1-mini": 1_047_576,
+    "gpt-4.1-nano": 1_047_576,
     "gpt-4o": 128_000,
+    "gpt-4o-mini": 128_000,
+    "o3": 200_000,
+    "o4-mini": 200_000,
+    "o3-mini": 200_000,
     # Gemini
     "gemini-3.8-flash": 1_048_576,
     "gemini-3.5-flash-lite": 1_048_576,
@@ -105,6 +157,18 @@ DEFAULT_MODEL_CONTEXT_WINDOWS: dict[str, int] = {
     "gemini-1.5-pro": 2_097_152,
     "gemini-1.5-flash": 1_048_576,
     # Claude / Anthropic
+    "claude-fable-5-2": 1_000_000,
+    "claude-opus-5-5": 1_000_000,
+    "claude-sonnet-5-5": 1_000_000,
+    "claude-haiku-5-5": 1_000_000,
+    "claude-opus-4-6": 1_000_000,
+    "claude-sonnet-4-6": 1_000_000,
+    "claude-opus-4-5-20251101": 200_000,
+    "claude-sonnet-4-5-20250929": 200_000,
+    "claude-haiku-4-5-20251001": 200_000,
+    "claude-opus-4-1-20250805": 200_000,
+    "claude-sonnet-4-20250514": 200_000,
+    "claude-opus-4-20250514": 200_000,
     "claude-3-7-sonnet-20250219": 200_000,
     "claude-3-5-sonnet-20241022": 200_000,
     "claude-3-5-haiku-20241022": 200_000,

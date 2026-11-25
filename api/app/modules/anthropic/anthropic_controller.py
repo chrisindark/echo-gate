@@ -10,7 +10,11 @@ from fastapi.responses import StreamingResponse
 from app.core.constants import EchoGateHeaders
 from app.core.dependencies import get_llm_router_service
 from app.core.error_envelopes import ANTHROPIC_ERROR_RESPONSES
-from app.core.guards import api_key_auth_optional_guard, llm_quota_guard
+from app.core.guards import (
+    api_key_auth_optional_guard,
+    enforce_anonymous_provider_access,
+    llm_quota_guard,
+)
 from app.modules.anthropic.anthropic_adapter import (
     normalize_anthropic_to_chat_request,
     normalize_chat_to_anthropic_response,
@@ -77,6 +81,7 @@ async def _handle_messages_request(
 
     apply_request_directives(request, http_request.headers)
     chat_req = normalize_anthropic_to_chat_request(request)
+    enforce_anonymous_provider_access(http_request, chat_req)
     api_key = x_api_key or getattr(http_request.state, "api_key", None)
 
     # Required response header for Anthropic clients

@@ -70,6 +70,7 @@ class Config:
     def load(self):
         self.PROJECT_NAME = os.getenv("PROJECT_NAME", "").strip() or "echo-gate"
         self.VERSION = os.getenv("VERSION", "").strip() or "0.1.0"
+        self.PYTHON_ENV = os.getenv("PYTHON_ENV", "local").strip().lower() or "local"
 
         # CORS & Security
         raw_cors = os.getenv("CORS_ORIGINS", "").strip()
@@ -87,7 +88,9 @@ class Config:
 
         # Supabase & Control-Plane Authentication
         self.SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
-        self.SUPABASE_PUBLISHABLE_KEY = os.getenv("SUPABASE_PUBLISHABLE_KEY", "").strip()
+        self.SUPABASE_PUBLISHABLE_KEY = os.getenv(
+            "SUPABASE_PUBLISHABLE_KEY", ""
+        ).strip()
         self.SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "").strip()
         self.SUPABASE_AUTH_ENABLED = _bool_env(
             "SUPABASE_AUTH_ENABLED", bool(self.SUPABASE_JWT_SECRET)
@@ -99,6 +102,30 @@ class Config:
         self.SUPABASE_JWT_ALGORITHMS = [
             algo.strip() for algo in raw_algos.split(",") if algo.strip()
         ]
+
+        # Restrict keyless anonymous callers to specific free-tier providers.
+        # Defaults to {"groq", "openrouter"} in production / SaaS deployments
+        # (when SUPABASE_AUTH_ENABLED=true or PYTHON_ENV=production) unless
+        # explicitly overridden via ANONYMOUS_ALLOWED_PROVIDERS ("*" for all).
+        raw_anon_providers = os.getenv("ANONYMOUS_ALLOWED_PROVIDERS")
+        if raw_anon_providers is None:
+            if self.SUPABASE_AUTH_ENABLED or self.PYTHON_ENV == "production":
+                self.ANONYMOUS_ALLOWED_PROVIDERS: set[str] | None = {
+                    "groq",
+                    "openrouter",
+                }
+            else:
+                self.ANONYMOUS_ALLOWED_PROVIDERS = None
+        else:
+            cleaned_anon = raw_anon_providers.strip()
+            if not cleaned_anon:
+                self.ANONYMOUS_ALLOWED_PROVIDERS = set()
+            elif cleaned_anon == "*":
+                self.ANONYMOUS_ALLOWED_PROVIDERS = None
+            else:
+                self.ANONYMOUS_ALLOWED_PROVIDERS = {
+                    p.strip().lower() for p in cleaned_anon.split(",") if p.strip()
+                }
 
         # Telemetry & Observability
         self.OTEL_ENABLED = os.getenv("OTEL_ENABLED", "true").lower() == "true"

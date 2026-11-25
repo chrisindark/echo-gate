@@ -24,6 +24,7 @@ from app.modules.chat.chat_controller import (
     RequireCacheRead,
     RequireCacheWrite,
     api_v1_router,
+    cache_admin_router,
 )
 
 ADMIN_KEY = EchoGateHeaders.ADMIN_KEY
@@ -85,6 +86,9 @@ def _app(router: _StubRouter, *, authorize: AdminKeyIdentity | None = None) -> F
         app.dependency_overrides[RequireCacheRead] = lambda: authorize
         app.dependency_overrides[RequireCacheWrite] = lambda: authorize
     app.include_router(api_v1_router)
+    # Cache diagnostics moved to their own surface router so the minimal
+    # gateway profile can omit them; a bare app must mount both here.
+    app.include_router(cache_admin_router)
     return app
 
 
@@ -188,7 +192,11 @@ class TestAdminKeyAndTenantTargeting(unittest.TestCase):
             "/api/v1/chat/completions/exact-search": RequireCacheRead,
             "/api/v1/chat/completions/cache-save": RequireCacheWrite,
         }
-        routes = {route.path: route for route in api_v1_router.routes}
+        routes = {
+            route.path: route
+            for router in (api_v1_router, cache_admin_router)
+            for route in router.routes
+        }
         for path, guard in expected.items():
             with self.subTest(path=path):
                 calls = [dep.call for dep in routes[path].dependant.dependencies]

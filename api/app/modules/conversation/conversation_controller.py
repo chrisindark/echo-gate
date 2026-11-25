@@ -10,6 +10,7 @@ from app.core.dependencies import get_llm_router_service
 from app.core.error_classification import classify_provider_error
 from app.core.guards import (
     api_key_auth_optional_guard,
+    enforce_anonymous_provider_access,
     llm_quota_guard,
     resolve_caller_user,
 )
@@ -233,6 +234,7 @@ async def chat_in_conversation(
     chat_req.tenant_id = tenant_id
     chat_req.user_id = getattr(http_request.state, "user_id", None)
     chat_req.session_id = http_request.headers.get(EchoGateHeaders.SESSION_ID)
+    enforce_anonymous_provider_access(http_request, chat_req)
 
     # Header-level prompt optimization parsing fallback
     opt_header = http_request.headers.get(

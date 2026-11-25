@@ -1,8 +1,12 @@
 import unittest
 
 from app.core.circuit_breaker import circuit_breaker_registry
+from app.core.helpers import tokenizer_name_for_model
+from app.core.pricing import PRICING_CONFIG, get_model_prices
 from app.modules.chat.chat_schema import ChatCompletionRequest, ChatMessage
 from app.modules.llm.model_registry import (
+    DEFAULT_ALLOWED_MODELS,
+    DEFAULT_MODEL_CONTEXT_WINDOWS,
     DynamicModelRegistry,
 )
 
@@ -133,6 +137,37 @@ class TestModelRegistryAndAliases(unittest.TestCase):
         # register_context_window
         self.registry.register_context_window("custom_m", 32000)
         self.assertEqual(self.registry.get_context_window("custom_m"), 32000)
+
+    def test_openai_and_claude_models_have_context_windows_and_prices(self):
+        for service in ("openai", "claude", "anthropic"):
+            models = self.registry.get_allowed_models(service)
+            self.assertGreater(len(models), 5, msg=f"expected catalog for {service}")
+            for model in models:
+                self.assertIn(
+                    model,
+                    DEFAULT_MODEL_CONTEXT_WINDOWS,
+                    msg=f"missing context window for {service}/{model}",
+                )
+                self.assertIn(
+                    model,
+                    PRICING_CONFIG[service],
+                    msg=f"missing explicit price for {service}/{model}",
+                )
+                prompt_price, completion_price = get_model_prices(service, model)
+                self.assertGreater(prompt_price, 0.0)
+                self.assertGreater(completion_price, 0.0)
+
+        self.assertEqual(
+            set(DEFAULT_ALLOWED_MODELS["claude"]),
+            set(DEFAULT_ALLOWED_MODELS["anthropic"]),
+        )
+        self.assertEqual(
+            get_model_prices("claude", "claude-sonnet-5-5"),
+            get_model_prices("anthropic", "claude-sonnet-5-5"),
+        )
+        self.assertEqual(tokenizer_name_for_model("gpt-6.2-astra"), "o200k_base")
+        self.assertEqual(tokenizer_name_for_model("gpt-5.4"), "o200k_base")
+        self.assertEqual(tokenizer_name_for_model("o3"), "o200k_base")
 
 
 if __name__ == "__main__":

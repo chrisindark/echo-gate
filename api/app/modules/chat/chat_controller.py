@@ -10,6 +10,7 @@ from app.core.error_classification import classify_provider_error
 from app.core.error_envelopes import OPENAI_ERROR_RESPONSES
 from app.core.guards import (
     api_key_auth_optional_guard,
+    enforce_anonymous_provider_access,
     llm_quota_guard,
     require_admin_scope,
 )
@@ -89,6 +90,7 @@ async def create_chat_completion(
         EchoGateHeaders.CONVERSATION_ID
     )
     apply_request_directives(request, http_request.headers)
+    enforce_anonymous_provider_access(http_request, request)
 
     api_key = getattr(http_request.state, "api_key", None)
 

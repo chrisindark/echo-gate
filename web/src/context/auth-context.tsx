@@ -1,9 +1,18 @@
 'use client';
 
-import { getSupabaseClient, isSupabaseConfigured } from '@/lib/supabase';
+import {
+  configuredOAuthProviders,
+  getSupabaseClient,
+  isSupabaseConfigured,
+} from '@/lib/supabase';
 import { getUserProfile, UserProfile } from '@/lib/user-api';
 import type { Session, User } from '@supabase/supabase-js';
 import React, { createContext, useContext, useEffect, useState } from 'react';
+
+interface SignUpResult {
+  error: Error | null;
+  needsEmailConfirmation: boolean;
+}
 
 interface AuthContextType {
   user: User | null;
@@ -13,25 +22,43 @@ interface AuthContextType {
   profile: UserProfile | null;
   isLoading: boolean;
   isConfigured: boolean;
+  oauthProviders: ('github' | 'google')[];
   signInWithEmail: (
     email: string,
     password: string
   ) => Promise<{ error: Error | null }>;
   signUpWithEmail: (
     email: string,
-    password: string
+    password: string,
+    fullName?: string
+  ) => Promise<SignUpResult>;
+  signInWithOAuth: (
+    provider: 'github' | 'google',
+    nextPath?: string
   ) => Promise<{ error: Error | null }>;
+  resendSignupConfirmation: (email: string) => Promise<{ error: Error | null }>;
+  resetPasswordForEmail: (email: string) => Promise<{ error: Error | null }>;
+  updatePassword: (password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+function getOrigin(): string {
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return window.location.origin;
+  }
+  return process.env.NEXT_PUBLIC_APP_URL?.replace(/\/+$/, '') || '';
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(() => isSupabaseConfigured);
+  const [isLoading, setIsLoading] = useState<boolean>(
+    () => isSupabaseConfigured
+  );
 
   const supabase = getSupabaseClient();
 
@@ -52,7 +79,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     let isMounted = true;
 
-    // Get current session
     supabase.auth
       .getSession()
       .then(({ data: { session: initialSession } }) => {
@@ -71,7 +97,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (isMounted) setIsLoading(false);
       });
 
-    // Listen for auth changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, currentSession) => {
@@ -102,14 +127,95 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { error: error ? new Error(error.message) : null };
   };
 
-  const signUpWithEmail = async (email: string, password: string) => {
+  const signUpWithEmail = async (
+    email: string,
+    password: string,
+    fullName?: string
+  ): Promise<SignUpResult> => {
+    if (!supabase) {
+      return {
+        error: new Error('Supabase is not configured.'),
+        needsEmailConfirmation: false,
+      };
+    }
+    const origin = getOrigin();
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo: origin
+          ? `${origin}/auth/callback?next=/settings`
+          : undefined,
+        data: fullName?.trim() ? { full_name: fullName.trim() } : undefined,
+      },
+    });
+    if (error) {
+      return { error: new Error(error.message), needsEmailConfirmation: false };
+    }
+    return {
+      error: null,
+      needsEmailConfirmation: Boolean(data.user && !data.session),
+    };
+  };
+
+  const signInWithOAuth = async (
+    provider: 'github' | 'google',
+    nextPath = '/settings'
+  ) => {
     if (!supabase) {
       return { error: new Error('Supabase is not configured.') };
     }
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
+    const origin = getOrigin();
+    const safeNext =
+      nextPath.startsWith('/') && !nextPath.startsWith('//')
+        ? nextPath
+        : '/settings';
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: {
+        redirectTo: origin
+          ? `${origin}/auth/callback?next=${encodeURIComponent(safeNext)}`
+          : undefined,
+      },
     });
+    return { error: error ? new Error(error.message) : null };
+  };
+
+  const resendSignupConfirmation = async (email: string) => {
+    if (!supabase) {
+      return { error: new Error('Supabase is not configured.') };
+    }
+    const origin = getOrigin();
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email,
+      options: {
+        emailRedirectTo: origin
+          ? `${origin}/auth/callback?next=/settings`
+          : undefined,
+      },
+    });
+    return { error: error ? new Error(error.message) : null };
+  };
+
+  const resetPasswordForEmail = async (email: string) => {
+    if (!supabase) {
+      return { error: new Error('Supabase is not configured.') };
+    }
+    const origin = getOrigin();
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: origin
+        ? `${origin}/auth/callback?next=/reset-password`
+        : undefined,
+    });
+    return { error: error ? new Error(error.message) : null };
+  };
+
+  const updatePassword = async (password: string) => {
+    if (!supabase) {
+      return { error: new Error('Supabase is not configured.') };
+    }
+    const { error } = await supabase.auth.updateUser({ password });
     return { error: error ? new Error(error.message) : null };
   };
 
@@ -128,8 +234,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const tenantId =
-    profile?.tenant_id || (user?.id ? `usr_${user.id}` : null);
+  const tenantId = profile?.tenant_id || (user?.id ? `usr_${user.id}` : null);
 
   return (
     <AuthContext.Provider
@@ -141,8 +246,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         profile,
         isLoading,
         isConfigured: isSupabaseConfigured,
+        oauthProviders: configuredOAuthProviders,
         signInWithEmail,
         signUpWithEmail,
+        signInWithOAuth,
+        resendSignupConfirmation,
+        resetPasswordForEmail,
+        updatePassword,
         signOut,
         refreshProfile,
       }}

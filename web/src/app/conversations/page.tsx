@@ -14,6 +14,7 @@ import {
 } from '@radix-ui/themes';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
+  AlertCircle,
   Braces,
   Brain,
   Check,
@@ -24,6 +25,7 @@ import {
   MessagesSquare,
   PanelLeftClose,
   PanelLeftOpen,
+  RefreshCw,
   Send,
   Settings2,
   Sparkles,
@@ -31,12 +33,25 @@ import {
   Tag,
   X,
 } from 'lucide-react';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import { ConversationSidebar } from '@/components/conversation-sidebar';
 import { useApiKey } from '@/context/api-key-context';
+import { useAuth } from '@/context/auth-context';
 import { API_ROOT, errorMessageFrom } from '@/lib/api';
-import { PROVIDERS } from '@/lib/providers';
+import {
+  AUTO_PROVIDER_ID,
+  buildAuthHeaders,
+  formatProviderLabel,
+  useModelCatalog,
+} from '@/lib/providers';
 import {
   ConversationItem,
   createConversation,
@@ -139,6 +154,15 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<ChatTurnMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const { apiKey, isSettingsOpen, setIsSettingsOpen } = useApiKey();
+  const { user, accessToken } = useAuth();
+  const {
+    providers,
+    modelsByProvider,
+    modelMetadata,
+    isLoading: isLoadingModels,
+    error: modelsError,
+    reload: reloadModels,
+  } = useModelCatalog();
 
   // Conversation history state
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
@@ -149,9 +173,28 @@ export default function ChatPage() {
     useState(true);
   const [loadingConversations, setLoadingConversations] = useState(false);
 
-  // Settings state
-  const [provider, setProvider] = useState<keyof typeof PROVIDERS>('ollama');
-  const [model, setModel] = useState(PROVIDERS.ollama[0]);
+  // Settings state (driven dynamically by GET /api/v1/models)
+  const [selectedProvider, setSelectedProvider] = useState<string>('');
+  const [selectedModel, setSelectedModel] = useState<string>('');
+
+  const activeProvider = useMemo(() => {
+    if (selectedProvider && providers.includes(selectedProvider)) {
+      return selectedProvider;
+    }
+    return providers[0] ?? '';
+  }, [providers, selectedProvider]);
+
+  const availableModels = useMemo(
+    () => (activeProvider ? (modelsByProvider[activeProvider] ?? []) : []),
+    [modelsByProvider, activeProvider]
+  );
+
+  const activeModel = useMemo(() => {
+    if (selectedModel && availableModels.includes(selectedModel)) {
+      return selectedModel;
+    }
+    return availableModels[0] ?? '';
+  }, [availableModels, selectedModel]);
   const [temperature, setTemperature] = useState<number>(0.7);
   const [maxTokens, setMaxTokens] = useState<number>(8192);
   const [stream, setStream] = useState<boolean>(true);
@@ -207,7 +250,7 @@ export default function ChatPage() {
     async (conversationId: string) => {
       try {
         setLoading(true);
-        const conv = await getConversation(conversationId, apiKey);
+        const conv = await getConversation(conversationId, apiKey, accessToken);
         setActiveConversationId(conv.id);
 
         const mapped: ChatTurnMessage[] = conv.messages.map((m) => ({
@@ -225,7 +268,7 @@ export default function ChatPage() {
         setLoading(false);
       }
     },
-    [apiKey]
+    [apiKey, accessToken]
   );
 
   const loadHash = useCallback(async (hash: string) => {
@@ -283,7 +326,7 @@ export default function ChatPage() {
     const loadInitialState = async () => {
       setLoadingConversations(true);
       try {
-        const list = await fetchConversations(apiKey);
+        const list = await fetchConversations(apiKey, accessToken);
         setConversations(list);
 
         const params = new URLSearchParams(window.location.search);
@@ -303,7 +346,7 @@ export default function ChatPage() {
     };
 
     loadInitialState();
-  }, [apiKey, selectConversation, loadHash]);
+  }, [apiKey, accessToken, selectConversation, loadHash]);
 
   const handleNewConversation = () => {
     if (loading && abortControllerRef.current) {
@@ -316,7 +359,7 @@ export default function ChatPage() {
   };
 
   const handleDeleteConversation = async (conversationId: string) => {
-    await deleteConversation(conversationId, apiKey);
+    await deleteConversation(conversationId, apiKey, accessToken);
     setConversations((prev) => prev.filter((c) => c.id !== conversationId));
     if (activeConversationId === conversationId) {
       handleNewConversation();
@@ -330,7 +373,8 @@ export default function ChatPage() {
     const updated = await updateConversationTitle(
       conversationId,
       newTitle,
-      apiKey
+      apiKey,
+      accessToken
     );
     setConversations((prev) =>
       prev.map((c) => (c.id === conversationId ? updated : c))
@@ -350,7 +394,7 @@ export default function ChatPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!prompt.trim() || loading) return;
+    if (!prompt.trim() || loading || !activeModel) return;
 
     const userText = prompt.trim();
     setPrompt('');
@@ -361,11 +405,15 @@ export default function ChatPage() {
       try {
         const title =
           userText.length > 35 ? userText.slice(0, 35) + '...' : userText;
-        const newConv = await createConversation(title, apiKey);
+        const newConv = await createConversation(title, apiKey, accessToken);
         currentConvId = newConv.id;
         setActiveConversationId(currentConvId);
         setConversations((prev) => [newConv, ...prev]);
-        window.history.replaceState({}, '', `/conversations?c=${currentConvId}`);
+        window.history.replaceState(
+          {},
+          '',
+          `/conversations?c=${currentConvId}`
+        );
       } catch (err) {
         console.error('Failed to auto-create conversation:', err);
       }
@@ -385,7 +433,7 @@ export default function ChatPage() {
       role: 'assistant',
       content: '',
       reasoningContent: '',
-      modelUsed: model,
+      modelUsed: activeModel,
       isStreaming: stream,
       isThinkingOpen: true,
       createdAt: new Date().toISOString(),
@@ -400,12 +448,14 @@ export default function ChatPage() {
     try {
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
+        ...buildAuthHeaders(apiKey, accessToken),
       };
-      if (apiKey) headers['X-API-Key'] = apiKey;
 
       const bodyPayload: Record<string, unknown> = {
-        service_name: provider,
-        model: model,
+        ...(activeProvider && activeProvider !== AUTO_PROVIDER_ID
+          ? { service_name: activeProvider }
+          : {}),
+        model: activeModel,
         message: userText,
         temperature: temperature,
         max_tokens: maxTokens,
@@ -655,12 +705,10 @@ export default function ChatPage() {
   const isJsonText = (text: string) => {
     if (!text) return false;
     const trimmed = text.trim();
-    if (
-      !(
-        (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
-        (trimmed.startsWith('[') && trimmed.endsWith(']'))
-      )
-    ) {
+    if (!(
+      (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+      (trimmed.startsWith('[') && trimmed.endsWith(']'))
+    )) {
       return false;
     }
     try {
@@ -728,8 +776,8 @@ export default function ChatPage() {
             <div className="flex items-center gap-2 min-w-0">
               <MessagesSquare className="w-4 h-4 text-primary shrink-0" />
               <span className="font-semibold text-sm text-foreground truncate max-w-[180px] sm:max-w-xs md:max-w-md">
-                {conversations.find((c) => c.id === activeConversationId)?.title ||
-                  'New Conversation'}
+                {conversations.find((c) => c.id === activeConversationId)
+                  ?.title || 'New Conversation'}
               </span>
             </div>
           </div>
@@ -737,7 +785,11 @@ export default function ChatPage() {
           <div className="flex items-center gap-2">
             <div className="hidden sm:flex items-center gap-1.5 text-xs text-muted-foreground">
               <span className="font-mono px-2 py-0.5 rounded bg-muted/60 border border-border/60 text-[11px] text-foreground font-medium">
-                {provider} / {model}
+                {activeProvider && activeModel
+                  ? `${formatProviderLabel(activeProvider)} / ${activeModel}`
+                  : isLoadingModels
+                    ? 'Loading models...'
+                    : 'No models available'}
               </span>
               {promptOptimization && (
                 <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-medium flex items-center gap-1">
@@ -1156,46 +1208,109 @@ export default function ChatPage() {
 
             <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
               <div>
-
                 <div className="space-y-4">
-                  <Flex direction="column" gap="1">
-                    <Text as="label" size="2" weight="bold">
-                      Provider
-                    </Text>
-                    <Select.Root
-                      value={provider}
-                      onValueChange={(val) => {
-                        const newProvider = val as keyof typeof PROVIDERS;
-                        setProvider(newProvider);
-                        setModel(PROVIDERS[newProvider][0]);
-                      }}
-                    >
-                      <Select.Trigger className="w-full" />
-                      <Select.Content>
-                        {Object.keys(PROVIDERS).map((p) => (
-                          <Select.Item key={p} value={p}>
-                            {p}
-                          </Select.Item>
-                        ))}
-                      </Select.Content>
-                    </Select.Root>
-                  </Flex>
+                  {modelsError ? (
+                    <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-xs space-y-2">
+                      <div className="flex items-start gap-2">
+                        <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                        <span>{modelsError}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={reloadModels}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-destructive/30 hover:bg-destructive/15 text-[11px] font-medium cursor-pointer"
+                      >
+                        <RefreshCw className="w-3 h-3" />
+                        <span>Retry loading models</span>
+                      </button>
+                    </div>
+                  ) : isLoadingModels && providers.length === 0 ? (
+                    <div className="p-3 rounded-lg border border-border/60 bg-muted/30 text-xs text-muted-foreground flex items-center gap-2">
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-primary" />
+                      <span>Loading models from gateway...</span>
+                    </div>
+                  ) : providers.length === 0 ? (
+                    <div className="p-3 rounded-lg border border-amber-500/25 bg-amber-500/10 text-xs text-amber-200">
+                      No enabled providers/models returned by the gateway.
+                    </div>
+                  ) : (
+                    <>
+                      <Flex direction="column" gap="1">
+                        <Text as="label" size="2" weight="bold">
+                          Provider
+                        </Text>
+                        <Select.Root
+                          value={activeProvider}
+                          onValueChange={(val) => {
+                            setSelectedProvider(val);
+                            const nextModels = modelsByProvider[val] ?? [];
+                            if (nextModels.length > 0) {
+                              setSelectedModel(nextModels[0]);
+                            }
+                          }}
+                        >
+                          <Select.Trigger className="w-full" />
+                          <Select.Content>
+                            {providers.map((p) => (
+                              <Select.Item key={p} value={p}>
+                                {formatProviderLabel(p)}
+                              </Select.Item>
+                            ))}
+                          </Select.Content>
+                        </Select.Root>
+                      </Flex>
 
-                  <Flex direction="column" gap="1">
-                    <Text as="label" size="2" weight="bold">
-                      Model
-                    </Text>
-                    <Select.Root value={model} onValueChange={setModel}>
-                      <Select.Trigger className="w-full" />
-                      <Select.Content>
-                        {PROVIDERS[provider].map((m) => (
-                          <Select.Item key={m} value={m}>
-                            {m}
-                          </Select.Item>
-                        ))}
-                      </Select.Content>
-                    </Select.Root>
-                  </Flex>
+                      <Flex direction="column" gap="1">
+                        <Flex justify="between" align="center">
+                          <Text as="label" size="2" weight="bold">
+                            Model
+                          </Text>
+                          {activeModel && modelMetadata[activeModel] && (
+                            <Text size="1" color="gray" className="font-mono">
+                              {Math.round(
+                                modelMetadata[activeModel].context_window / 1000
+                              )}
+                              k ctx
+                            </Text>
+                          )}
+                        </Flex>
+                        <Select.Root
+                          value={activeModel}
+                          onValueChange={setSelectedModel}
+                        >
+                          <Select.Trigger className="w-full" />
+                          <Select.Content>
+                            {availableModels.map((m) => (
+                              <Select.Item key={m} value={m}>
+                                {m}
+                              </Select.Item>
+                            ))}
+                          </Select.Content>
+                        </Select.Root>
+                      </Flex>
+                    </>
+                  )}
+
+                  {!apiKey && !user && (
+                    <div className="p-2.5 rounded-lg border border-border/70 bg-muted/30 text-[11px] text-muted-foreground leading-relaxed">
+                      Anonymous access is limited to free-tier providers (Groq,
+                      OpenRouter).{' '}
+                      <Link
+                        href="/login"
+                        className="text-primary font-medium hover:underline"
+                      >
+                        Sign in
+                      </Link>{' '}
+                      or{' '}
+                      <Link
+                        href="/signup"
+                        className="text-primary font-medium hover:underline"
+                      >
+                        sign up
+                      </Link>{' '}
+                      to unlock OpenAI, Claude, and Gemini.
+                    </div>
+                  )}
 
                   <Box>
                     <Flex justify="between" mb="1">
@@ -1417,8 +1532,6 @@ export default function ChatPage() {
           </motion.aside>
         )}
       </AnimatePresence>
-
-
     </div>
   );
 }
