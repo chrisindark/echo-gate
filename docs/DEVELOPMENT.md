@@ -109,10 +109,10 @@ INFERENCE_BASE_URL=http://localhost:7997 uv run --project inference-platform \
 
 Echo Gate provides dedicated Docker configurations for local development (with hot reload) and production. Both publish **no host ports**: services listen only on the shared `echo-gate-net` network and resolve each other by service name. Use `docker compose exec` for host-side checks. Run one stack at a time — dev and prod use the same service aliases on that network:
 
-| Target | Compose File | Backend Dockerfile | Web Dockerfile | Features |
-|---|---|---|---|---|
-| **Development** | `docker-compose.dev.yml` | `Dockerfile.dev` | `web/Dockerfile.dev` | Host directory bind mounts, `uvicorn --reload`, `watchfiles` auto-restarting Celery on `.py` edits, Next.js Fast Refresh HMR, isolated data volumes (`postgres_dev_data`, `qdrant_dev_data`). |
-| **Production** | `docker-compose.yml` (or `deploy/compose/docker-compose.yml`) | `Dockerfile` | `web/Dockerfile` | Multi-stage slim builds, baked-in artifacts, no dev tools, standard `celery` and `uvicorn` production commands. |
+| Target          | Compose File                                                  | Backend Dockerfile | Web Dockerfile       | Features                                                                                                                                                                                      |
+| --------------- | ------------------------------------------------------------- | ------------------ | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Development** | `docker-compose.dev.yml`                                      | `Dockerfile.dev`   | `web/Dockerfile.dev` | Host directory bind mounts, `uvicorn --reload`, `watchfiles` auto-restarting Celery on `.py` edits, Next.js Fast Refresh HMR, isolated data volumes (`postgres_dev_data`, `qdrant_dev_data`). |
+| **Production**  | `docker-compose.yml` (or `deploy/compose/docker-compose.yml`) | `Dockerfile`       | `web/Dockerfile`     | Multi-stage slim builds, baked-in artifacts, no dev tools, standard `celery` and `uvicorn` production commands.                                                                               |
 
 #### Running the Development Environment (Hot Reload)
 
@@ -168,12 +168,12 @@ poetry run python -m compileall app   # syntax/import sanity check
 
 Existing suites:
 
-| File | Covers |
-| --- | --- |
+| File                                      | Covers                                                                                                                                                                                                                 |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `api/app/modules/*/*/tests/` (co-located) | Per-module unit tests: router resilience, cache-write failure isolation, intent-classifier degradation, conversation cache hit, quota concurrency, analytics aggregation, cost estimation, retention policy, and more. |
-| `tests/integration/` | End-to-end tests: streaming support, shadow cache, anonymous rate limiting, RLS, chat auth, tools support. (Some need a live Postgres.) |
-| `tests/datasets/prompt_dataset.py` | The labelled prompt dataset used by runners and calibration. |
-| `tests/contract/test_openapi_snapshot.py` | API contract gate (see below). |
+| `tests/integration/`                      | End-to-end tests: streaming support, shadow cache, anonymous rate limiting, RLS, chat auth, tools support. (Some need a live Postgres.)                                                                                |
+| `tests/datasets/prompt_dataset.py`        | The labelled prompt dataset used by runners and calibration.                                                                                                                                                           |
+| `tests/contract/test_openapi_snapshot.py` | API contract gate (see below).                                                                                                                                                                                         |
 
 ### API contract snapshot
 
@@ -226,6 +226,7 @@ rather than mixed: a warm cache simply goes cold until the corpus is migrated.
 
    `--source` defaults to `QDRANT_COLLECTION_NAME`; `--target` defaults to
    `<source>_v2`.
+
 3. **Seed the expensive entries first** (optional, for a large corpus).
    Retention metadata travels with the point, so the entries whose answers cost
    the most are the ones worth warming first:
@@ -238,6 +239,7 @@ rather than mixed: a warm cache simply goes cold until the corpus is migrated.
    Points written before value-aware retention existed have no
    `retention_value` and are skipped by this filter; migrate them in the full
    run.
+
 4. **Migrate the rest**:
 
    ```bash
@@ -251,6 +253,7 @@ rather than mixed: a warm cache simply goes cold until the corpus is migrated.
    and payload indexes match what the gateway writes at request time. The
    re-run is idempotent: points keep their ids, and an interrupted run can be
    restarted with `--limit`/`--min-retention-value` to fill in the remainder.
+
 5. **Switch over without downtime**: set `QDRANT_COLLECTION_NAME=<target>` and
    restart the gateway (or roll the deployment). Between the migration and the
    restart the old collection keeps serving; after it, the new one does.
@@ -263,18 +266,18 @@ vectors, so they stay valid across the swap (and expire on their own schedule).
 
 ## Utility scripts
 
-| Script | Purpose |
-| --- | --- |
-| `api/app/scripts/create_admin_key.py` | **The only way to mint an admin API key.** Subcommands `create --name --scopes [--expires-in-days]`, `list`, `revoke --id`. Prints the plaintext (`ega_...`) once. Run with `PYTHON_ENV=local`. |
-| `api/app/scripts/run_tests.py` | Sends the `TEST_DATASET` prompts to the gateway and writes `run_test_results.csv`. Env: `ECHO_GATE_URL`. |
-| `api/app/scripts/seed_prompts.py` | Seeds prompts and checks cache-threshold behavior; writes `send_prompt_results.csv`. Env: `ECHO_GATE_URL`, `ECHO_GATE_RESULTS_CSV`. |
-| `api/app/scripts/migrate_embeddings.py` | Re-embeds points between collections (`QDRANT_COLLECTION_NAME` → `<source>_v2`) through the inference engine. Flags: `--source`, `--target`, `--write`, `--dry-run`, `--batch-size`, `--limit`, `--min-retention-value`. See [Embedding model upgrades](#embedding-model-upgrades). |
-| `tests/datasets/prompt_dataset.py` | The labelled prompt dataset (canonical id + `expected_match`) used by the runners. `api/app/scripts/test_dataset.py` re-exports it for legacy imports. |
-| `api/app/scripts/calibrate_reranker.py` | Sweeps acceptance thresholds and writes `reranker_calibration.{csv,json}` with precision/recall/F1 and a recommended threshold. `--source static` (default) replays `TEST_DATASET` through `RerankerService` offline (no Redis/Qdrant/API, needs the inference engine); `--source audit` reads live `cache_evaluations` ground truth through `task_db_session` (system RLS, no inference engine) and adds a per-intent conformal recommendation matching `calibrate_intent_thresholds`. Flags: `--limit`, `--max-candidates`, `--scoring-mode`, `--score-source`, `--intent`, `--model`, `--alpha`, `--moderate-alpha`, `--min-samples`. |
-| `api/app/scripts/inspect_semantic_cache.py` | Read-only report over `gateway_requests.score_breakdown` (offline sweeps cannot exercise the intent/metadata factors). Flags near-boundary rejections: candidates whose `base_score` cleared the intent's high threshold but whose bounded factors dropped the final score below it, with per-field `metadata_comparisons`. Flags: `--limit`, `--boundary-margin`, `--json`. Run with `PYTHON_ENV=local` so the DB URL is loaded. |
-| `api/app/scripts/create_qdrant.py` | Re-initializes the Qdrant collection via the DI container. |
-| `api/app/scripts/check_qdrant.py` | Scrolls the first 5 points to inspect scope/tenant/user. |
-| `api/app/scripts/wipe_qdrant.py` | Drops the `embeddings_multivector` collection. |
+| Script                                      | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `api/app/scripts/create_admin_key.py`       | **The only way to mint an admin API key.** Subcommands `create --name --scopes [--expires-in-days]`, `list`, `revoke --id`. Prints the plaintext (`ega_...`) once. Run with `PYTHON_ENV=local`.                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `api/app/scripts/run_tests.py`              | Sends the `TEST_DATASET` prompts to the gateway and writes `run_test_results.csv`. Env: `ECHO_GATE_URL`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `api/app/scripts/seed_prompts.py`           | Seeds prompts and checks cache-threshold behavior; writes `send_prompt_results.csv`. Env: `ECHO_GATE_URL`, `ECHO_GATE_RESULTS_CSV`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `api/app/scripts/migrate_embeddings.py`     | Re-embeds points between collections (`QDRANT_COLLECTION_NAME` → `<source>_v2`) through the inference engine. Flags: `--source`, `--target`, `--write`, `--dry-run`, `--batch-size`, `--limit`, `--min-retention-value`. See [Embedding model upgrades](#embedding-model-upgrades).                                                                                                                                                                                                                                                                                                                                                      |
+| `tests/datasets/prompt_dataset.py`          | The labelled prompt dataset (canonical id + `expected_match`) used by the runners. `api/app/scripts/test_dataset.py` re-exports it for legacy imports.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `api/app/scripts/calibrate_reranker.py`     | Sweeps acceptance thresholds and writes `reranker_calibration.{csv,json}` with precision/recall/F1 and a recommended threshold. `--source static` (default) replays `TEST_DATASET` through `RerankerService` offline (no Redis/Qdrant/API, needs the inference engine); `--source audit` reads live `cache_evaluations` ground truth through `task_db_session` (system RLS, no inference engine) and adds a per-intent conformal recommendation matching `calibrate_intent_thresholds`. Flags: `--limit`, `--max-candidates`, `--scoring-mode`, `--score-source`, `--intent`, `--model`, `--alpha`, `--moderate-alpha`, `--min-samples`. |
+| `api/app/scripts/inspect_semantic_cache.py` | Read-only report over `gateway_requests.score_breakdown` (offline sweeps cannot exercise the intent/metadata factors). Flags near-boundary rejections: candidates whose `base_score` cleared the intent's high threshold but whose bounded factors dropped the final score below it, with per-field `metadata_comparisons`. Flags: `--limit`, `--boundary-margin`, `--json`. Run with `PYTHON_ENV=local` so the DB URL is loaded.                                                                                                                                                                                                        |
+| `api/app/scripts/create_qdrant.py`          | Re-initializes the Qdrant collection via the DI container.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `api/app/scripts/check_qdrant.py`           | Scrolls the first 5 points to inspect scope/tenant/user.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `api/app/scripts/wipe_qdrant.py`            | Drops the `embeddings_multivector` collection.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
 ## UI
 

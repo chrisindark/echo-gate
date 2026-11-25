@@ -21,87 +21,87 @@ default in `config.py`. Copy `api/app/.env.example` to `api/app/.env.local` (or
 
 ## App
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `PYTHON_ENV` | `local` | Selects `api/app/.env.<PYTHON_ENV>`; also affects log level/format. |
-| `PROJECT_NAME` | `echo-gate` | App title. |
-| `VERSION` | `0.1.0` | Reported version. |
-| `SERVICE_NAME` | `""` | Added to structured log records. |
-| `LOG_LEVEL` | env-dependent | Explicit log level override. |
-| `LOG_FORMAT` | `json` | `json` or colored text. |
-| `COLORIZE_JSON` | unset | Force colorization. |
+| Variable        | Default       | Purpose                                                             |
+| --------------- | ------------- | ------------------------------------------------------------------- |
+| `PYTHON_ENV`    | `local`       | Selects `api/app/.env.<PYTHON_ENV>`; also affects log level/format. |
+| `PROJECT_NAME`  | `echo-gate`   | App title.                                                          |
+| `VERSION`       | `0.1.0`       | Reported version.                                                   |
+| `SERVICE_NAME`  | `""`          | Added to structured log records.                                    |
+| `LOG_LEVEL`     | env-dependent | Explicit log level override.                                        |
+| `LOG_FORMAT`    | `json`        | `json` or colored text.                                             |
+| `COLORIZE_JSON` | unset         | Force colorization.                                                 |
 
 ## Provider endpoints and keys
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `OPENAI_API_KEY` | unset | OpenAI auth. |
-| `GEMINI_API_KEY` | unset | Google GenAI auth. |
-| `GROQ_API_KEY` | unset | Groq auth. |
-| `OPENROUTER_API_KEY` | unset | OpenRouter auth. |
-| `CLAUDE_API_KEY` | unset | Claude (Anthropic) auth. |
-| `OLLAMA_URL` | `http://localhost:11434` | Local Ollama base URL. |
-| `OPENAI_BASE_URL` | `https://api.openai.com/v1/chat/completions` | OpenAI endpoint. |
-| `GROQ_BASE_URL` | `https://api.groq.com/openai/v1/chat/completions` | Groq endpoint. |
-| `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1/chat/completions` | OpenRouter endpoint. |
-| `CLAUDE_BASE_URL` | `https://api.anthropic.com/v1/messages` | Claude (Anthropic) messages endpoint. |
+| Variable              | Default                                           | Purpose                               |
+| --------------------- | ------------------------------------------------- | ------------------------------------- |
+| `OPENAI_API_KEY`      | unset                                             | OpenAI auth.                          |
+| `GEMINI_API_KEY`      | unset                                             | Google GenAI auth.                    |
+| `GROQ_API_KEY`        | unset                                             | Groq auth.                            |
+| `OPENROUTER_API_KEY`  | unset                                             | OpenRouter auth.                      |
+| `CLAUDE_API_KEY`      | unset                                             | Claude (Anthropic) auth.              |
+| `OLLAMA_URL`          | `http://localhost:11434`                          | Local Ollama base URL.                |
+| `OPENAI_BASE_URL`     | `https://api.openai.com/v1/chat/completions`      | OpenAI endpoint.                      |
+| `GROQ_BASE_URL`       | `https://api.groq.com/openai/v1/chat/completions` | Groq endpoint.                        |
+| `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1/chat/completions`   | OpenRouter endpoint.                  |
+| `CLAUDE_BASE_URL`     | `https://api.anthropic.com/v1/messages`           | Claude (Anthropic) messages endpoint. |
 
 ## Storage connections
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `DATABASE_URL` | `postgresql+psycopg://echo_gate_app:echo_gate_app@localhost:5432/echo_gate` | Write connection. **Must be the non-owner app role** so RLS applies. |
-| `DATABASE_URL_READ` | `DATABASE_URL` | Read connection. |
-| `MIGRATION_DATABASE_URL` | none in config | Owner credentials used **only by Alembic**. Not read by the app. |
-| `DB_APP_ROLE` | `echo_gate_app` | Role the baseline migration provisions; used by Alembic. |
-| `DB_APP_PASSWORD` | `echo_gate_app` | Password for that role. |
-| `REDIS_URL` | `redis://localhost:6379/0` | Redis (exact cache + quota counters). |
-| `QDRANT_URL` | `http://localhost:6333` | Qdrant HTTP endpoint. |
-| `QDRANT_API_KEY` | unset | Qdrant Cloud auth. |
-| `QDRANT_COLLECTION_NAME` | `embeddings_multivector` | Cache collection the gateway reads/writes. Point it at a migrated collection (e.g. `embeddings_multivector_v2`) and restart to complete an embedding-model swap. |
-| `QDRANT_REPLICATION_FACTOR` | unset | Collection replication factor (int). |
-| `QDRANT_WRITE_CONSISTENCY_FACTOR` | unset | Write consistency factor (int). |
-| `CELERY_BROKER_URL` | `redis://localhost:6379/1` | Celery broker. |
-| `CELERY_RESULT_BACKEND` | `redis://localhost:6379/1` | Celery result backend. |
+| Variable                          | Default                                                                     | Purpose                                                                                                                                                          |
+| --------------------------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                    | `postgresql+psycopg://echo_gate_app:echo_gate_app@localhost:5432/echo_gate` | Write connection. **Must be the non-owner app role** so RLS applies.                                                                                             |
+| `DATABASE_URL_READ`               | `DATABASE_URL`                                                              | Read connection.                                                                                                                                                 |
+| `MIGRATION_DATABASE_URL`          | none in config                                                              | Owner credentials used **only by Alembic**. Not read by the app.                                                                                                 |
+| `DB_APP_ROLE`                     | `echo_gate_app`                                                             | Role the baseline migration provisions; used by Alembic.                                                                                                         |
+| `DB_APP_PASSWORD`                 | `echo_gate_app`                                                             | Password for that role.                                                                                                                                          |
+| `REDIS_URL`                       | `redis://localhost:6379/0`                                                  | Redis (exact cache + quota counters).                                                                                                                            |
+| `QDRANT_URL`                      | `http://localhost:6333`                                                     | Qdrant HTTP endpoint.                                                                                                                                            |
+| `QDRANT_API_KEY`                  | unset                                                                       | Qdrant Cloud auth.                                                                                                                                               |
+| `QDRANT_COLLECTION_NAME`          | `embeddings_multivector`                                                    | Cache collection the gateway reads/writes. Point it at a migrated collection (e.g. `embeddings_multivector_v2`) and restart to complete an embedding-model swap. |
+| `QDRANT_REPLICATION_FACTOR`       | unset                                                                       | Collection replication factor (int).                                                                                                                             |
+| `QDRANT_WRITE_CONSISTENCY_FACTOR` | unset                                                                       | Write consistency factor (int).                                                                                                                                  |
+| `CELERY_BROKER_URL`               | `redis://localhost:6379/1`                                                  | Celery broker.                                                                                                                                                   |
+| `CELERY_RESULT_BACKEND`           | `redis://localhost:6379/1`                                                  | Celery result backend.                                                                                                                                           |
 
 ### Database pool
 
-| Variable | Default |
-| --- | --- |
-| `DB_POOL_SIZE` | `20` |
-| `DB_MAX_OVERFLOW` | `10` |
-| `DB_POOL_TIMEOUT` | `30` |
-| `DB_POOL_RECYCLE` | `1800` |
-| `DB_POOL_PRE_PING` | `true` |
+| Variable           | Default |
+| ------------------ | ------- |
+| `DB_POOL_SIZE`     | `20`    |
+| `DB_MAX_OVERFLOW`  | `10`    |
+| `DB_POOL_TIMEOUT`  | `30`    |
+| `DB_POOL_RECYCLE`  | `1800`  |
+| `DB_POOL_PRE_PING` | `true`  |
 
 ## Routing, fallback, and retries
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `DEFAULT_LLM_SERVICE` | `google-genai` | Provider when the request omits one. |
-| `USE_FALLBACK_LLM` | `true` | Enable fallback provider on primary failure. |
-| `FALLBACK_LLM_SERVICE` | `google-genai` | Fallback provider. |
-| `FALLBACK_LLM_MODEL` | `gemini-3.1-flash-lite` | Fallback model. |
-| `LLM_PROVIDER_TIMEOUT_SECONDS` | `15.0` | Per provider attempt timeout. |
-| `HTTP_CLIENT_TIMEOUT_SECONDS` | `120.0` | Shared HTTP client timeout. |
-| `LLM_MAX_RETRIES` | `0` | Retries per provider call (`stop_after_attempt(max_retries + 1)`). |
-| `RETRY_BACKOFF_INITIAL_SECONDS` | `1` | Initial exponential-jitter backoff. |
-| `RETRY_BACKOFF_MAX_SECONDS` | `10` | Max backoff. |
-| `RETRY_AFTER_DEFAULT_SECONDS` | `5` | `Retry-After` advertised when every candidate provider failed and no circuit breaker is counting down. |
-| `CIRCUIT_BREAKER_ENABLED` | `true` | Enable per-provider circuit breakers. |
-| `CIRCUIT_BREAKER_FAILURE_THRESHOLD` | `5` | Consecutive retryable errors before a provider trips OPEN. |
-| `CIRCUIT_BREAKER_RECOVERY_TIMEOUT_SECONDS` | `30.0` | Recovery window in seconds before attempting a HALF_OPEN probe. |
-| `CIRCUIT_BREAKER_HALF_OPEN_SUCCESS_THRESHOLD` | `2` | Consecutive probe successes in HALF_OPEN to close the breaker. |
-| `GLOBAL_MAX_CONCURRENCY` | `100` | Global concurrency bulkhead limit across all upstream requests. |
-| `PROVIDER_MAX_CONCURRENCY` | `25` | Maximum concurrent in-flight requests permitted per provider. |
-| `BULKHEAD_ACQUIRE_TIMEOUT_SECONDS` | `0.0` | Maximum wait in seconds before shedding load with HTTP 429. |
-| `ALLOWED_MODELS_JSON` | unset | JSON string of `{provider: [models...]}` to override/extend allowed models dynamically. |
-| `MODEL_ALIASES_JSON` | unset | JSON string of `{alias: [{service, model}, ...]}` mapping logical aliases (e.g. `fast`, `cheap`) to ranked provider/model pairs. |
-| `MODEL_CONTEXT_WINDOWS_JSON` | unset | JSON string of `{model_or_prefix: context_tokens}` (e.g. `{"gpt-4o-mini": 128000, "gemini-3.5-flash-lite": 1048576, "qwen3:8b": 32768}`). Used by the prompt optimization headroom trimmer to dynamically calculate prompt budget. |
-| `STREAM_MAX_CONTENT_BYTES` | `2097152` | Guardrail memory limit (bytes) on streaming response accumulator before skipping cache persistence. |
-| `STREAM_CACHE_PACING_ENABLED` | `true` | When true, streams cache hits with natural word/token chunking and micro-interval pacing rather than a single monolithic chunk. |
-| `STREAM_CACHE_PACING_DELAY_MS` | `8.0` | Default inter-chunk playback delay (milliseconds) for streaming cache hits. Overridable per request via `X-EchoGate-Stream-Pacing` header or `stream_pacing_delay_ms` body field. |
-| `STREAM_CACHE_WORDS_PER_CHUNK` | `3` | Number of words/tokens grouped per natural streaming delta chunk on cache hits. |
+| Variable                                      | Default                 | Purpose                                                                                                                                                                                                                            |
+| --------------------------------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DEFAULT_LLM_SERVICE`                         | `google-genai`          | Provider when the request omits one.                                                                                                                                                                                               |
+| `USE_FALLBACK_LLM`                            | `true`                  | Enable fallback provider on primary failure.                                                                                                                                                                                       |
+| `FALLBACK_LLM_SERVICE`                        | `google-genai`          | Fallback provider.                                                                                                                                                                                                                 |
+| `FALLBACK_LLM_MODEL`                          | `gemini-3.1-flash-lite` | Fallback model.                                                                                                                                                                                                                    |
+| `LLM_PROVIDER_TIMEOUT_SECONDS`                | `15.0`                  | Per provider attempt timeout.                                                                                                                                                                                                      |
+| `HTTP_CLIENT_TIMEOUT_SECONDS`                 | `120.0`                 | Shared HTTP client timeout.                                                                                                                                                                                                        |
+| `LLM_MAX_RETRIES`                             | `0`                     | Retries per provider call (`stop_after_attempt(max_retries + 1)`).                                                                                                                                                                 |
+| `RETRY_BACKOFF_INITIAL_SECONDS`               | `1`                     | Initial exponential-jitter backoff.                                                                                                                                                                                                |
+| `RETRY_BACKOFF_MAX_SECONDS`                   | `10`                    | Max backoff.                                                                                                                                                                                                                       |
+| `RETRY_AFTER_DEFAULT_SECONDS`                 | `5`                     | `Retry-After` advertised when every candidate provider failed and no circuit breaker is counting down.                                                                                                                             |
+| `CIRCUIT_BREAKER_ENABLED`                     | `true`                  | Enable per-provider circuit breakers.                                                                                                                                                                                              |
+| `CIRCUIT_BREAKER_FAILURE_THRESHOLD`           | `5`                     | Consecutive retryable errors before a provider trips OPEN.                                                                                                                                                                         |
+| `CIRCUIT_BREAKER_RECOVERY_TIMEOUT_SECONDS`    | `30.0`                  | Recovery window in seconds before attempting a HALF_OPEN probe.                                                                                                                                                                    |
+| `CIRCUIT_BREAKER_HALF_OPEN_SUCCESS_THRESHOLD` | `2`                     | Consecutive probe successes in HALF_OPEN to close the breaker.                                                                                                                                                                     |
+| `GLOBAL_MAX_CONCURRENCY`                      | `100`                   | Global concurrency bulkhead limit across all upstream requests.                                                                                                                                                                    |
+| `PROVIDER_MAX_CONCURRENCY`                    | `25`                    | Maximum concurrent in-flight requests permitted per provider.                                                                                                                                                                      |
+| `BULKHEAD_ACQUIRE_TIMEOUT_SECONDS`            | `0.0`                   | Maximum wait in seconds before shedding load with HTTP 429.                                                                                                                                                                        |
+| `ALLOWED_MODELS_JSON`                         | unset                   | JSON string of `{provider: [models...]}` to override/extend allowed models dynamically.                                                                                                                                            |
+| `MODEL_ALIASES_JSON`                          | unset                   | JSON string of `{alias: [{service, model}, ...]}` mapping logical aliases (e.g. `fast`, `cheap`) to ranked provider/model pairs.                                                                                                   |
+| `MODEL_CONTEXT_WINDOWS_JSON`                  | unset                   | JSON string of `{model_or_prefix: context_tokens}` (e.g. `{"gpt-4o-mini": 128000, "gemini-3.5-flash-lite": 1048576, "qwen3:8b": 32768}`). Used by the prompt optimization headroom trimmer to dynamically calculate prompt budget. |
+| `STREAM_MAX_CONTENT_BYTES`                    | `2097152`               | Guardrail memory limit (bytes) on streaming response accumulator before skipping cache persistence.                                                                                                                                |
+| `STREAM_CACHE_PACING_ENABLED`                 | `true`                  | When true, streams cache hits with natural word/token chunking and micro-interval pacing rather than a single monolithic chunk.                                                                                                    |
+| `STREAM_CACHE_PACING_DELAY_MS`                | `8.0`                   | Default inter-chunk playback delay (milliseconds) for streaming cache hits. Overridable per request via `X-EchoGate-Stream-Pacing` header or `stream_pacing_delay_ms` body field.                                                  |
+| `STREAM_CACHE_WORDS_PER_CHUNK`                | `3`                     | Number of words/tokens grouped per natural streaming delta chunk on cache hits.                                                                                                                                                    |
 
 Retries apply only to timeouts/connection errors and HTTP 408/429/500/502/503/504
 (`app/core/retry.py`). HTTP 400/401/403/500 are fatal and short-circuit the
@@ -111,21 +111,21 @@ fallback entirely.
 
 Pre-processing pipeline applied to chat completion requests before cache key generation and upstream dispatch. Can be enabled globally or opted into per request via the `prompt_optimization` body parameter or the `X-EchoGate-Prompt-Optimization` header.
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `PROMPT_OPTIMIZATION_ENABLED` | `false` | Default global gate for the optimization pipeline when requests omit explicit opt-in flags. |
-| `PROMPT_OPTIMIZATION_WHITESPACE` | `true` | When optimization runs, collapse runs of spaces and tabs into single spaces and cap runs of 3+ newlines to 2. Preserves indentation and newlines within markdown code blocks (``` and ~~~) and protects inline code snippets. |
-| `PROMPT_OPTIMIZATION_SESSION_DEDUP` | `true` | When optimization runs, detect and deduplicate consecutive identical message turns in multi-turn threads (preserving tool call-response pairings and the active user turn). |
-| `PROMPT_OPTIMIZATION_JSON_TABLE` | `true` | When optimization runs, serialize large uniform JSON arrays returned from tool calls into compact markdown pipe tables. Only applied if the resulting table strictly reduces overall character length. |
-| `PROMPT_OPTIMIZATION_JSON_TABLE_MIN_ROWS` | `2` | Minimum number of uniform array objects required before converting tool JSON to a markdown table. |
-| `PROMPT_OPTIMIZATION_CCR_ENABLED` | `false` | Global default for Conversation Context Reduction (CCR). Preserves the initial system prompt and recent $N$ conversational turns while condensing or dropping intermediate turns. |
-| `PROMPT_OPTIMIZATION_CCR_KEEP_LAST_N_TURNS` | `5` | Number of recent turns to retain in full fidelity when CCR is active. Can be overridden per request via `X-EchoGate-Prompt-Optimization-CCR-Turns`. |
-| `PROMPT_OPTIMIZATION_CCR_STRATEGY` | `condense` | Strategy for intermediate turns in CCR: `condense` (summarizes turns into a compact briefing marker) or `drop` (omits turns with a context reduction notice). |
-| `PROMPT_OPTIMIZATION_HEADROOM_ENABLED` | `false` | Global default for dynamic headroom trimming. Prunes oldest conversational turns to guarantee the prompt fits within the target model's context window limit minus completion tokens. |
-| `PROMPT_OPTIMIZATION_HEADROOM_BUFFER` | `100` | Safety buffer tokens retained below the target context window ceiling to prevent token truncation at provider edges. |
-| `PROMPT_OPTIMIZATION_COMPRESS_ENABLED` | `false` | Global default for lossy prompt compression offloaded to `inference-platform/` over HTTP via `POST /compress`. |
-| `PROMPT_OPTIMIZATION_COMPRESS_RATE` | `0.5` | Target retention ratio (`0.05` to `0.95`) for lossy compression. |
-| `PROMPT_OPTIMIZATION_COMPRESS_METHOD` | `lexical` | Compression algorithm: `lexical` (token pruning) or `extractive` (sentence centroid ranking). |
+| Variable                                    | Default    | Purpose                                                                                                                                                                                                                       |
+| ------------------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PROMPT_OPTIMIZATION_ENABLED`               | `false`    | Default global gate for the optimization pipeline when requests omit explicit opt-in flags.                                                                                                                                   |
+| `PROMPT_OPTIMIZATION_WHITESPACE`            | `true`     | When optimization runs, collapse runs of spaces and tabs into single spaces and cap runs of 3+ newlines to 2. Preserves indentation and newlines within markdown code blocks (``` and ~~~) and protects inline code snippets. |
+| `PROMPT_OPTIMIZATION_SESSION_DEDUP`         | `true`     | When optimization runs, detect and deduplicate consecutive identical message turns in multi-turn threads (preserving tool call-response pairings and the active user turn).                                                   |
+| `PROMPT_OPTIMIZATION_JSON_TABLE`            | `true`     | When optimization runs, serialize large uniform JSON arrays returned from tool calls into compact markdown pipe tables. Only applied if the resulting table strictly reduces overall character length.                        |
+| `PROMPT_OPTIMIZATION_JSON_TABLE_MIN_ROWS`   | `2`        | Minimum number of uniform array objects required before converting tool JSON to a markdown table.                                                                                                                             |
+| `PROMPT_OPTIMIZATION_CCR_ENABLED`           | `false`    | Global default for Conversation Context Reduction (CCR). Preserves the initial system prompt and recent $N$ conversational turns while condensing or dropping intermediate turns.                                             |
+| `PROMPT_OPTIMIZATION_CCR_KEEP_LAST_N_TURNS` | `5`        | Number of recent turns to retain in full fidelity when CCR is active. Can be overridden per request via `X-EchoGate-Prompt-Optimization-CCR-Turns`.                                                                           |
+| `PROMPT_OPTIMIZATION_CCR_STRATEGY`          | `condense` | Strategy for intermediate turns in CCR: `condense` (summarizes turns into a compact briefing marker) or `drop` (omits turns with a context reduction notice).                                                                 |
+| `PROMPT_OPTIMIZATION_HEADROOM_ENABLED`      | `false`    | Global default for dynamic headroom trimming. Prunes oldest conversational turns to guarantee the prompt fits within the target model's context window limit minus completion tokens.                                         |
+| `PROMPT_OPTIMIZATION_HEADROOM_BUFFER`       | `100`      | Safety buffer tokens retained below the target context window ceiling to prevent token truncation at provider edges.                                                                                                          |
+| `PROMPT_OPTIMIZATION_COMPRESS_ENABLED`      | `false`    | Global default for lossy prompt compression offloaded to `inference-platform/` over HTTP via `POST /compress`.                                                                                                                |
+| `PROMPT_OPTIMIZATION_COMPRESS_RATE`         | `0.5`      | Target retention ratio (`0.05` to `0.95`) for lossy compression.                                                                                                                                                              |
+| `PROMPT_OPTIMIZATION_COMPRESS_METHOD`       | `lexical`  | Compression algorithm: `lexical` (token pruning) or `extractive` (sentence centroid ranking).                                                                                                                                 |
 
 ## Cost estimation
 
@@ -133,29 +133,29 @@ Pre-processing pipeline applied to chat completion requests before cache key gen
 calling a provider (see `docs/API_REFERENCE.md`). Prompt tokens come from
 `tiktoken`; completion tokens are `max_tokens` when the caller sets it.
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `ESTIMATE_DEFAULT_COMPLETION_TOKENS` | `256` | Assumed completion length when `max_tokens` is omitted. |
+| Variable                             | Default | Purpose                                                 |
+| ------------------------------------ | ------- | ------------------------------------------------------- |
+| `ESTIMATE_DEFAULT_COMPLETION_TOKENS` | `256`   | Assumed completion length when `max_tokens` is omitted. |
 
 ## Cache layers
 
 `CACHE_MODE` selects how the cache pipeline is allowed to affect serving.
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `CACHE_MODE` | derived (see below) | `disabled`, `shadow`, or `active`. Only `active` lets the cache answer requests. |
-| `USE_REDIS_EXACT_MATCHING` | `false` | Enable the Redis exact cache (layer 1). |
-| `REDIS_TTL` | `3600` | Default Redis TTL (seconds). |
-| `USE_QDRANT_EXACT_MATCHING` | `false` | Enable the Qdrant exact cache (layer 2). |
-| `USE_QDRANT_SEMANTIC_MATCHING` | `false` | Enable the semantic cache (layer 3). |
+| Variable                       | Default             | Purpose                                                                          |
+| ------------------------------ | ------------------- | -------------------------------------------------------------------------------- |
+| `CACHE_MODE`                   | derived (see below) | `disabled`, `shadow`, or `active`. Only `active` lets the cache answer requests. |
+| `USE_REDIS_EXACT_MATCHING`     | `false`             | Enable the Redis exact cache (layer 1).                                          |
+| `REDIS_TTL`                    | `3600`              | Default Redis TTL (seconds).                                                     |
+| `USE_QDRANT_EXACT_MATCHING`    | `false`             | Enable the Qdrant exact cache (layer 2).                                         |
+| `USE_QDRANT_SEMANTIC_MATCHING` | `false`             | Enable the semantic cache (layer 3).                                             |
 
 `CACHE_MODE` values:
 
-| Mode | Behaviour |
-| --- | --- |
-| `disabled` | No cache reads and no cache writes. Requests always hit the provider. |
-| `shadow` | Requests always hit the provider; a background task replays the whole pipeline, logs what *would* have happened to `shadow_cache_evaluations`, and still writes embeddings + responses to Redis/Qdrant to warm the corpus. |
-| `active` | Normal serving path: Redis exact → Qdrant exact → semantic, per the `USE_*` flags, with background cache writes. |
+| Mode       | Behaviour                                                                                                                                                                                                                  |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `disabled` | No cache reads and no cache writes. Requests always hit the provider.                                                                                                                                                      |
+| `shadow`   | Requests always hit the provider; a background task replays the whole pipeline, logs what _would_ have happened to `shadow_cache_evaluations`, and still writes embeddings + responses to Redis/Qdrant to warm the corpus. |
+| `active`   | Normal serving path: Redis exact → Qdrant exact → semantic, per the `USE_*` flags, with background cache writes.                                                                                                           |
 
 Resolution rules (`app/core/config.py`):
 
@@ -178,13 +178,13 @@ In `shadow` mode every layer runs in the background regardless of the flags, so
 
 ### Shadow pipeline tuning
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `SHADOW_SAMPLE_RATE` | `1.0` | Fraction (0–1) of provider responses replayed through the shadow pipeline. Lower it to cap judge/embedding cost on high-volume deployments. |
-| `SHADOW_JUDGE_ENABLED` | `true` | Run the LLM equivalence judge when a shadow match is found; the judge is what populates `is_equivalent`. |
-| `SHADOW_READINESS_MIN_EVALUATIONS` | `200` | Evaluations required before `/api/v1/shadow-cache/summary` can report `READY`. |
-| `SHADOW_READINESS_MIN_HIT_RATE` | `0.05` | Would-be hit rate floor for `READY`. |
-| `SHADOW_READINESS_MIN_EQUIVALENCE_RATE` | `0.98` | Judge-equivalence floor for `READY`. |
+| Variable                                | Default | Purpose                                                                                                                                     |
+| --------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SHADOW_SAMPLE_RATE`                    | `1.0`   | Fraction (0–1) of provider responses replayed through the shadow pipeline. Lower it to cap judge/embedding cost on high-volume deployments. |
+| `SHADOW_JUDGE_ENABLED`                  | `true`  | Run the LLM equivalence judge when a shadow match is found; the judge is what populates `is_equivalent`.                                    |
+| `SHADOW_READINESS_MIN_EVALUATIONS`      | `200`   | Evaluations required before `/api/v1/shadow-cache/summary` can report `READY`.                                                              |
+| `SHADOW_READINESS_MIN_HIT_RATE`         | `0.05`  | Would-be hit rate floor for `READY`.                                                                                                        |
+| `SHADOW_READINESS_MIN_EQUIVALENCE_RATE` | `0.98`  | Judge-equivalence floor for `READY`.                                                                                                        |
 
 `SHADOW_*` settings are read even when the mode is not `shadow`; they only take
 effect while shadow evaluation runs.
@@ -193,14 +193,14 @@ effect while shadow evaluation runs.
 
 In `CACHE_MODE=active`, a low-frequency asynchronous audit captures unbiased ground-truth comparisons between approved semantic cache hits and fresh provider answers.
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `CACHE_AUDIT_ENABLED` | `true` | Enable the out-of-band shadow audit loop on approved semantic cache hits. |
-| `CACHE_AUDIT_SAMPLE_RATE` | `0.02` | Fraction (0–1) of semantic cache hits sampled for fresh provider comparison. Default 2% (p ≈ 0.02) to keep LLM audit cost < 0.05% of serving spend. |
-| `CACHE_AUDIT_EVICT_ON_FAILURE` | `true` | Instant eviction kill switch: if the judge rates the cached response non-equivalent to the fresh completion, immediately delete the Qdrant point and Redis exact key. |
-| `CACHE_CALIBRATION_ALPHA` | `0.02` | Target maximum error rate for high-confidence threshold calibration (e.g. 0.02 = 2% error rate / 98% precision guarantee). |
-| `CACHE_CALIBRATION_MODERATE_ALPHA` | `0.05` | Target maximum error rate for moderate-confidence threshold calibration (e.g. 0.05 = 5% error rate). |
-| `CACHE_CALIBRATION_MIN_SAMPLES` | `10` | Minimum ground-truth audit evaluations required before an intent's thresholds are overridden. |
+| Variable                           | Default | Purpose                                                                                                                                                               |
+| ---------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CACHE_AUDIT_ENABLED`              | `true`  | Enable the out-of-band shadow audit loop on approved semantic cache hits.                                                                                             |
+| `CACHE_AUDIT_SAMPLE_RATE`          | `0.02`  | Fraction (0–1) of semantic cache hits sampled for fresh provider comparison. Default 2% (p ≈ 0.02) to keep LLM audit cost < 0.05% of serving spend.                   |
+| `CACHE_AUDIT_EVICT_ON_FAILURE`     | `true`  | Instant eviction kill switch: if the judge rates the cached response non-equivalent to the fresh completion, immediately delete the Qdrant point and Redis exact key. |
+| `CACHE_CALIBRATION_ALPHA`          | `0.02`  | Target maximum error rate for high-confidence threshold calibration (e.g. 0.02 = 2% error rate / 98% precision guarantee).                                            |
+| `CACHE_CALIBRATION_MODERATE_ALPHA` | `0.05`  | Target maximum error rate for moderate-confidence threshold calibration (e.g. 0.05 = 5% error rate).                                                                  |
+| `CACHE_CALIBRATION_MIN_SAMPLES`    | `10`    | Minimum ground-truth audit evaluations required before an intent's thresholds are overridden.                                                                         |
 
 ## Shared inference platform
 
@@ -209,24 +209,24 @@ served: they live in `inference-platform/`, which answers over HTTP for the
 gateway, doc-nexus, and agent-forge alike. Nothing is loaded in-process, so this
 is not optional — with no engine configured the gateway refuses to start.
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `INFERENCE_BASE_URL` | *(empty = not configured)* | Base URL of the inference engine, e.g. `http://localhost:7997`. Required: startup fails without it. |
-| `INFERENCE_EMBED_URL` | *(empty = fallback)* | Optional override for dense embeddings route (`/embeddings`). |
-| `INFERENCE_RERANK_URL` | *(empty = fallback)* | Optional override for primary reranking route (`/rerank`). |
-| `INFERENCE_RELEVANCE_URL` | *(empty = fallback)* | Optional override for relevance scoring (defaults to `INFERENCE_RERANK_URL`). |
-| `INFERENCE_NLI_URL` | *(empty = fallback)* | Optional override for NLI / classification (`/classify`). `INFERENCE_CLASSIFY_URL` accepted as alias. |
-| `INFERENCE_TIMEOUT_SECONDS` | `5.0` | Default per-attempt request budget. Clamped to `0.1`-`120`. |
-| `INFERENCE_EMBED_TIMEOUT_SECONDS` | `5.0` | Optional timeout specifically for `/embeddings`. |
-| `INFERENCE_RERANK_TIMEOUT_SECONDS` | `5.0` | Optional timeout specifically for `/rerank`. |
-| `INFERENCE_RELEVANCE_TIMEOUT_SECONDS` | `5.0` | Optional timeout specifically for relevance `/rerank`. |
-| `INFERENCE_NLI_TIMEOUT_SECONDS` | `5.0` | Optional timeout specifically for `/classify`. |
-| `INFERENCE_MAX_RETRIES` | `1` | Retries for transient faults (5xx, throttling, timeouts). A refused connection is never retried. Clamped to `0`-`5`. |
-| `INFERENCE_EMBEDDING_DIM` | `384` | Dense dimension the engine serves. Locked into the Qdrant collection; startup fails when `/models` disagrees. |
-| `INFERENCE_EMBED_MODEL` | *(empty)* | Optional explicit model id for the `embed` role. |
-| `INFERENCE_RERANK_MODEL` | *(empty)* | Optional explicit model id for the `rerank` role. |
-| `INFERENCE_RELEVANCE_MODEL` | *(empty)* | Optional explicit model id for the `relevance` role. |
-| `INFERENCE_NLI_MODEL` | *(empty)* | Optional explicit model id for the `nli` role. |
+| Variable                              | Default                    | Purpose                                                                                                              |
+| ------------------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `INFERENCE_BASE_URL`                  | _(empty = not configured)_ | Base URL of the inference engine, e.g. `http://localhost:7997`. Required: startup fails without it.                  |
+| `INFERENCE_EMBED_URL`                 | _(empty = fallback)_       | Optional override for dense embeddings route (`/embeddings`).                                                        |
+| `INFERENCE_RERANK_URL`                | _(empty = fallback)_       | Optional override for primary reranking route (`/rerank`).                                                           |
+| `INFERENCE_RELEVANCE_URL`             | _(empty = fallback)_       | Optional override for relevance scoring (defaults to `INFERENCE_RERANK_URL`).                                        |
+| `INFERENCE_NLI_URL`                   | _(empty = fallback)_       | Optional override for NLI / classification (`/classify`). `INFERENCE_CLASSIFY_URL` accepted as alias.                |
+| `INFERENCE_TIMEOUT_SECONDS`           | `5.0`                      | Default per-attempt request budget. Clamped to `0.1`-`120`.                                                          |
+| `INFERENCE_EMBED_TIMEOUT_SECONDS`     | `5.0`                      | Optional timeout specifically for `/embeddings`.                                                                     |
+| `INFERENCE_RERANK_TIMEOUT_SECONDS`    | `5.0`                      | Optional timeout specifically for `/rerank`.                                                                         |
+| `INFERENCE_RELEVANCE_TIMEOUT_SECONDS` | `5.0`                      | Optional timeout specifically for relevance `/rerank`.                                                               |
+| `INFERENCE_NLI_TIMEOUT_SECONDS`       | `5.0`                      | Optional timeout specifically for `/classify`.                                                                       |
+| `INFERENCE_MAX_RETRIES`               | `1`                        | Retries for transient faults (5xx, throttling, timeouts). A refused connection is never retried. Clamped to `0`-`5`. |
+| `INFERENCE_EMBEDDING_DIM`             | `384`                      | Dense dimension the engine serves. Locked into the Qdrant collection; startup fails when `/models` disagrees.        |
+| `INFERENCE_EMBED_MODEL`               | _(empty)_                  | Optional explicit model id for the `embed` role.                                                                     |
+| `INFERENCE_RERANK_MODEL`              | _(empty)_                  | Optional explicit model id for the `rerank` role.                                                                    |
+| `INFERENCE_RELEVANCE_MODEL`           | _(empty)_                  | Optional explicit model id for the `relevance` role.                                                                 |
+| `INFERENCE_NLI_MODEL`                 | _(empty)_                  | Optional explicit model id for the `nli` role.                                                                       |
 
 Behaviour:
 
@@ -262,14 +262,14 @@ Behaviour:
 
 ## Semantic search tuning
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `QDRANT_DENSE_SEARCH_HIGH_THRESHOLD` | `0.98` | Dense score at/above which the fast path serves immediately. |
-| `QDRANT_SPARSE_SEARCH_HIGH_THRESHOLD` | `0.33` | Minimum RRF score for a candidate to be reranked. |
-| `QDRANT_SEARCH_LIMIT` | `10` | Candidate pool size for the RRF query. |
-| `DEFAULT_CACHE_TTL_SECONDS` | `86400` | Fallback TTL when a specific TTL is unavailable. |
-| `CACHE_CONFIDENCE_THRESHOLDS` | see below | JSON map of intent → `{high, moderate}` acceptance thresholds. |
-| `INTENT_TTL_SECONDS` | see below | JSON map of intent → TTL seconds. |
+| Variable                              | Default   | Purpose                                                        |
+| ------------------------------------- | --------- | -------------------------------------------------------------- |
+| `QDRANT_DENSE_SEARCH_HIGH_THRESHOLD`  | `0.98`    | Dense score at/above which the fast path serves immediately.   |
+| `QDRANT_SPARSE_SEARCH_HIGH_THRESHOLD` | `0.33`    | Minimum RRF score for a candidate to be reranked.              |
+| `QDRANT_SEARCH_LIMIT`                 | `10`      | Candidate pool size for the RRF query.                         |
+| `DEFAULT_CACHE_TTL_SECONDS`           | `86400`   | Fallback TTL when a specific TTL is unavailable.               |
+| `CACHE_CONFIDENCE_THRESHOLDS`         | see below | JSON map of intent → `{high, moderate}` acceptance thresholds. |
+| `INTENT_TTL_SECONDS`                  | see below | JSON map of intent → TTL seconds.                              |
 
 Default `CACHE_CONFIDENCE_THRESHOLDS` (`high` / `moderate`):
 
@@ -318,29 +318,29 @@ saving its cost repeatedly.
 
 ## Models and ML services
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `EMBEDDING_MODEL_NAME` | `BAAI/bge-small-en-v1.5` | Model id the engine is expected to serve (384-dim) and the tag stored as `embedding_model` on every cached point — the semantic search filters on it, so a swap quarantines old vectors instead of mixing spaces. Startup fails if the engine reports a different model. |
-| `EMBEDDING_VERSION` | `v1` | Version tag for dense embeddings in Qdrant; bump to partition vector space when switching embedding models without dropped indices. |
-| `SPARSE_EMBEDDING_VERSION` | `v1` | Version tag for sparse BM25 embeddings in Qdrant; bump when BM25 tokenizer or corpus changes. |
-| `CACHE_KEY_VERSION` | `v1` | Version tag for Redis and Qdrant cache keys; bump to invalidate or segregate cache entries globally. |
-| `PROMPT_VERSION` | `v1` | Prompt structure version tag stored in cache payloads and checked in exact/semantic lookups. |
-| `INTENT_PROMPT_VERSION` | `v1` | Intent classification prompt version tag; bump to invalidate cached classifications. |
-| `INTENT_CLASSIFIER_VERSION` | `v1` | Intent classifier model/rubric version tag. |
-| `CORE_QUERY_EXTRACTOR_VERSION` | `v1` | Core query extractor prompt and model version tag. |
-| `RERANKER_VERSION` | `v1` | Reranker scoring logic and model version tag. |
-| `JUDGE_PROMPT_VERSION` | `v1` | Equivalence judge prompt template version tag for verifier and shadow cache. |
-| `RERANKER_MODEL_NAME` | `Alibaba-NLP/gte-reranker-modernbert-base` | Declared reranker model name. `InferenceClient.rerank` returns `score_raw`, and `CACHE_CONFIDENCE_THRESHOLDS` (0.85–0.98) are compared against that raw logit scale — recalibrate with `scripts/calibrate_reranker.py` after any swap, or the gate is either always-reject or always-accept. |
-| `RERANKER_SCORING_MODE` | `multiplicative` | How reranker signals combine: `multiplicative` (bounded factors multiplied into the cross-encoder score) or `additive` (symmetric bounded deltas). |
-| `CROSS_ENCODER_RELEVANCE_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Relevance cross-encoder. |
-| `CROSS_ENCODER_NLI_MODEL` | `cross-encoder/nli-MiniLM2-L6-H768` | NLI cross-encoder for contradiction/entailment. `judge_service.py` indexes the logits positionally as `[contradiction, entailment, neutral]`, so a replacement must keep that label order. |
-| `USE_RERANKER_MODEL` | `true` | Enable the `rerank` role. `false` raises `InferenceUnavailable` instead of calling the engine, and removes it from the startup check. |
-| `USE_RELEVANCE_MODEL` | `true` | Enable the `relevance` role (same behaviour). |
-| `USE_NLI_MODEL` | `true` | Enable the `nli` role (same behaviour). |
-| `HF_HOME` | `./.model_cache` | Hugging Face cache dir (read directly in services). |
-| `BM25_MODEL_PATH` | `""` | Pins the extracted BM25 model directory. When set, fastembed loads from it and skips its cache logic entirely — this is how the container makes the model deterministic. |
-| `FASTEMBED_CACHE_PATH` | `<HF_HOME>/fastembed` | fastembed's own cache dir for the BM25 artifact (read directly in services). Distinct from `HF_HOME`: fastembed downloads two things into two caches, and only `cache_dir` holds the model it actually reads. |
-| `BM25_LOCAL_FILES_ONLY` | `false` | When `true`, never download BM25 at runtime (read directly in services; the container sets this, since the model is baked in). |
+| Variable                        | Default                                    | Purpose                                                                                                                                                                                                                                                                                      |
+| ------------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `EMBEDDING_MODEL_NAME`          | `BAAI/bge-small-en-v1.5`                   | Model id the engine is expected to serve (384-dim) and the tag stored as `embedding_model` on every cached point — the semantic search filters on it, so a swap quarantines old vectors instead of mixing spaces. Startup fails if the engine reports a different model.                     |
+| `EMBEDDING_VERSION`             | `v1`                                       | Version tag for dense embeddings in Qdrant; bump to partition vector space when switching embedding models without dropped indices.                                                                                                                                                          |
+| `SPARSE_EMBEDDING_VERSION`      | `v1`                                       | Version tag for sparse BM25 embeddings in Qdrant; bump when BM25 tokenizer or corpus changes.                                                                                                                                                                                                |
+| `CACHE_KEY_VERSION`             | `v1`                                       | Version tag for Redis and Qdrant cache keys; bump to invalidate or segregate cache entries globally.                                                                                                                                                                                         |
+| `PROMPT_VERSION`                | `v1`                                       | Prompt structure version tag stored in cache payloads and checked in exact/semantic lookups.                                                                                                                                                                                                 |
+| `INTENT_PROMPT_VERSION`         | `v1`                                       | Intent classification prompt version tag; bump to invalidate cached classifications.                                                                                                                                                                                                         |
+| `INTENT_CLASSIFIER_VERSION`     | `v1`                                       | Intent classifier model/rubric version tag.                                                                                                                                                                                                                                                  |
+| `CORE_QUERY_EXTRACTOR_VERSION`  | `v1`                                       | Core query extractor prompt and model version tag.                                                                                                                                                                                                                                           |
+| `RERANKER_VERSION`              | `v1`                                       | Reranker scoring logic and model version tag.                                                                                                                                                                                                                                                |
+| `JUDGE_PROMPT_VERSION`          | `v1`                                       | Equivalence judge prompt template version tag for verifier and shadow cache.                                                                                                                                                                                                                 |
+| `RERANKER_MODEL_NAME`           | `Alibaba-NLP/gte-reranker-modernbert-base` | Declared reranker model name. `InferenceClient.rerank` returns `score_raw`, and `CACHE_CONFIDENCE_THRESHOLDS` (0.85–0.98) are compared against that raw logit scale — recalibrate with `scripts/calibrate_reranker.py` after any swap, or the gate is either always-reject or always-accept. |
+| `RERANKER_SCORING_MODE`         | `multiplicative`                           | How reranker signals combine: `multiplicative` (bounded factors multiplied into the cross-encoder score) or `additive` (symmetric bounded deltas).                                                                                                                                           |
+| `CROSS_ENCODER_RELEVANCE_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2`     | Relevance cross-encoder.                                                                                                                                                                                                                                                                     |
+| `CROSS_ENCODER_NLI_MODEL`       | `cross-encoder/nli-MiniLM2-L6-H768`        | NLI cross-encoder for contradiction/entailment. `judge_service.py` indexes the logits positionally as `[contradiction, entailment, neutral]`, so a replacement must keep that label order.                                                                                                   |
+| `USE_RERANKER_MODEL`            | `true`                                     | Enable the `rerank` role. `false` raises `InferenceUnavailable` instead of calling the engine, and removes it from the startup check.                                                                                                                                                        |
+| `USE_RELEVANCE_MODEL`           | `true`                                     | Enable the `relevance` role (same behaviour).                                                                                                                                                                                                                                                |
+| `USE_NLI_MODEL`                 | `true`                                     | Enable the `nli` role (same behaviour).                                                                                                                                                                                                                                                      |
+| `HF_HOME`                       | `./.model_cache`                           | Hugging Face cache dir (read directly in services).                                                                                                                                                                                                                                          |
+| `BM25_MODEL_PATH`               | `""`                                       | Pins the extracted BM25 model directory. When set, fastembed loads from it and skips its cache logic entirely — this is how the container makes the model deterministic.                                                                                                                     |
+| `FASTEMBED_CACHE_PATH`          | `<HF_HOME>/fastembed`                      | fastembed's own cache dir for the BM25 artifact (read directly in services). Distinct from `HF_HOME`: fastembed downloads two things into two caches, and only `cache_dir` holds the model it actually reads.                                                                                |
+| `BM25_LOCAL_FILES_ONLY`         | `false`                                    | When `true`, never download BM25 at runtime (read directly in services; the container sets this, since the model is baked in).                                                                                                                                                               |
 
 There is no in-process install. Dense and cross-encoder models exist only in
 `inference-platform/`; `sentence-transformers` is not a gateway dependency, so
@@ -351,42 +351,42 @@ used.
 
 ### Intent classifier
 
-| Variable | Default |
-| --- | --- |
-| `INTENT_CLASSIFIER_SERVICE` | `groq` |
-| `INTENT_CLASSIFIER_MODEL` | `openai/gpt-oss-20b` |
-| `INTENT_CLASSIFIER_TEMPERATURE` | `0.0` |
-| `INTENT_CLASSIFIER_TIMEOUT_SECONDS` | `2.5` |
-| `INTENT_CLASSIFIER_MAX_TOKENS` | `500` |
-| `INTENT_CLASSIFIER_REASONING_EFFORT` | `low` |
-| `INTENT_CLASSIFIER_MAX_RETRIES` | `0` |
+| Variable                             | Default              |
+| ------------------------------------ | -------------------- |
+| `INTENT_CLASSIFIER_SERVICE`          | `groq`               |
+| `INTENT_CLASSIFIER_MODEL`            | `openai/gpt-oss-20b` |
+| `INTENT_CLASSIFIER_TEMPERATURE`      | `0.0`                |
+| `INTENT_CLASSIFIER_TIMEOUT_SECONDS`  | `2.5`                |
+| `INTENT_CLASSIFIER_MAX_TOKENS`       | `500`                |
+| `INTENT_CLASSIFIER_REASONING_EFFORT` | `low`                |
+| `INTENT_CLASSIFIER_MAX_RETRIES`      | `0`                  |
 
 ### Core query extractor and judge
 
-| Variable | Default |
-| --- | --- |
-| `CORE_QUERY_EXTRACTOR_SERVICE` | `ollama` |
-| `CORE_QUERY_EXTRACTOR_MODEL` | `qwen2.5-coder:1.5b` |
-| `CORE_QUERY_EXTRACTOR_TEMPERATURE` | `0.0` |
-| `CORE_QUERY_EXTRACTOR_MAX_TOKENS` | `200` |
-| `EVALUATION_BATCH_SIZE` | `50` |
-| `LLM_JUDGE_SERVICE` | `google-genai` |
-| `LLM_JUDGE_MODEL` | `gemini-3.5-flash-lite` |
-| `LLM_JUDGE_TEMPERATURE` | `0.0` |
-| `LLM_JUDGE_MAX_TOKENS` | `200` |
+| Variable                           | Default                 |
+| ---------------------------------- | ----------------------- |
+| `CORE_QUERY_EXTRACTOR_SERVICE`     | `ollama`                |
+| `CORE_QUERY_EXTRACTOR_MODEL`       | `qwen2.5-coder:1.5b`    |
+| `CORE_QUERY_EXTRACTOR_TEMPERATURE` | `0.0`                   |
+| `CORE_QUERY_EXTRACTOR_MAX_TOKENS`  | `200`                   |
+| `EVALUATION_BATCH_SIZE`            | `50`                    |
+| `LLM_JUDGE_SERVICE`                | `google-genai`          |
+| `LLM_JUDGE_MODEL`                  | `gemini-3.5-flash-lite` |
+| `LLM_JUDGE_TEMPERATURE`            | `0.0`                   |
+| `LLM_JUDGE_MAX_TOKENS`             | `200`                   |
 
 ## Observability & Telemetry
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `OTEL_ENABLED` | `true` | Enable OpenTelemetry tracing instrumentation. When `OTEL_EXPORTER_OTLP_ENDPOINT` is unset, acts as zero-overhead NoOp. |
-| `OTEL_SERVICE_NAME` | `echo-gate` | Service name attached to emitted traces and spans. |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | `""` | OTLP collector endpoint (e.g. Langfuse `/api/public/otel`, Datadog, Jaeger). When set, spans are exported; empty keeps tracing in-process only. |
-| `TELEMETRY_ENABLED` | `false` | Opt-in anonymous usage telemetry gate. When `true` and `TELEMETRY_ENDPOINT` is set, the gateway pings metadata (version, anonymous instance ID, deployment mode) at startup and periodically. Fail-open; no prompts, responses, keys, or IPs ever leave the host. |
-| `TELEMETRY_ENDPOINT` | `""` | Target URL for anonymous telemetry pings. |
-| `TELEMETRY_INTERVAL_SECONDS` | `86400` | Telemetry ping interval in seconds (default 24 hours). |
-| `TELEMETRY_INSTANCE_ID` | `""` | Optional persistent instance identifier; automatically generated and cached if empty. |
-| `TELEMETRY_DEPLOYMENT_MODE` | `self-hosted` | Deployment classification tag attached to telemetry pings (e.g. `self-hosted`, `docker`, `helm`). |
+| Variable                      | Default       | Purpose                                                                                                                                                                                                                                                           |
+| ----------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OTEL_ENABLED`                | `true`        | Enable OpenTelemetry tracing instrumentation. When `OTEL_EXPORTER_OTLP_ENDPOINT` is unset, acts as zero-overhead NoOp.                                                                                                                                            |
+| `OTEL_SERVICE_NAME`           | `echo-gate`   | Service name attached to emitted traces and spans.                                                                                                                                                                                                                |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `""`          | OTLP collector endpoint (e.g. Langfuse `/api/public/otel`, Datadog, Jaeger). When set, spans are exported; empty keeps tracing in-process only.                                                                                                                   |
+| `TELEMETRY_ENABLED`           | `false`       | Opt-in anonymous usage telemetry gate. When `true` and `TELEMETRY_ENDPOINT` is set, the gateway pings metadata (version, anonymous instance ID, deployment mode) at startup and periodically. Fail-open; no prompts, responses, keys, or IPs ever leave the host. |
+| `TELEMETRY_ENDPOINT`          | `""`          | Target URL for anonymous telemetry pings.                                                                                                                                                                                                                         |
+| `TELEMETRY_INTERVAL_SECONDS`  | `86400`       | Telemetry ping interval in seconds (default 24 hours).                                                                                                                                                                                                            |
+| `TELEMETRY_INSTANCE_ID`       | `""`          | Optional persistent instance identifier; automatically generated and cached if empty.                                                                                                                                                                             |
+| `TELEMETRY_DEPLOYMENT_MODE`   | `self-hosted` | Deployment classification tag attached to telemetry pings (e.g. `self-hosted`, `docker`, `helm`).                                                                                                                                                                 |
 
 ## Event bus (webhooks)
 
@@ -398,13 +398,13 @@ online (task `app.core.events.deliver_event`, registered from
 `api/app/core/tasks.py`) and falls back to a task/daemon thread otherwise;
 failures are logged and ignored (fail-open).
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `EVENTS_ENABLED` | `true` | Kill switch for the whole bus. `false` drops every event even if URLs are set. |
-| `EVENTS_WEBHOOK_CACHE_MISS` | unset | Receives `cache.miss`: a request missed the cache and a provider served it. |
-| `EVENTS_WEBHOOK_QUOTA_EXCEEDED` | unset | Receives `quota.exceeded`: RPM/TPM/budget refused a caller. |
-| `EVENTS_WEBHOOK_PROVIDER_FAILURE` | unset | Receives `provider.failure`: an upstream attempt failed. |
-| `EVENTS_WEBHOOK_AUDIT_FAILED` | unset | Receives `audit.failed`: a sampled cache audit found a bad entry. |
+| Variable                          | Default | Purpose                                                                        |
+| --------------------------------- | ------- | ------------------------------------------------------------------------------ |
+| `EVENTS_ENABLED`                  | `true`  | Kill switch for the whole bus. `false` drops every event even if URLs are set. |
+| `EVENTS_WEBHOOK_CACHE_MISS`       | unset   | Receives `cache.miss`: a request missed the cache and a provider served it.    |
+| `EVENTS_WEBHOOK_QUOTA_EXCEEDED`   | unset   | Receives `quota.exceeded`: RPM/TPM/budget refused a caller.                    |
+| `EVENTS_WEBHOOK_PROVIDER_FAILURE` | unset   | Receives `provider.failure`: an upstream attempt failed.                       |
+| `EVENTS_WEBHOOK_AUDIT_FAILED`     | unset   | Receives `audit.failed`: a sampled cache audit found a bad entry.              |
 
 Delivery is `POST` with a JSON body shaped as
 `{"type": "...", "ts": <epoch seconds>, "payload": {...}}` and a 3-second

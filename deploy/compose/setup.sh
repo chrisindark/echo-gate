@@ -89,7 +89,7 @@ ${COMPOSE} "${PROFILES[@]}" up -d --build
 echo "==> [4/5] Running database migrations"
 # Migrations must run as the table owner: RLS policies do not apply to owners,
 # which is exactly why the app itself connects as the non-owner echo_gate_app
-# role. psycopg is a gateway dependency, so this runs inside the api image.
+# role. psycopg-binary is a gateway dependency, so this runs inside the api image.
 ${COMPOSE} "${PROFILES[@]}" run --rm \
   -e "PYTHON_ENV=production" \
   -e "MIGRATION_DATABASE_URL=postgresql+psycopg://postgres:postgres@postgres:5432/echo_gate" \

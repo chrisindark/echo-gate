@@ -7,22 +7,22 @@ the chat playground, trace explorer, and analytics dashboards.
 
 ## System components
 
-| Component | Where | Role |
-| --- | --- | --- |
-| HTTP API | `api/app/main.py`, `api/app/modules/*/*_controller.py` | FastAPI app, middleware, routers. |
-| Anthropic adapter | `api/app/modules/anthropic/` | Bidirectional wire protocol adapter mapping Anthropic Messages format to internal chat models and SSE streaming events. |
-| Routing/cache core | `api/app/modules/llm/llm_router_service.py` | Owns the request lifecycle: exact cache, semantic cache, verification, provider call, cache write, logging. |
-| Provider adapters | `api/app/modules/llm/providers/` | One module per upstream (`openai`, `groq`, `openrouter`, `ollama`, `gemini`, `claude`, `mock`) mixed into `LlmProviderService`, which keeps only credentials and the `service_name` dispatch. |
-| Embeddings | `api/app/modules/embedding/embedding_service.py` | Dense embeddings (via `inference-platform/` over HTTP) and sparse lexical embeddings (BM25, still local — see the inference platform section for why). |
-| Inference platform | `api/app/modules/inference/inference_client.py` | HTTP client for the shared model server: embeddings, reranking, relevance, NLI. Fail-open; owns role routing and error classification. |
-| Redis cache | `api/app/modules/redis/redis_service.py` | Exact-match cache and quota counters. |
-| Qdrant cache | `api/app/modules/qdrant/llm_cache_collection_service.py` | Vector cache collection `embeddings_multivector`: upsert, exact search, dense search, hybrid RRF search, expiry deletion. |
-| Intent + entities | `api/app/modules/intent_classifier/` | LLM-based intent classification and regex-based entity extraction; scope/TTL decisions. |
-| Reranking/verification | `api/app/modules/reranking/reranker_service.py`, `api/app/modules/llm/cache_confidence.py`, `api/app/modules/verifier/` | Cross-encoder rerank, confidence gate, and the async judge/cross-encoder evaluators. |
-| Relational store | `api/app/core/database.py`, `api/app/modules/*/*_model.py`, `alembic/` | SQLAlchemy models on PostgreSQL with Row-Level Security. |
-| Background workers | `api/app/worker/celery_app.py`, `*/tasks.py` | Celery worker + Beat: cache eviction, cost calculation, pending-request evaluation. |
-| UI | `web/` | Next.js 16 + React 19 observability dashboard. |
-| DI container | `api/app/core/dependencies.py` | Builds every singleton service and tears them down on shutdown. |
+| Component              | Where                                                                                                                   | Role                                                                                                                                                                                          |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| HTTP API               | `api/app/main.py`, `api/app/modules/*/*_controller.py`                                                                  | FastAPI app, middleware, routers.                                                                                                                                                             |
+| Anthropic adapter      | `api/app/modules/anthropic/`                                                                                            | Bidirectional wire protocol adapter mapping Anthropic Messages format to internal chat models and SSE streaming events.                                                                       |
+| Routing/cache core     | `api/app/modules/llm/llm_router_service.py`                                                                             | Owns the request lifecycle: exact cache, semantic cache, verification, provider call, cache write, logging.                                                                                   |
+| Provider adapters      | `api/app/modules/llm/providers/`                                                                                        | One module per upstream (`openai`, `groq`, `openrouter`, `ollama`, `gemini`, `claude`, `mock`) mixed into `LlmProviderService`, which keeps only credentials and the `service_name` dispatch. |
+| Embeddings             | `api/app/modules/embedding/embedding_service.py`                                                                        | Dense embeddings (via `inference-platform/` over HTTP) and sparse lexical embeddings (BM25, still local — see the inference platform section for why).                                        |
+| Inference platform     | `api/app/modules/inference/inference_client.py`                                                                         | HTTP client for the shared model server: embeddings, reranking, relevance, NLI. Fail-open; owns role routing and error classification.                                                        |
+| Redis cache            | `api/app/modules/redis/redis_service.py`                                                                                | Exact-match cache and quota counters.                                                                                                                                                         |
+| Qdrant cache           | `api/app/modules/qdrant/llm_cache_collection_service.py`                                                                | Vector cache collection `embeddings_multivector`: upsert, exact search, dense search, hybrid RRF search, expiry deletion.                                                                     |
+| Intent + entities      | `api/app/modules/intent_classifier/`                                                                                    | LLM-based intent classification and regex-based entity extraction; scope/TTL decisions.                                                                                                       |
+| Reranking/verification | `api/app/modules/reranking/reranker_service.py`, `api/app/modules/llm/cache_confidence.py`, `api/app/modules/verifier/` | Cross-encoder rerank, confidence gate, and the async judge/cross-encoder evaluators.                                                                                                          |
+| Relational store       | `api/app/core/database.py`, `api/app/modules/*/*_model.py`, `alembic/`                                                  | SQLAlchemy models on PostgreSQL with Row-Level Security.                                                                                                                                      |
+| Background workers     | `api/app/worker/celery_app.py`, `*/tasks.py`                                                                            | Celery worker + Beat: cache eviction, cost calculation, pending-request evaluation.                                                                                                           |
+| UI                     | `web/`                                                                                                                  | Next.js 16 + React 19 observability dashboard.                                                                                                                                                |
+| DI container           | `api/app/core/dependencies.py`                                                                                          | Builds every singleton service and tears them down on shutdown.                                                                                                                               |
 
 ## Module layout
 
@@ -84,6 +84,7 @@ The primary public endpoints are `POST /api/v1/chat/completions` (OpenAI format)
 For Anthropic requests, `AnthropicAdapter` normalizes the incoming payload to an internal `ChatCompletionRequest` and maps the resulting responses and streaming events back into the Anthropic specification.
 
 Per-request directives can override gateway behavior:
+
 - `cache_enabled: false` (or `X-EchoGate-Cache: false|bypass`): completely bypasses cache lookup (Steps 1–3 below) and cache write, serving directly from the provider with response header `X-Cache: BYPASS`.
 - `cache_ttl`: overrides computed retention TTL across Redis and Qdrant.
 - `retries`: overrides default provider retry attempts (`0` to `10`).
@@ -98,7 +99,7 @@ flag; see [Shadow cache mode](#shadow-cache-mode):
    (`prompt_optimization` body parameter or `X-EchoGate-Prompt-Optimization` header),
    reduces input token footprint before semantic cache key generation and upstream
    dispatch via whitespace collapse, session deduplication, tool JSON array
-   tabularization, CCR, and headroom trimming. Because optimization runs *before*
+   tabularization, CCR, and headroom trimming. Because optimization runs _before_
    exact and semantic hashing, compressed prompts achieve higher cache hit rates
    and save tokens upstream.
 1. **Redis exact match** — `_get_redis_exact_match`. A versioned SHA-256 cache key
@@ -138,7 +139,7 @@ flag; see [Shadow cache mode](#shadow-cache-mode):
      The extracted-metadata mismatch penalty (`0.05`/field, capped at `0.15`) is
      precision-load-bearing: near-duplicate prompts that differ only by one
      attribute (e.g. "check if a **key** exists" vs "…a **value** exists") score
-     near-1.0 on the cross-encoder and are rejected *only* by this factor. Do not
+     near-1.0 on the cross-encoder and are rejected _only_ by this factor. Do not
      weaken it or the `CACHE_CONFIDENCE_THRESHOLDS` high bounds from an offline
      sweep; tune them from live traces with
      `app/scripts/inspect_semantic_cache.py`.
@@ -162,13 +163,13 @@ flag; see [Shadow cache mode](#shadow-cache-mode):
 
 `RoutingDecision` (`app/modules/gateway_requests/gateway_requests_schema.py`):
 
-| Value | Meaning |
-| --- | --- |
-| `REDIS_EXACT` | Served from Redis exact cache. |
-| `QDRANT_EXACT` | Served from the Qdrant exact cache. |
-| `QDRANT_FAST` | Served from the dense fast-path threshold. |
+| Value             | Meaning                                                |
+| ----------------- | ------------------------------------------------------ |
+| `REDIS_EXACT`     | Served from Redis exact cache.                         |
+| `QDRANT_EXACT`    | Served from the Qdrant exact cache.                    |
+| `QDRANT_FAST`     | Served from the dense fast-path threshold.             |
 | `QDRANT_SEMANTIC` | Served after hybrid search + rerank + confidence gate. |
-| `LLM` | Fresh provider response (cache miss). |
+| `LLM`             | Fresh provider response (cache miss).                  |
 
 ### Latency breakdown
 
@@ -312,16 +313,16 @@ head-of-line blocking on cache embeddings.
 
 Requests are routed by **role**, not just by model id:
 
-| Role | Endpoint | Consumer |
-| --- | --- | --- |
-| `embed` | `/embeddings` | `EmbeddingService` (prompt vectors for the Qdrant cache) |
-| `rerank` | `/rerank` | `RerankerService.verify` (candidate rescoring) |
-| `relevance` | `/rerank` | `JudgeService` (query-to-answer relevance) |
-| `nli` | `/classify` | `JudgeService` (contradiction/entailment) |
+| Role        | Endpoint      | Consumer                                                 |
+| ----------- | ------------- | -------------------------------------------------------- |
+| `embed`     | `/embeddings` | `EmbeddingService` (prompt vectors for the Qdrant cache) |
+| `rerank`    | `/rerank`     | `RerankerService.verify` (candidate rescoring)           |
+| `relevance` | `/rerank`     | `JudgeService` (query-to-answer relevance)               |
+| `nli`       | `/classify`   | `JudgeService` (contradiction/entailment)                |
 
 Roles are not cosmetic. Two different cross-encoders back `rerank` and
 `relevance`; without a role, an unpinned `/rerank` call is served by the engine's
-*default* reranker, so relevance would be scored by the wrong model. That
+_default_ reranker, so relevance would be scored by the wrong model. That
 regression was caught end-to-end during the migration (relevance logits differed
 by 11.4 before role routing landed). An explicit `INFERENCE_*_MODEL` pin takes
 precedence and is required for the Infinity deployment, which routes by model id
@@ -363,11 +364,11 @@ only.
 
 Measured on the same Dockerfile (arm64, `docker image inspect`):
 
-| Build | Image (docker-reported) |
-| --- | ---: |
-| Gateway, engine-backed | **0.71GB** |
-| Single-stage predecessor (poetry + wheel cache in the image) | 1.04GB |
-| Pre-removal build with in-process models (`sentence-transformers`) | 9.4GB |
+| Build                                                              | Image (docker-reported) |
+| ------------------------------------------------------------------ | ----------------------: |
+| Gateway, engine-backed                                             |              **0.71GB** |
+| Single-stage predecessor (poetry + wheel cache in the image)       |                  1.04GB |
+| Pre-removal build with in-process models (`sentence-transformers`) |                   9.4GB |
 
 The ~8.7GB difference was `nvidia` CUDA libraries (3.3GB), `torch` (0.9GB) and
 `triton` (0.8GB) plus transformers — GPU support these CPU-sized models never used
@@ -388,7 +389,7 @@ them remotely would risk breaking hybrid search to save ~1ms.
 
 ## Degradation contract & resilience architecture
 
-Echo Gate is designed to be *degradable*, not *down*:
+Echo Gate is designed to be _degradable_, not _down_:
 
 1. **Explicit Degradation States**:
    - `FULL` (`X-Gateway-Degradation: none`): Served via cache hit or primary provider completion.
@@ -403,7 +404,7 @@ Echo Gate is designed to be *degradable*, not *down*:
    - When tripped `OPEN`, fast-fails or skips to the next candidate immediately with zero latency penalty.
    - Transitions to `HALF_OPEN` after recovery timeout (`CIRCUIT_BREAKER_RECOVERY_TIMEOUT_SECONDS`) to probe upstream recovery.
    - A `HALF_OPEN` breaker admits a single probe; the router releases that permit (`release_probe`) on paths that never reach the provider, such as a shed bulkhead, so a busy gateway cannot strand a recovered provider in `HALF_OPEN` permanently.
-   - A provider that dies *after* the first streamed chunk is recorded as a failure too. Success is only counted once a stream completes, and failover is attempted only while no content, reasoning, or tool call has been emitted — after that the client gets a structured SSE error instead of a replayed answer.
+   - A provider that dies _after_ the first streamed chunk is recorded as a failure too. Success is only counted once a stream completes, and failover is attempted only while no content, reasoning, or tool call has been emitted — after that the client gets a structured SSE error instead of a replayed answer.
 
 3. **Bulkheads & Load Shedding** (`app/core/bulkhead.py`):
    - Global concurrency cap (`GLOBAL_MAX_CONCURRENCY`) and per-provider concurrency caps (`PROVIDER_MAX_CONCURRENCY`).
@@ -469,6 +470,7 @@ when the vector storage is reclaimed.
 ### Natural streaming playback and pacing
 
 When replaying cached responses over SSE streams (`stream: true`), returning the entire answer in a single monolithic SSE event causes jarring UI flashes on typewriter-style chat interfaces. Echo Gate uses natural streaming playback:
+
 - **Token/Word Chunking**: `split_content_into_natural_chunks` partitions cached content into natural word groups (`STREAM_CACHE_WORDS_PER_CHUNK`, default 3) with exact preservation of characters, newlines, CJK characters, and markdown syntax.
 - **Micro-Interval Pacing**: Chunks are emitted with micro-interval pacing (`STREAM_CACHE_PACING_DELAY_MS`, default 8.0ms) simulating active generation.
 - **Client Opt-Out**: Clients desiring immediate delivery can pass `X-EchoGate-Stream-Pacing: off` or `stream_pacing: false`, or specify a custom millisecond delay via header or `stream_pacing_delay_ms`.
@@ -477,7 +479,7 @@ When replaying cached responses over SSE streams (`stream: true`), returning the
 
 A `stream: true` request normally replays a cache hit as progressive SSE chunks. A caller that only wants the raw answer immediately without stream parsing can pass `X-Cache-Prefer: instant`:
 
-- The controller runs `LlmRouterService.get_instant_cache_hit` *before*
+- The controller runs `LlmRouterService.get_instant_cache_hit` _before_
   building a `StreamingResponse`. Redis exact → Qdrant exact (with the usual
   Redis backfill) → semantic lookup, the same order and gates as the streaming
   path, and the same hit counting, usage/trace logging, and audit sampling.
@@ -489,7 +491,7 @@ A `stream: true` request normally replays a cache hit as progressive SSE chunks.
 
 ## Prompt token optimization pipeline
 
-The optimization pipeline (`app/modules/prompt_optimization/prompt_optimizer.py`) is an opt-in pre-processing stage that compresses prompt tokens prior to semantic cache key generation, vector indexing, and upstream LLM dispatch. Because it runs *before* exact and semantic cache hashing, compacted prompts achieve higher cache hit rates and lower time-to-first-token (TTFT).
+The optimization pipeline (`app/modules/prompt_optimization/prompt_optimizer.py`) is an opt-in pre-processing stage that compresses prompt tokens prior to semantic cache key generation, vector indexing, and upstream LLM dispatch. Because it runs _before_ exact and semantic cache hashing, compacted prompts achieve higher cache hit rates and lower time-to-first-token (TTFT).
 
 Optimization can be triggered globally via `PROMPT_OPTIMIZATION_ENABLED=true` or opted into per request via the `prompt_optimization` body parameter or the `X-EchoGate-Prompt-Optimization` HTTP header.
 
@@ -515,6 +517,7 @@ Optimization can be triggered globally via `PROMPT_OPTIMIZATION_ENABLED=true` or
 ### 4. Optimization Telemetry
 
 When prompt optimization applies modifications that save tokens or characters:
+
 - The response header `X-EchoGate-Prompt-Optimization` is set to `applied`.
 - The response header `X-EchoGate-Prompt-Savings` reports the savings as `tokens=<saved_tokens>,chars=<saved_chars>` (e.g. `tokens=12,chars=48`).
 
@@ -525,6 +528,7 @@ The conversation module (`app/modules/conversation/`) provides persistent multi-
 ### 1. Storage & Multi-Tenant Isolation
 
 Conversations and their messages are persisted in PostgreSQL:
+
 - `conversations`: Primary thread record storing `id`, `user_id`, `tenant_id`, `title`, and timestamps.
 - `messages`: Individual conversational turns storing `id`, `conversation_id`, `role`, `content`, and `created_at`.
 
@@ -533,6 +537,7 @@ Both tables enforce PostgreSQL Row-Level Security (RLS) under the non-owner role
 ### 2. Atomic Turn Lifecycle & Streaming
 
 When a client sends a message via `POST /api/v1/conversations/{conversation_id}/chat`:
+
 - Historical messages are loaded from the database in chronological sequence.
 - The new user message is appended to the message list.
 - If prompt optimization is active, the assembled thread is optimized.
@@ -542,6 +547,7 @@ When a client sends a message via `POST /api/v1/conversations/{conversation_id}/
 ### 3. Web UI Integration
 
 The Next.js 16 frontend provides a dedicated Conversations interface at `/conversations` (`web/src/app/conversations/page.tsx`) with a collapsible conversation sidebar (`web/src/components/conversation-sidebar.tsx`) supporting:
+
 - Grouped chronological threads (Today, Yesterday, Previous 7 Days, Older).
 - Inline conversation title renaming (`PATCH /api/v1/conversations/{id}`).
 - Conversation deletion with cascade message removal (`DELETE /api/v1/conversations/{id}`).
@@ -600,11 +606,11 @@ clients are loop-bound; `run_async` runs task coroutines on that loop.
 
 Registered Beat tasks:
 
-| Task | Schedule (as coded) | Purpose |
-| --- | --- | --- |
-| `app.modules.llm_usage.tasks.process_uncalculated_costs` | every 5 min | Fill in `cost` for usage logs where `cost_calculated` is false. |
-| `app.modules.gateway_requests.tasks.evaluate_pending_requests` | every 1 min | Evaluate `PENDING` traces with the judge/cross-encoder to flag false-positive cache hits. |
-| `delete_expired_vectors` (qdrant) | every 5 min | Delete expired points from the Qdrant cache collection. |
+| Task                                                           | Schedule (as coded) | Purpose                                                                                   |
+| -------------------------------------------------------------- | ------------------- | ----------------------------------------------------------------------------------------- |
+| `app.modules.llm_usage.tasks.process_uncalculated_costs`       | every 5 min         | Fill in `cost` for usage logs where `cost_calculated` is false.                           |
+| `app.modules.gateway_requests.tasks.evaluate_pending_requests` | every 1 min         | Evaluate `PENDING` traces with the judge/cross-encoder to flag false-positive cache hits. |
+| `delete_expired_vectors` (qdrant)                              | every 5 min         | Delete expired points from the Qdrant cache collection.                                   |
 
 `deploy/compose/docker-compose.yml` (under the `core` profile) starts both a
 `celery_worker` and a `celery_beat` service, so scheduled tasks run under
@@ -625,7 +631,7 @@ Registered Beat tasks:
 
 ### Probe tiering
 
-The probes are tiered by *what breaks*, not by *what is configured*. `/ready`
+The probes are tiered by _what breaks_, not by _what is configured_. `/ready`
 gates on Postgres alone because that is the only dependency whose failure makes
 the gateway answer **incorrectly** rather than merely slower:
 
@@ -640,6 +646,7 @@ the gateway answer **incorrectly** rather than merely slower:
 Redis and Qdrant stay on `/deps` so a cache blip is still visible to an operator
 without evicting every replica and converting graceful degradation into an
 outage.
+
 - Every response carries `X-Correlation-ID` and `X-Request-ID`; the chat response
   also exposes `X-Cache`.
 - Structured access logs include method, path, status, duration, and client IP.

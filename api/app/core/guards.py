@@ -360,8 +360,8 @@ class UserAuthGuard:
 
         jwt_token = token.strip()
 
-        if not config.SUPABASE_JWT_SECRET:
-            logger.error("SUPABASE_JWT_SECRET is not configured on the gateway.")
+        if not config.SUPABASE_SECRET_KEY:
+            logger.error("SUPABASE_SECRET_KEY is not configured on the gateway.")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Supabase JWT authentication is not configured on the gateway.",
@@ -371,9 +371,15 @@ class UserAuthGuard:
 
         try:
             options = {"verify_aud": bool(config.SUPABASE_JWT_AUDIENCE)}
+            if config.SUPABASE_JWKS_URL and not config.SUPABASE_SECRET_KEY:
+                jwks_client = jwt.PyJWKClient(config.SUPABASE_JWKS_URL, cache_keys=True)
+                signing_key = jwks_client.get_signing_key_from_jwt(jwt_token)
+                key = signing_key
+            else:
+                key = config.SUPABASE_SECRET_KEY
             payload = jwt.decode(
                 jwt_token,
-                config.SUPABASE_JWT_SECRET,
+                key,
                 algorithms=config.SUPABASE_JWT_ALGORITHMS,
                 audience=config.SUPABASE_JWT_AUDIENCE
                 if config.SUPABASE_JWT_AUDIENCE

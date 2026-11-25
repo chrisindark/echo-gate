@@ -6,7 +6,7 @@ document covers both shapes.
 ## PostgreSQL
 
 PostgreSQL is the only supported relational backend (the app connects with
-`psycopg`). There is a single Alembic revision,
+`psycopg-binary`). There is a single Alembic revision,
 `alembic/versions/3f9c1a7b2d40_baseline_postgres_rls.py`, which creates every table,
 the non-owner application role, and all Row-Level Security policies. Do not rely on
 `create_all`; add a migration for schema changes.
@@ -18,79 +18,79 @@ the non-owner application role, and all Row-Level Security policies. Do not rely
 Identity table, read before any tenant context exists. **No RLS** — access is
 controlled by role grants.
 
-| Column | Type | Notes |
-| --- | --- | --- |
-| `id` | int PK | |
-| `name` | varchar(100) | Human label. |
-| `key_prefix` | varchar(16) | Display prefix. |
-| `key_hash` | varchar(64) | SHA-256 of the key; **unique**. |
-| `tenant_id` | varchar(100) | Bound tenant. |
-| `user_id` | varchar(100) NULL | Optional bound user. |
-| `is_active` | bool | Revocation flag. |
-| `created_at` / `updated_at` | timestamptz | |
+| Column                      | Type              | Notes                           |
+| --------------------------- | ----------------- | ------------------------------- |
+| `id`                        | int PK            |                                 |
+| `name`                      | varchar(100)      | Human label.                    |
+| `key_prefix`                | varchar(16)       | Display prefix.                 |
+| `key_hash`                  | varchar(64)       | SHA-256 of the key; **unique**. |
+| `tenant_id`                 | varchar(100)      | Bound tenant.                   |
+| `user_id`                   | varchar(100) NULL | Optional bound user.            |
+| `is_active`                 | bool              | Revocation flag.                |
+| `created_at` / `updated_at` | timestamptz       |                                 |
 
 #### `gateway_requests`
 
 The trace log: one row per chat request, whether served from cache or provider.
 
-| Column | Type | Notes |
-| --- | --- | --- |
-| `id` | int PK | |
-| `created_at` / `updated_at` | timestamptz | |
-| `query_text` | text | Prepared prompt text. |
-| `response_text` | text NULL | Assistant content. |
-| `routing_decision` | varchar(50) | `LLM`/`REDIS_EXACT`/`QDRANT_EXACT`/`QDRANT_SEMANTIC`/`QDRANT_FAST`. |
-| `provider` / `model` | varchar | Effective provider/model (after fallback). |
-| `point_id` | varchar(36) | Qdrant point served, if any. |
-| `exact_hash` | varchar(64) | Cache key. |
-| `intent` | varchar(100) | Classified intent. |
-| `core_operation` / `core_subject` / `subject_modifier` / `action_modifier` | varchar(255) | Intent analysis fields. |
-| `rerank_score` | numeric(5,4) | Composite rerank score of the top candidate. Recorded for semantic hits (`rerank_score`) and misses (falls back to `top_1_rerank_score`). |
-| `score_breakdown` | json | Reranker decomposition: `scoring_mode`, `base_score`, `final_score`, per-signal `factors`, and `details` (`metadata_mismatches` plus per-field `metadata_comparisons` with request/candidate values and overlap). |
-| `latency_ms` / `provider_latency_ms` / `cache_lookup_latency_ms` | int | Timing. |
-| `latency_breakdown` | json | Per-stage ms map. |
-| `user_id` / `tenant_id` / `session_id` / `conversation_id` | varchar | Scope. |
-| `evaluation_status` | varchar(20) | `PENDING` default. |
-| `llm_relevance_score` / `llm_contradiction_score` / `llm_entailment_score` | numeric(5,4) | Judge scores. |
-| `is_false_positive` | bool | Evaluated false-positive flag. |
-| `error_message` | text | On failures. |
+| Column                                                                     | Type         | Notes                                                                                                                                                                                                             |
+| -------------------------------------------------------------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                                                                       | int PK       |                                                                                                                                                                                                                   |
+| `created_at` / `updated_at`                                                | timestamptz  |                                                                                                                                                                                                                   |
+| `query_text`                                                               | text         | Prepared prompt text.                                                                                                                                                                                             |
+| `response_text`                                                            | text NULL    | Assistant content.                                                                                                                                                                                                |
+| `routing_decision`                                                         | varchar(50)  | `LLM`/`REDIS_EXACT`/`QDRANT_EXACT`/`QDRANT_SEMANTIC`/`QDRANT_FAST`.                                                                                                                                               |
+| `provider` / `model`                                                       | varchar      | Effective provider/model (after fallback).                                                                                                                                                                        |
+| `point_id`                                                                 | varchar(36)  | Qdrant point served, if any.                                                                                                                                                                                      |
+| `exact_hash`                                                               | varchar(64)  | Cache key.                                                                                                                                                                                                        |
+| `intent`                                                                   | varchar(100) | Classified intent.                                                                                                                                                                                                |
+| `core_operation` / `core_subject` / `subject_modifier` / `action_modifier` | varchar(255) | Intent analysis fields.                                                                                                                                                                                           |
+| `rerank_score`                                                             | numeric(5,4) | Composite rerank score of the top candidate. Recorded for semantic hits (`rerank_score`) and misses (falls back to `top_1_rerank_score`).                                                                         |
+| `score_breakdown`                                                          | json         | Reranker decomposition: `scoring_mode`, `base_score`, `final_score`, per-signal `factors`, and `details` (`metadata_mismatches` plus per-field `metadata_comparisons` with request/candidate values and overlap). |
+| `latency_ms` / `provider_latency_ms` / `cache_lookup_latency_ms`           | int          | Timing.                                                                                                                                                                                                           |
+| `latency_breakdown`                                                        | json         | Per-stage ms map.                                                                                                                                                                                                 |
+| `user_id` / `tenant_id` / `session_id` / `conversation_id`                 | varchar      | Scope.                                                                                                                                                                                                            |
+| `evaluation_status`                                                        | varchar(20)  | `PENDING` default.                                                                                                                                                                                                |
+| `llm_relevance_score` / `llm_contradiction_score` / `llm_entailment_score` | numeric(5,4) | Judge scores.                                                                                                                                                                                                     |
+| `is_false_positive`                                                        | bool         | Evaluated false-positive flag.                                                                                                                                                                                    |
+| `error_message`                                                            | text         | On failures.                                                                                                                                                                                                      |
 
 #### `llm_usage_logs`
 
 Token/cost accounting per provider call.
 
-| Column | Type | Notes |
-| --- | --- | --- |
-| `id` | int PK | |
-| `created_at` / `updated_at` | timestamptz | |
-| `service_name` / `model` / `caller_service_name` | varchar | Provider, model, caller (`echo-gate-api`). |
-| `user_id` / `tenant_id` / `session_id` / `conversation_id` | varchar | Scope. |
-| `prompt_tokens` / `completion_tokens` / `total_tokens` | int | Usage. |
-| `cache_read_tokens` / `cache_creation_tokens` | int | Cache accounting. |
-| `cost` | numeric(12,6) | Computed dollar cost. |
-| `cost_calculated` | bool | Server default `false`; the cost task flips it. |
-| `latency_ms` / `status_code` / `is_success` | int/bool | Outcome. |
-| `error_message` | text | On failure. |
-| `finish_reason` | varchar(50) | |
-| `temperature` | numeric(3,2) | |
-| `max_tokens` | int | |
-| `input_text` / `output_text` | text | Prompt/response text. |
-| `prompt_hash` | varchar(64), indexed | SHA-256 of the **system** prompt only (whitespace-normalized), for per-application cost attribution. `NULL` = no system prompt, or written before the column existed and not recoverable by the backfill. See `app/core/prompt_identity.py`. |
-| `extra_metadata` | json | Extras. |
+| Column                                                     | Type                 | Notes                                                                                                                                                                                                                                        |
+| ---------------------------------------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                                                       | int PK               |                                                                                                                                                                                                                                              |
+| `created_at` / `updated_at`                                | timestamptz          |                                                                                                                                                                                                                                              |
+| `service_name` / `model` / `caller_service_name`           | varchar              | Provider, model, caller (`echo-gate-api`).                                                                                                                                                                                                   |
+| `user_id` / `tenant_id` / `session_id` / `conversation_id` | varchar              | Scope.                                                                                                                                                                                                                                       |
+| `prompt_tokens` / `completion_tokens` / `total_tokens`     | int                  | Usage.                                                                                                                                                                                                                                       |
+| `cache_read_tokens` / `cache_creation_tokens`              | int                  | Cache accounting.                                                                                                                                                                                                                            |
+| `cost`                                                     | numeric(12,6)        | Computed dollar cost.                                                                                                                                                                                                                        |
+| `cost_calculated`                                          | bool                 | Server default `false`; the cost task flips it.                                                                                                                                                                                              |
+| `latency_ms` / `status_code` / `is_success`                | int/bool             | Outcome.                                                                                                                                                                                                                                     |
+| `error_message`                                            | text                 | On failure.                                                                                                                                                                                                                                  |
+| `finish_reason`                                            | varchar(50)          |                                                                                                                                                                                                                                              |
+| `temperature`                                              | numeric(3,2)         |                                                                                                                                                                                                                                              |
+| `max_tokens`                                               | int                  |                                                                                                                                                                                                                                              |
+| `input_text` / `output_text`                               | text                 | Prompt/response text.                                                                                                                                                                                                                        |
+| `prompt_hash`                                              | varchar(64), indexed | SHA-256 of the **system** prompt only (whitespace-normalized), for per-application cost attribution. `NULL` = no system prompt, or written before the column existed and not recoverable by the backfill. See `app/core/prompt_identity.py`. |
+| `extra_metadata`                                           | json                 | Extras.                                                                                                                                                                                                                                      |
 
 #### `llm_quota_rules`
 
 Optional per-scope rate/token limits. Rows with `tenant_id IS NULL` are global
 rules visible to every tenant.
 
-| Column | Type |
-| --- | --- |
-| `id` | int PK |
-| `created_at` / `updated_at` | timestamptz |
-| `provider` / `model` | varchar (nullable = wildcard) |
-| `user_id` / `tenant_id` | varchar (nullable = wildcard) |
-| `max_rpm` / `max_tpm` | int |
-| `is_active` | bool |
+| Column                      | Type                          |
+| --------------------------- | ----------------------------- |
+| `id`                        | int PK                        |
+| `created_at` / `updated_at` | timestamptz                   |
+| `provider` / `model`        | varchar (nullable = wildcard) |
+| `user_id` / `tenant_id`     | varchar (nullable = wildcard) |
+| `max_rpm` / `max_tpm`       | int                           |
+| `is_active`                 | bool                          |
 
 The service picks the **most restrictive** matching rule. When no rule matches,
 defaults are `10` RPM and `20000` TPM (hardcoded in `llm_quota_service.py`).
@@ -104,25 +104,25 @@ require an `X-Admin-Key` with a `quota:*` scope.
 
 #### `conversations`
 
-| Column | Type | Notes |
-| --- | --- | --- |
-| `id` | varchar PK | |
-| `tenant_id` | varchar(100) | |
-| `user_id` | varchar(100) NULL | |
-| `title` | varchar | |
-| `created_at` / `updated_at` | timestamptz | |
+| Column                      | Type              | Notes |
+| --------------------------- | ----------------- | ----- |
+| `id`                        | varchar PK        |       |
+| `tenant_id`                 | varchar(100)      |       |
+| `user_id`                   | varchar(100) NULL |       |
+| `title`                     | varchar           |       |
+| `created_at` / `updated_at` | timestamptz       |       |
 
 #### `messages`
 
-| Column | Type | Notes |
-| --- | --- | --- |
-| `id` | varchar PK | |
-| `conversation_id` | varchar FK → `conversations.id` | |
-| `tenant_id` | varchar(100) | |
-| `user_id` | varchar(100) NULL | |
-| `role` | varchar | |
-| `content` | text | |
-| `created_at` | timestamptz | |
+| Column            | Type                            | Notes |
+| ----------------- | ------------------------------- | ----- |
+| `id`              | varchar PK                      |       |
+| `conversation_id` | varchar FK → `conversations.id` |       |
+| `tenant_id`       | varchar(100)                    |       |
+| `user_id`         | varchar(100) NULL               |       |
+| `role`            | varchar                         |       |
+| `content`         | text                            |       |
+| `created_at`      | timestamptz                     |       |
 
 > Conversations/messages are tenant-scoped and surfaced through the mounted
 > `conversation/` router — see
@@ -133,22 +133,22 @@ require an `X-Admin-Key` with a `quota:*` scope.
 Scoped operator credentials for `/api/v1/admin/*`. Deliberately a **separate
 table** from `api_keys` — see the reasoning below.
 
-| Column | Type | Notes |
-| --- | --- | --- |
-| `id` | int PK | |
-| `name` | varchar(100) | Label for the holder. Not unique. |
-| `key_prefix` | varchar(16) | Leading chars of the plaintext, display only. |
-| `key_hash` | varchar(64) | SHA-256 hex, **unique**. Plaintext shown once at creation. |
-| `scopes` | varchar(255) | Comma-separated: `quota:read`, `quota:write`, `keys:read`, `keys:write`, or `admin:*`. |
-| `expires_at` | timestamptz NULL | NULL = no expiry (revocation is explicit). |
-| `is_active` | bool | |
-| `last_used_at` | timestamptz NULL | Throttled to one write per 5 minutes. |
-| `created_at` / `updated_at` | timestamptz | |
+| Column                      | Type             | Notes                                                                                  |
+| --------------------------- | ---------------- | -------------------------------------------------------------------------------------- |
+| `id`                        | int PK           |                                                                                        |
+| `name`                      | varchar(100)     | Label for the holder. Not unique.                                                      |
+| `key_prefix`                | varchar(16)      | Leading chars of the plaintext, display only.                                          |
+| `key_hash`                  | varchar(64)      | SHA-256 hex, **unique**. Plaintext shown once at creation.                             |
+| `scopes`                    | varchar(255)     | Comma-separated: `quota:read`, `quota:write`, `keys:read`, `keys:write`, or `admin:*`. |
+| `expires_at`                | timestamptz NULL | NULL = no expiry (revocation is explicit).                                             |
+| `is_active`                 | bool             |                                                                                        |
+| `last_used_at`              | timestamptz NULL | Throttled to one write per 5 minutes.                                                  |
+| `created_at` / `updated_at` | timestamptz      |                                                                                        |
 
 **Why a separate table rather than an `is_admin` column on `api_keys`:**
 
-- Tenant keys mint an *identity* and are creatable over HTTP. Admin keys mint
-  *privilege* (cross-tenant RLS bypass). The only way to create one is the
+- Tenant keys mint an _identity_ and are creatable over HTTP. Admin keys mint
+  _privilege_ (cross-tenant RLS bypass). The only way to create one is the
   offline `app/scripts/create_admin_key.py` CLI, so the escalation path is
   closed structurally rather than by convention.
 - Admin keys are not tenant identities. `TenantContextMiddleware` resolves any
@@ -163,31 +163,31 @@ tenant. Access control is by key possession and is enforced in
 
 #### `shadow_cache_evaluations`
 
-What the cache *would* have done for a request that a provider answered
+What the cache _would_ have done for a request that a provider answered
 (`CACHE_MODE=shadow`). One row per shadow evaluation, written by a background
 task after the client already has its response. See
 [ARCHITECTURE.md](ARCHITECTURE.md#shadow-cache-mode).
 
-| Column | Type | Notes |
-| --- | --- | --- |
-| `id` | int PK | |
-| `created_at` | timestamptz | Indexed; the aggregation window column. |
-| `request_id` | int NULL FK → `gateway_requests.id` | `ON DELETE SET NULL`. Nullable because the trace row is written by a sibling task; join on `exact_hash` when absent. |
-| `exact_hash` | varchar(64) NULL | Derived cache key for the request. |
-| `tenant_id` / `user_id` | varchar(100) NULL | Identity at evaluation time; drives the RLS policy. |
-| `model` / `provider` | varchar(100) NULL | Routed target. |
-| `would_have_hit` | bool | Whether any cache layer would have answered. |
-| `match_type` | varchar(50) | `REDIS_EXACT`, `QDRANT_EXACT`, `QDRANT_FAST`, `QDRANT_SEMANTIC`, or `MISS`. |
-| `point_id` | varchar(36) NULL | Matched Qdrant point, when applicable. |
-| `match_score` / `rerank_score` | numeric(6,5) NULL | Confidence-gate inputs. |
-| `score_breakdown` | json NULL | Reranker factor decomposition, same shape as the trace row's. |
-| `cached_response_text` / `actual_response_text` | text NULL | The two answers compared by the judge. |
-| `is_equivalent` | bool NULL | Judge verdict; NULL when no match occurred or the comparison was skipped/failed. |
-| `intent` | varchar(100) NULL | Classified intent. |
-| `entities` | json NULL | Extracted entities. |
-| `latency_breakdown` | json NULL | Per-stage shadow pipeline timings. |
-| `provider_latency_ms` / `cache_lookup_latency_ms` | int NULL | The two sides of the projected saving. |
-| `projected_latency_saved_ms` | int NULL | `provider - lookup`; only set on would-be hits. |
+| Column                                            | Type                                | Notes                                                                                                                |
+| ------------------------------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `id`                                              | int PK                              |                                                                                                                      |
+| `created_at`                                      | timestamptz                         | Indexed; the aggregation window column.                                                                              |
+| `request_id`                                      | int NULL FK → `gateway_requests.id` | `ON DELETE SET NULL`. Nullable because the trace row is written by a sibling task; join on `exact_hash` when absent. |
+| `exact_hash`                                      | varchar(64) NULL                    | Derived cache key for the request.                                                                                   |
+| `tenant_id` / `user_id`                           | varchar(100) NULL                   | Identity at evaluation time; drives the RLS policy.                                                                  |
+| `model` / `provider`                              | varchar(100) NULL                   | Routed target.                                                                                                       |
+| `would_have_hit`                                  | bool                                | Whether any cache layer would have answered.                                                                         |
+| `match_type`                                      | varchar(50)                         | `REDIS_EXACT`, `QDRANT_EXACT`, `QDRANT_FAST`, `QDRANT_SEMANTIC`, or `MISS`.                                          |
+| `point_id`                                        | varchar(36) NULL                    | Matched Qdrant point, when applicable.                                                                               |
+| `match_score` / `rerank_score`                    | numeric(6,5) NULL                   | Confidence-gate inputs.                                                                                              |
+| `score_breakdown`                                 | json NULL                           | Reranker factor decomposition, same shape as the trace row's.                                                        |
+| `cached_response_text` / `actual_response_text`   | text NULL                           | The two answers compared by the judge.                                                                               |
+| `is_equivalent`                                   | bool NULL                           | Judge verdict; NULL when no match occurred or the comparison was skipped/failed.                                     |
+| `intent`                                          | varchar(100) NULL                   | Classified intent.                                                                                                   |
+| `entities`                                        | json NULL                           | Extracted entities.                                                                                                  |
+| `latency_breakdown`                               | json NULL                           | Per-stage shadow pipeline timings.                                                                                   |
+| `provider_latency_ms` / `cache_lookup_latency_ms` | int NULL                            | The two sides of the projected saving.                                                                               |
+| `projected_latency_saved_ms`                      | int NULL                            | `provider - lookup`; only set on would-be hits.                                                                      |
 
 Indexes: `created_at`, `request_id`, `exact_hash`, `tenant_id`, `user_id`,
 `model`, `would_have_hit`, `match_type`, `point_id`, `is_equivalent`, `intent`.
@@ -204,22 +204,22 @@ can trigger immediate cache eviction. The hourly intent calibration job reads
 these rows across tenants and writes threshold overrides to Redis; the request
 serving path reads those overrides without mutating configuration.
 
-| Column | Type | Notes |
-| --- | --- | --- |
-| `id` | int PK | |
-| `created_at` | timestamptz | Indexed. |
-| `request_id` | int NULL FK → `gateway_requests.id` | `ON DELETE SET NULL`. |
-| `exact_hash` | varchar(64) NULL | Exact cache key, when available. |
-| `tenant_id` / `user_id` | varchar(100) NULL | Identity at audit time; `tenant_id` drives RLS. |
-| `model` / `provider` | varchar(100) NULL | Routed target. |
-| `match_type` | varchar(50) NULL | Cache layer that supplied the response. |
-| `query_text` / `cached_answer` / `fresh_answer` | text NULL | Compared prompt and answers. |
-| `intent` | varchar(100) NULL | Calibration grouping. |
-| `vector_similarity` / `rerank_score` | numeric(6,5) NULL | Similarity and confidence-gate inputs. |
-| `is_equivalent` | bool NULL | Judge result; `false` is an audited false positive. |
-| `point_id` | varchar(36) NULL | Qdrant point eligible for eviction. |
-| `latency_saved_ms` | int NULL | Provider latency minus cache lookup latency. |
-| `evicted` | bool | Whether all attempted cache deletions succeeded. |
+| Column                                          | Type                                | Notes                                               |
+| ----------------------------------------------- | ----------------------------------- | --------------------------------------------------- |
+| `id`                                            | int PK                              |                                                     |
+| `created_at`                                    | timestamptz                         | Indexed.                                            |
+| `request_id`                                    | int NULL FK → `gateway_requests.id` | `ON DELETE SET NULL`.                               |
+| `exact_hash`                                    | varchar(64) NULL                    | Exact cache key, when available.                    |
+| `tenant_id` / `user_id`                         | varchar(100) NULL                   | Identity at audit time; `tenant_id` drives RLS.     |
+| `model` / `provider`                            | varchar(100) NULL                   | Routed target.                                      |
+| `match_type`                                    | varchar(50) NULL                    | Cache layer that supplied the response.             |
+| `query_text` / `cached_answer` / `fresh_answer` | text NULL                           | Compared prompt and answers.                        |
+| `intent`                                        | varchar(100) NULL                   | Calibration grouping.                               |
+| `vector_similarity` / `rerank_score`            | numeric(6,5) NULL                   | Similarity and confidence-gate inputs.              |
+| `is_equivalent`                                 | bool NULL                           | Judge result; `false` is an audited false positive. |
+| `point_id`                                      | varchar(36) NULL                    | Qdrant point eligible for eviction.                 |
+| `latency_saved_ms`                              | int NULL                            | Provider latency minus cache lookup latency.        |
+| `evicted`                                       | bool                                | Whether all attempted cache deletions succeeded.    |
 
 Rows are tenant-scoped like `gateway_requests`; trusted calibration jobs use
 `system_rls_context` to read all tenants. The table is not exposed through a
@@ -240,14 +240,14 @@ RLS is then enabled per table. Every policy begins with
 `current_setting('app.rls_system', true) = 'on'`, so trusted background jobs
 (`system_rls_context`) bypass isolation.
 
-| Table | Policy shape |
-| --- | --- |
-| `gateway_requests`, `llm_usage_logs` | **Tenant:** visible when `tenant_id = current_setting('app.current_tenant')`. |
-| `shadow_cache_evaluations` | **Tenant:** same shape as `gateway_requests`; shadow rows inherit the request's tenant context from the background task. |
-| `cache_evaluations` | **Tenant:** same shape as `gateway_requests`; trusted calibration jobs use the system RLS context to read across tenants. |
-| `llm_quota_rules` | **Quota:** visible when `tenant_id IS NULL` **or** matches the current tenant. |
-| `conversations`, `messages` | **User:** visible when tenant matches and `app.current_user = ''` **or** `user_id` matches. |
-| `api_keys`, `admin_api_keys` | **No RLS** by design; key resolution happens before a tenant context exists. |
+| Table                                | Policy shape                                                                                                              |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| `gateway_requests`, `llm_usage_logs` | **Tenant:** visible when `tenant_id = current_setting('app.current_tenant')`.                                             |
+| `shadow_cache_evaluations`           | **Tenant:** same shape as `gateway_requests`; shadow rows inherit the request's tenant context from the background task.  |
+| `cache_evaluations`                  | **Tenant:** same shape as `gateway_requests`; trusted calibration jobs use the system RLS context to read across tenants. |
+| `llm_quota_rules`                    | **Quota:** visible when `tenant_id IS NULL` **or** matches the current tenant.                                            |
+| `conversations`, `messages`          | **User:** visible when tenant matches and `app.current_user = ''` **or** `user_id` matches.                               |
+| `api_keys`, `admin_api_keys`         | **No RLS** by design; key resolution happens before a tenant context exists.                                              |
 
 Both `USING` and `WITH CHECK` are set, so cross-tenant inserts are rejected.
 Identity is bound per transaction by `app/core/rls.py` as transaction-local GUCs
@@ -265,13 +265,13 @@ the app calls `ensure_indexes()` at startup.
 
 ### Vectors
 
-| Named vector | Type | Purpose |
-| --- | --- | --- |
-| `prompt_embedding` | dense, COSINE, on_disk | Full-prompt embedding; drives the fast path. |
-| `system_prompt_embedding` | dense, COSINE, on_disk | System segment. |
-| `user_prompt_embedding` | dense, COSINE, on_disk | User segment. |
-| `system_prompt_bm25` | sparse | System lexical. |
-| `user_prompt_bm25` | sparse | User lexical. |
+| Named vector              | Type                   | Purpose                                      |
+| ------------------------- | ---------------------- | -------------------------------------------- |
+| `prompt_embedding`        | dense, COSINE, on_disk | Full-prompt embedding; drives the fast path. |
+| `system_prompt_embedding` | dense, COSINE, on_disk | System segment.                              |
+| `user_prompt_embedding`   | dense, COSINE, on_disk | User segment.                                |
+| `system_prompt_bm25`      | sparse                 | System lexical.                              |
+| `user_prompt_bm25`        | sparse                 | User lexical.                                |
 
 - Dense size = `embedding_service.embedding_dimension` (default **384**, the dim
   of `BAAI/bge-small-en-v1.5`). A dimension mismatch raises at startup rather than

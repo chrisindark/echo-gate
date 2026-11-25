@@ -59,7 +59,7 @@ Once your Echo Gate backend is deployed (see [`llm-only-free-tier.md`](./llm-onl
 3. Enable Supabase JWT verification and restrict anonymous providers on the backend so logged-in users unlock all configured providers while unauthenticated visitors only access free-tier providers (`groq`, `openrouter`):
    ```dotenv
    SUPABASE_AUTH_ENABLED=true
-   SUPABASE_JWT_SECRET=<your-supabase-jwt-secret>
+   SUPABASE_SECRET_KEY=<your-supabase-jwt-secret>
    SUPABASE_JWT_AUDIENCE=authenticated
    SUPABASE_JWT_ALGORITHMS=HS256
    ANONYMOUS_ALLOWED_PROVIDERS=groq,openrouter
@@ -90,7 +90,7 @@ Echo Gate's FastAPI gateway can also run on Vercel as a Python serverless functi
 4. Configure environment variables (same as Docker, see `.env.example`), at minimum:
    - `PYTHON_ENV=production`
    - `SUPABASE_AUTH_ENABLED=true` (if using Supabase auth)
-   - `SUPABASE_JWT_SECRET`, `SUPABASE_JWT_AUDIENCE`, `SUPABASE_JWT_ALGORITHMS`
+   - `SUPABASE_SECRET_KEY`, `SUPABASE_JWT_AUDIENCE`, `SUPABASE_JWT_ALGORITHMS`
    - `DATABASE_URL` (Postgres with RLS role) and `REDIS_URL` (optional; degrades gracefully)
    - `INFERENCE_BASE_URL` (point at your inference-platform deployment)
    - `CORS_ORIGINS` including your web Vercel origin

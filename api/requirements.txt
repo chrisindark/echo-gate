@@ -78,10 +78,7 @@ portalocker==3.2.0
 pre_commit==4.6.2
 prompt_toolkit==3.0.53
 protobuf==7.36.2
-psycopg==3.3.6
-psycopg-binary==3.3.6
-psycopg2==2.9.13
-psycopg2-binary==2.9.13
+psycopg-binary==2.9.13
 py-serializable==2.2.0
 py_rust_stemmers==0.1.8
 pyasn1==0.6.5

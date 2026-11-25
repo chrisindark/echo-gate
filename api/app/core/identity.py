@@ -100,7 +100,7 @@ class ApiKeyIdentityProvider:
 class SupabaseJwtIdentityProvider:
     """Resolves a Supabase JWT (Bearer token) to an authenticated tenant/user identity.
 
-    When ``SUPABASE_AUTH_ENABLED`` or ``SUPABASE_JWT_SECRET`` is configured, this
+    When ``SUPABASE_AUTH_ENABLED`` or ``SUPABASE_SECRET_KEY`` is configured, this
     provider verifies incoming Bearer JWT tokens and maps the subject (user UUID)
     to a personal tenant (``usr_<uuid>``) or an explicit ``tenant_id`` set in metadata.
     """
@@ -108,14 +108,14 @@ class SupabaseJwtIdentityProvider:
     def resolve(self, headers: dict[str, str]) -> Identity | None:
         from app.core.config import config
 
-        if not config.SUPABASE_AUTH_ENABLED and not config.SUPABASE_JWT_SECRET:
+        if not config.SUPABASE_AUTH_ENABLED and not config.SUPABASE_SECRET_KEY:
             return None
 
         token = api_key_from_headers(headers)
         if not token or token.count(".") != 2:
             return None
 
-        if not config.SUPABASE_JWT_SECRET:
+        if not config.SUPABASE_SECRET_KEY:
             return None
 
         try:
@@ -124,7 +124,7 @@ class SupabaseJwtIdentityProvider:
             options = {"verify_aud": bool(config.SUPABASE_JWT_AUDIENCE)}
             payload = jwt.decode(
                 token,
-                config.SUPABASE_JWT_SECRET,
+                config.SUPABASE_SECRET_KEY,
                 algorithms=config.SUPABASE_JWT_ALGORITHMS,
                 audience=config.SUPABASE_JWT_AUDIENCE
                 if config.SUPABASE_JWT_AUDIENCE

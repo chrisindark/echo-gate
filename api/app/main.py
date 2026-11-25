@@ -62,13 +62,13 @@ from app.modules.llm.models_controller import models_router
 
 try:
     llm_quota_router = importlib.import_module(
-        "app.modules.llm.llm_quota_controller"
+        "app.modules.llm_quota.llm_quota_controller"
     ).api_v1_router
 except Exception:
     llm_quota_router = None
 try:
     llm_usage_router = importlib.import_module(
-        "app.modules.llm.llm_usage_controller"
+        "app.modules.llm_usage.llm_usage_controller"
     ).api_v1_router
 except Exception:
     llm_usage_router = None

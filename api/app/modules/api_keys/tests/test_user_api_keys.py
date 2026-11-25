@@ -54,7 +54,7 @@ def test_supabase_jwt_identity_provider_resolves_valid_token():
     token = _make_jwt(sub="user-456", email="alice@test.com")
 
     with (
-        patch.object(config, "SUPABASE_JWT_SECRET", JWT_SECRET),
+        patch.object(config, "SUPABASE_SECRET_KEY", JWT_SECRET),
         patch.object(config, "SUPABASE_AUTH_ENABLED", True),
     ):
         identity = provider.resolve({"authorization": f"Bearer {token}"})
@@ -68,7 +68,7 @@ def test_supabase_jwt_identity_provider_respects_custom_tenant():
     token = _make_jwt(sub="user-789", tenant_id="org_acme")
 
     with (
-        patch.object(config, "SUPABASE_JWT_SECRET", JWT_SECRET),
+        patch.object(config, "SUPABASE_SECRET_KEY", JWT_SECRET),
         patch.object(config, "SUPABASE_AUTH_ENABLED", True),
     ):
         identity = provider.resolve({"authorization": f"Bearer {token}"})
@@ -82,7 +82,7 @@ def test_supabase_jwt_identity_provider_returns_none_when_disabled():
     token = _make_jwt()
 
     with (
-        patch.object(config, "SUPABASE_JWT_SECRET", ""),
+        patch.object(config, "SUPABASE_SECRET_KEY", ""),
         patch.object(config, "SUPABASE_AUTH_ENABLED", False),
     ):
         assert provider.resolve({"authorization": f"Bearer {token}"}) is None
@@ -93,7 +93,7 @@ def test_supabase_jwt_identity_provider_returns_none_on_tampered_token():
     token = _make_jwt(secret="wrong-secret-key-that-will-fail-32-chars")
 
     with (
-        patch.object(config, "SUPABASE_JWT_SECRET", JWT_SECRET),
+        patch.object(config, "SUPABASE_SECRET_KEY", JWT_SECRET),
         patch.object(config, "SUPABASE_AUTH_ENABLED", True),
     ):
         assert provider.resolve({"authorization": f"Bearer {token}"}) is None
@@ -105,7 +105,7 @@ def test_chained_identity_provider_falls_through():
     api_key_provider.resolve.return_value = None
 
     with (
-        patch.object(config, "SUPABASE_JWT_SECRET", JWT_SECRET),
+        patch.object(config, "SUPABASE_SECRET_KEY", JWT_SECRET),
         patch.object(config, "SUPABASE_AUTH_ENABLED", True),
     ):
         jwt_provider = SupabaseJwtIdentityProvider()
@@ -148,7 +148,7 @@ async def test_user_auth_guard_rejects_expired_token():
     request = MagicMock()
     expired_token = _make_jwt(expires_in_seconds=-10)
 
-    with patch.object(config, "SUPABASE_JWT_SECRET", JWT_SECRET):
+    with patch.object(config, "SUPABASE_SECRET_KEY", JWT_SECRET):
         with pytest.raises(HTTPException) as exc_info:
             await guard(request=request, authorization=f"Bearer {expired_token}")
         assert exc_info.value.status_code == 401
@@ -161,7 +161,7 @@ async def test_user_auth_guard_rejects_invalid_signature():
     request = MagicMock()
     bad_token = _make_jwt(secret="wrong-secret-key-32-chars-long-12345")
 
-    with patch.object(config, "SUPABASE_JWT_SECRET", JWT_SECRET):
+    with patch.object(config, "SUPABASE_SECRET_KEY", JWT_SECRET):
         with pytest.raises(HTTPException) as exc_info:
             await guard(request=request, authorization=f"Bearer {bad_token}")
         assert exc_info.value.status_code == 401
@@ -175,7 +175,7 @@ async def test_user_auth_guard_succeeds_and_binds_request_state():
     request.state = MagicMock()
     token = _make_jwt(sub="usr-1234", email="bob@test.com")
 
-    with patch.object(config, "SUPABASE_JWT_SECRET", JWT_SECRET):
+    with patch.object(config, "SUPABASE_SECRET_KEY", JWT_SECRET):
         identity = await guard(request=request, authorization=f"Bearer {token}")
         assert identity.user_id == "usr-1234"
         assert identity.tenant_id == "usr_usr-1234"
@@ -257,7 +257,7 @@ def user_test_app():
 
 def test_user_api_me_endpoint(user_test_app):
     token = _make_jwt(sub="usr-abc", email="abc@example.com")
-    with patch.object(config, "SUPABASE_JWT_SECRET", JWT_SECRET):
+    with patch.object(config, "SUPABASE_SECRET_KEY", JWT_SECRET):
         client = TestClient(user_test_app)
         res = client.get(
             "/api/v1/user/me", headers={"Authorization": f"Bearer {token}"}
@@ -329,7 +329,7 @@ def test_user_api_keys_crud_lifecycle(user_test_app):
 
     user_test_app.dependency_overrides[get_api_key_service] = lambda: mock_service
 
-    with patch.object(config, "SUPABASE_JWT_SECRET", JWT_SECRET):
+    with patch.object(config, "SUPABASE_SECRET_KEY", JWT_SECRET):
         client = TestClient(user_test_app)
         auth_header = {"Authorization": f"Bearer {token}"}
 

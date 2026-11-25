@@ -50,7 +50,6 @@ class _ShadowServiceTestCase(unittest.TestCase):
     def tearDown(self):
         for attr, value in zip(_THRESHOLD_ATTRS, self._saved_thresholds, strict=True):
             setattr(config, attr, value)
-        self.Session.close_all()
         Base.metadata.drop_all(self.engine)
         self.engine.dispose()
 
