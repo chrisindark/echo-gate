@@ -124,6 +124,12 @@ def prepare_openai_compatible_payload(
         "session_id",
         "conversation_id",
         "cache_info",
+        "prompt_optimization",
+        "cache_enabled",
+        "cache_ttl",
+        "retries",
+        "stream_pacing",
+        "stream_pacing_delay_ms",
     ]:
         payload_data.pop(key, None)
 

@@ -322,6 +322,30 @@ class TestCommonHelpersAndStreaming(unittest.IsolatedAsyncioTestCase):
         p2 = prepare_openai_compatible_payload(req2)
         self.assertEqual(p2["reasoning_effort"], "medium")
 
+        # Gateway-only control fields must never reach upstream providers
+        req3 = ChatCompletionRequest(
+            service_name="groq",
+            model="openai/gpt-oss-20b",
+            messages=[ChatMessage(role="user", content="hi")],
+            prompt_optimization=False,
+            cache_enabled=False,
+            cache_ttl=60,
+            retries=2,
+            stream_pacing=False,
+            stream_pacing_delay_ms=5.0,
+        )
+        p3 = prepare_openai_compatible_payload(req3)
+        for gateway_key in (
+            "service_name",
+            "prompt_optimization",
+            "cache_enabled",
+            "cache_ttl",
+            "retries",
+            "stream_pacing",
+            "stream_pacing_delay_ms",
+        ):
+            self.assertNotIn(gateway_key, p3)
+
     async def test_stream_openai_compatible_aiter(self):
         from app.modules.llm.providers.openai_compatible import OpenAICompatibleProvider
 
@@ -396,6 +420,43 @@ class TestCommonHelpersAndStreaming(unittest.IsolatedAsyncioTestCase):
                     "http://test", {}, {}, "service"
                 ):
                     pass
+            self.assertEqual(ctx.exception.status_code, 401)
+
+        # In-band SSE error event after initial chunk
+        class FakeMidStreamErrorResponse:
+            status_code = 200
+
+            async def aiter_lines(self):
+                yield 'data: {"id": "c-1", "created": 1, "model": "test", "choices": [{"index": 0, "delta": {"content": "hello"}}]}'
+                yield 'data: {"error": {"message": "Rate limit exceeded mid-stream", "code": 429}}'
+                yield "data: [DONE]"
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+        class FakeMidStreamErrorClient:
+            def stream(self, *args, **kwargs):
+                return FakeMidStreamErrorResponse()
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+        with patch("httpx.AsyncClient", return_value=FakeMidStreamErrorClient()):
+            received = []
+            with self.assertRaises(HTTPException) as mid_ctx:
+                async for chunk in provider._stream_openai_compatible(
+                    "http://test", {}, {"model": "test"}, "upstream Groq"
+                ):
+                    received.append(chunk)
+            self.assertEqual(len(received), 1)
+            self.assertEqual(mid_ctx.exception.status_code, 429)
+            self.assertIn("Rate limit exceeded mid-stream", mid_ctx.exception.detail)
             self.assertEqual(ctx.exception.status_code, 401)
 
         # Stream raises generic Exception -> 502

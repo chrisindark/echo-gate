@@ -119,6 +119,7 @@ interface CacheInfoType {
 export default function Home() {
   const [prompt, setPrompt] = useState('');
   const [response, setResponse] = useState('');
+  const [error, setError] = useState<string | null>(null);
   const [cacheStatus, setCacheStatus] = useState<string | null>(null);
   const [cacheInfo, setCacheInfo] = useState<CacheInfoType | null>(null);
   const [latency, setLatency] = useState<number | null>(null);
@@ -203,6 +204,7 @@ export default function Home() {
   const loadHash = async (hash: string) => {
     setLoading(true);
     setResponse('');
+    setError(null);
     setThinkingContent('');
     setIsThinking(false);
     setCacheStatus(null);
@@ -241,9 +243,7 @@ export default function Home() {
         });
       }
     } catch (err: unknown) {
-      setResponse(
-        `Failed to load from DB: ${err instanceof Error ? err.message : String(err)}`
-      );
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -264,6 +264,7 @@ export default function Home() {
 
     setLoading(true);
     setResponse('');
+    setError(null);
     setThinkingContent('');
     setIsThinking(false);
     setCacheStatus(null);
@@ -280,7 +281,7 @@ export default function Home() {
       };
 
       if (!activeModel) {
-        setResponse(
+        setError(
           modelsError
             ? `Unable to send request: ${modelsError}`
             : 'No available model selected. Configure a provider or sign in.'
@@ -310,8 +311,8 @@ export default function Home() {
         try {
           parsedSchema = JSON.parse(schemaContent);
         } catch {
-          setResponse(
-            'Error: Invalid JSON Schema syntax. Please correct the schema in Settings before sending.'
+          setError(
+            'Invalid JSON Schema syntax. Please correct the schema in Settings before sending.'
           );
           setLoading(false);
           return;
@@ -377,32 +378,60 @@ export default function Home() {
               break;
             }
 
+            let chunk: Record<string, unknown>;
             try {
-              const chunk = JSON.parse(payloadStr);
+              chunk = JSON.parse(payloadStr) as Record<string, unknown>;
+            } catch {
+              continue;
+            }
 
-              if (chunk.error) {
-                throw new Error(chunk.error.message || 'Stream error');
-              }
+            if (chunk.error && typeof chunk.error === 'object') {
+              const streamErr = chunk.error as Record<string, unknown>;
+              throw new Error(
+                typeof streamErr.message === 'string' &&
+                  streamErr.message.trim()
+                  ? streamErr.message
+                  : 'Stream error'
+              );
+            }
 
-              if (chunk.cache_info) {
-                setCacheInfo(chunk.cache_info);
-                setCacheStatus(chunk.cache_info.cache_hit ? 'HIT' : 'MISS');
-                if (chunk.cache_info.exact_hash) {
+            {
+              const typedChunk = chunk as {
+                cache_info?: CacheInfoType & { cache_hit?: boolean };
+                prompt_optimization?: {
+                  applied?: boolean;
+                  tokens_saved?: number;
+                  chars_saved?: number;
+                };
+                choices?: Array<{
+                  delta?: {
+                    reasoning_content?: string;
+                    content?: string;
+                  };
+                }>;
+              };
+
+              if (typedChunk.cache_info) {
+                setCacheInfo(typedChunk.cache_info);
+                setCacheStatus(
+                  typedChunk.cache_info.cache_hit ? 'HIT' : 'MISS'
+                );
+                if (typedChunk.cache_info.exact_hash) {
                   window.history.replaceState(
                     {},
                     '',
-                    `/playground?hash=${chunk.cache_info.exact_hash}`
+                    `/playground?hash=${typedChunk.cache_info.exact_hash}`
                   );
                 }
               }
 
-              if (chunk.prompt_optimization?.applied) {
+              if (typedChunk.prompt_optimization?.applied) {
                 setPromptSavings(
-                  `tokens=${chunk.prompt_optimization.tokens_saved},chars=${chunk.prompt_optimization.chars_saved}`
+                  `tokens=${typedChunk.prompt_optimization.tokens_saved},chars=${typedChunk.prompt_optimization.chars_saved}`
                 );
               }
 
-              const delta = chunk.choices?.[0]?.delta;
+              const delta = typedChunk.choices?.[0]?.delta;
               if (delta) {
                 if (delta.reasoning_content) {
                   accumulatedReasoning += delta.reasoning_content;
@@ -435,13 +464,6 @@ export default function Home() {
                     setIsThinking(false);
                   }
                 }
-              }
-            } catch (jsonErr: unknown) {
-              if (
-                jsonErr instanceof Error &&
-                jsonErr.message.includes('Stream error')
-              ) {
-                throw jsonErr;
               }
             }
           }
@@ -508,7 +530,7 @@ export default function Home() {
         }
       }
     } catch (err: unknown) {
-      setResponse(`Error: ${err instanceof Error ? err.message : String(err)}`);
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -579,11 +601,12 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-2">
-            {(response || loading) && (
+            {(response || error || loading) && (
               <button
                 type="button"
                 onClick={() => {
                   setResponse('');
+                  setError(null);
                   setPrompt('');
                   setThinkingContent('');
                   setLatency(null);
@@ -618,7 +641,7 @@ export default function Home() {
         {/* Chat History / Output area */}
         <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 pb-36">
           <AnimatePresence>
-            {!response && !loading && (
+            {!response && !error && !loading && (
               <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
@@ -636,281 +659,293 @@ export default function Home() {
               </motion.div>
             )}
 
-            {(loading || response) && (
+            {(loading || response || error) && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="max-w-3xl mx-auto space-y-6 pb-8"
+                className="max-w-3xl mx-auto space-y-6 pb-8 min-w-0"
               >
                 {/* User Message */}
-                <div className="flex justify-end">
-                  <div className="bg-primary text-primary-foreground px-4 py-3 rounded-2xl rounded-tr-sm max-w-[85%] text-sm sm:text-base shadow-sm leading-relaxed whitespace-pre-wrap">
+                <div className="flex justify-end min-w-0">
+                  <div className="bg-primary text-primary-foreground px-4 py-3 rounded-2xl rounded-tr-sm max-w-[85%] min-w-0 max-h-72 overflow-y-auto text-sm sm:text-base shadow-sm leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
                     {prompt}
                   </div>
                 </div>
 
-                {/* AI Response */}
-                <div className="flex justify-start">
-                  <div className="bg-card border border-border px-5 py-4 rounded-2xl rounded-tl-sm max-w-[95%] shadow-sm w-full">
-                    {/* Metadata Badges */}
-                    {cacheStatus && (
-                      <div className="flex flex-wrap items-center gap-2 mb-3 text-xs font-medium">
-                        <div
-                          className={cn(
-                            'px-2 py-1 rounded-md flex items-center gap-1.5 border',
-                            cacheStatus === 'HIT' ||
-                              cacheStatus === 'DB RECOVERED'
-                              ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
-                              : 'bg-amber-500/10 text-amber-500 border-amber-500/20'
-                          )}
-                        >
-                          <span
+                {/* AI Response or Error */}
+                <div className="flex justify-start min-w-0">
+                  {error ? (
+                    <div className="bg-destructive/10 border border-destructive/30 text-destructive px-5 py-4 rounded-2xl rounded-tl-sm max-w-[95%] w-full min-w-0 shadow-sm space-y-2">
+                      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider">
+                        <AlertCircle className="w-4 h-4 shrink-0" />
+                        <span>Gateway / Provider Error</span>
+                      </div>
+                      <div className="text-sm leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere] max-h-96 overflow-y-auto font-mono">
+                        {error}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-card border border-border px-5 py-4 rounded-2xl rounded-tl-sm max-w-[95%] min-w-0 shadow-sm w-full overflow-hidden">
+                      {/* Metadata Badges */}
+                      {cacheStatus && (
+                        <div className="flex flex-wrap items-center gap-2 mb-3 text-xs font-medium">
+                          <div
                             className={cn(
-                              'w-1.5 h-1.5 rounded-full',
+                              'px-2 py-1 rounded-md flex items-center gap-1.5 border',
                               cacheStatus === 'HIT' ||
                                 cacheStatus === 'DB RECOVERED'
-                                ? 'bg-emerald-500'
-                                : 'bg-amber-500'
+                                ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
+                                : 'bg-amber-500/10 text-amber-500 border-amber-500/20'
                             )}
-                          />
-                          {cacheStatus === 'HIT'
-                            ? 'CACHE HIT'
-                            : cacheStatus === 'DB RECOVERED'
-                              ? 'DB RECOVERED'
-                              : 'CACHE MISS'}
+                          >
+                            <span
+                              className={cn(
+                                'w-1.5 h-1.5 rounded-full',
+                                cacheStatus === 'HIT' ||
+                                  cacheStatus === 'DB RECOVERED'
+                                  ? 'bg-emerald-500'
+                                  : 'bg-amber-500'
+                              )}
+                            />
+                            {cacheStatus === 'HIT'
+                              ? 'CACHE HIT'
+                              : cacheStatus === 'DB RECOVERED'
+                                ? 'DB RECOVERED'
+                                : 'CACHE MISS'}
+                          </div>
+
+                          {latency !== null && (
+                            <div className="px-2 py-1 rounded-md bg-blue-500/10 text-blue-500 border border-blue-500/20 flex items-center gap-1.5">
+                              <Clock className="w-3.5 h-3.5" />
+                              {latency}ms
+                            </div>
+                          )}
+
+                          {cacheInfo?.source && (
+                            <div className="px-2 py-1 rounded-md bg-purple-500/10 text-purple-500 border border-purple-500/20 flex items-center gap-1.5">
+                              <Database className="w-3.5 h-3.5" />
+                              {cacheInfo.source}
+                            </div>
+                          )}
+
+                          {stream && (
+                            <div className="px-2 py-1 rounded-md bg-teal-500/10 text-teal-400 border border-teal-500/20 flex items-center gap-1.5">
+                              <Sparkles className="w-3.5 h-3.5" />
+                              STREAM
+                            </div>
+                          )}
+
+                          {thinking && (
+                            <div className="px-2 py-1 rounded-md bg-violet-500/10 text-violet-400 border border-violet-500/20 flex items-center gap-1.5">
+                              <Brain className="w-3.5 h-3.5" />
+                              THINKING
+                            </div>
+                          )}
+
+                          {promptSavings && (
+                            <div className="px-2 py-1 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5">
+                              <Sparkles className="w-3.5 h-3.5" />
+                              Optimized ({promptSavings})
+                            </div>
+                          )}
+
+                          {responseFormatType !== 'text' && (
+                            <div className="px-2 py-1 rounded-md bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 flex items-center gap-1.5">
+                              <Braces className="w-3.5 h-3.5" />
+                              {responseFormatType === 'json_object'
+                                ? 'JSON MODE'
+                                : `SCHEMA: ${schemaName}`}
+                            </div>
+                          )}
                         </div>
+                      )}
 
-                        {latency !== null && (
-                          <div className="px-2 py-1 rounded-md bg-blue-500/10 text-blue-500 border border-blue-500/20 flex items-center gap-1.5">
-                            <Clock className="w-3.5 h-3.5" />
-                            {latency}ms
-                          </div>
-                        )}
-
-                        {cacheInfo?.source && (
-                          <div className="px-2 py-1 rounded-md bg-purple-500/10 text-purple-500 border border-purple-500/20 flex items-center gap-1.5">
-                            <Database className="w-3.5 h-3.5" />
-                            {cacheInfo.source}
-                          </div>
-                        )}
-
-                        {stream && (
-                          <div className="px-2 py-1 rounded-md bg-teal-500/10 text-teal-400 border border-teal-500/20 flex items-center gap-1.5">
-                            <Sparkles className="w-3.5 h-3.5" />
-                            STREAM
-                          </div>
-                        )}
-
-                        {thinking && (
-                          <div className="px-2 py-1 rounded-md bg-violet-500/10 text-violet-400 border border-violet-500/20 flex items-center gap-1.5">
-                            <Brain className="w-3.5 h-3.5" />
-                            THINKING
-                          </div>
-                        )}
-
-                        {promptSavings && (
-                          <div className="px-2 py-1 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5">
-                            <Sparkles className="w-3.5 h-3.5" />
-                            Optimized ({promptSavings})
-                          </div>
-                        )}
-
-                        {responseFormatType !== 'text' && (
-                          <div className="px-2 py-1 rounded-md bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 flex items-center gap-1.5">
-                            <Braces className="w-3.5 h-3.5" />
-                            {responseFormatType === 'json_object'
-                              ? 'JSON MODE'
-                              : `SCHEMA: ${schemaName}`}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Cache Details Card */}
-                    {cacheInfo &&
-                      (cacheStatus === 'HIT' ||
-                        cacheStatus === 'DB RECOVERED') && (
-                        <div className="mb-4 bg-muted/50 rounded-lg p-3 text-lg border border-border/50">
-                          <div className="flex items-center gap-1.5 text-muted-foreground font-semibold mb-2 uppercase tracking-wider">
-                            <Tag className="w-5 h-5" /> Semantic Match Data
-                          </div>
-                          <div className="grid grid-cols-2 gap-2 text-muted-foreground">
-                            <div>
-                              <span className="opacity-70">Intent:</span>{' '}
-                              <span className="text-foreground">
-                                {cacheInfo.intent || 'N/A'}
-                              </span>
+                      {/* Cache Details Card */}
+                      {cacheInfo &&
+                        (cacheStatus === 'HIT' ||
+                          cacheStatus === 'DB RECOVERED') && (
+                          <div className="mb-4 bg-muted/50 rounded-lg p-3 text-lg border border-border/50">
+                            <div className="flex items-center gap-1.5 text-muted-foreground font-semibold mb-2 uppercase tracking-wider">
+                              <Tag className="w-5 h-5" /> Semantic Match Data
                             </div>
-                            <div>
-                              <span className="opacity-70">Score:</span>{' '}
-                              <span className="text-foreground">
-                                {cacheInfo.score
-                                  ? cacheInfo.score.toFixed(4)
-                                  : 'Exact'}
-                              </span>
+                            <div className="grid grid-cols-2 gap-2 text-muted-foreground">
+                              <div>
+                                <span className="opacity-70">Intent:</span>{' '}
+                                <span className="text-foreground">
+                                  {cacheInfo.intent || 'N/A'}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="opacity-70">Score:</span>{' '}
+                                <span className="text-foreground">
+                                  {cacheInfo.score
+                                    ? cacheInfo.score.toFixed(4)
+                                    : 'Exact'}
+                                </span>
+                              </div>
+                              <div className="col-span-2">
+                                <span className="opacity-70">Entities:</span>{' '}
+                                <span className="text-foreground">
+                                  {cacheInfo.entity_tags?.join(', ') || 'None'}
+                                </span>
+                              </div>
                             </div>
-                            <div className="col-span-2">
-                              <span className="opacity-70">Entities:</span>{' '}
-                              <span className="text-foreground">
-                                {cacheInfo.entity_tags?.join(', ') || 'None'}
-                              </span>
-                            </div>
+                          </div>
+                        )}
+
+                      {!loading && isJsonResponse && (
+                        <div className="flex items-center justify-between mb-3 pb-2 border-b border-border/60 text-xs">
+                          <span className="text-muted-foreground flex items-center gap-1.5 font-medium">
+                            <Braces className="w-3.5 h-3.5 text-primary" />{' '}
+                            Valid JSON Output
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setRawView(!rawView)}
+                              className="px-2 py-1 rounded bg-muted/60 hover:bg-muted border border-border text-foreground flex items-center gap-1 cursor-pointer transition-colors"
+                            >
+                              <Code2 className="w-3 h-3" />
+                              {rawView ? 'Formatted' : 'Raw'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(
+                                  formattedJson || response
+                                );
+                                setCopied(true);
+                                setTimeout(() => setCopied(false), 2000);
+                              }}
+                              className="px-2 py-1 rounded bg-muted/60 hover:bg-muted border border-border text-foreground flex items-center gap-1 cursor-pointer transition-colors"
+                            >
+                              {copied ? (
+                                <Check className="w-3 h-3 text-emerald-400" />
+                              ) : (
+                                <Copy className="w-3 h-3" />
+                              )}
+                              {copied ? 'Copied' : 'Copy'}
+                            </button>
                           </div>
                         </div>
                       )}
 
-                    {!loading && isJsonResponse && (
-                      <div className="flex items-center justify-between mb-3 pb-2 border-b border-border/60 text-xs">
-                        <span className="text-muted-foreground flex items-center gap-1.5 font-medium">
-                          <Braces className="w-3.5 h-3.5 text-primary" /> Valid
-                          JSON Output
-                        </span>
-                        <div className="flex items-center gap-1.5">
+                      {/* Thinking Process Accordion */}
+                      {thinkingContent && (
+                        <div className="mb-4 rounded-xl border border-violet-500/20 bg-violet-950/20 backdrop-blur-sm overflow-hidden transition-all">
                           <button
                             type="button"
-                            onClick={() => setRawView(!rawView)}
-                            className="px-2 py-1 rounded bg-muted/60 hover:bg-muted border border-border text-foreground flex items-center gap-1 cursor-pointer transition-colors"
+                            onClick={() => setIsThinkingOpen(!isThinkingOpen)}
+                            className="w-full px-4 py-2.5 flex items-center justify-between text-xs font-medium text-violet-300 hover:bg-violet-500/10 transition-colors cursor-pointer select-none"
                           >
-                            <Code2 className="w-3 h-3" />
-                            {rawView ? 'Formatted' : 'Raw'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              navigator.clipboard.writeText(
-                                formattedJson || response
-                              );
-                              setCopied(true);
-                              setTimeout(() => setCopied(false), 2000);
-                            }}
-                            className="px-2 py-1 rounded bg-muted/60 hover:bg-muted border border-border text-foreground flex items-center gap-1 cursor-pointer transition-colors"
-                          >
-                            {copied ? (
-                              <Check className="w-3 h-3 text-emerald-400" />
-                            ) : (
-                              <Copy className="w-3 h-3" />
-                            )}
-                            {copied ? 'Copied' : 'Copy'}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Thinking Process Accordion */}
-                    {thinkingContent && (
-                      <div className="mb-4 rounded-xl border border-violet-500/20 bg-violet-950/20 backdrop-blur-sm overflow-hidden transition-all">
-                        <button
-                          type="button"
-                          onClick={() => setIsThinkingOpen(!isThinkingOpen)}
-                          className="w-full px-4 py-2.5 flex items-center justify-between text-xs font-medium text-violet-300 hover:bg-violet-500/10 transition-colors cursor-pointer select-none"
-                        >
-                          <div className="flex items-center gap-2">
-                            <Brain
-                              className={cn(
-                                'w-4 h-4 text-violet-400',
-                                isThinking && 'animate-pulse text-violet-300'
-                              )}
-                            />
-                            <span>
-                              {isThinking
-                                ? 'Thinking in progress...'
-                                : 'Thinking Process'}
-                            </span>
-                            {isThinking && (
-                              <span className="flex h-2 w-2 relative">
-                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75"></span>
-                                <span className="relative inline-flex rounded-full h-2 w-2 bg-violet-500"></span>
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-1.5 text-violet-400/80">
-                            <span className="text-[11px] opacity-75">
-                              {
-                                thinkingContent
-                                  .trim()
-                                  .split(/\s+/)
-                                  .filter(Boolean).length
-                              }{' '}
-                              words
-                            </span>
-                            <ChevronDown
-                              className={cn(
-                                'w-3.5 h-3.5 transition-transform duration-200',
-                                isThinkingOpen && 'rotate-180'
-                              )}
-                            />
-                          </div>
-                        </button>
-                        <AnimatePresence initial={false}>
-                          {isThinkingOpen && (
-                            <motion.div
-                              initial={{ height: 0, opacity: 0 }}
-                              animate={{ height: 'auto', opacity: 1 }}
-                              exit={{ height: 0, opacity: 0 }}
-                              transition={{ duration: 0.2 }}
-                            >
-                              <div className="px-4 py-3 border-t border-violet-500/15 text-xs text-violet-200/90 whitespace-pre-wrap font-mono leading-relaxed bg-violet-950/10 max-h-64 overflow-y-auto">
-                                {thinkingContent}
-                                {isThinking && (
-                                  <motion.span
-                                    animate={{ opacity: [1, 0, 1] }}
-                                    transition={{
-                                      repeat: Infinity,
-                                      duration: 0.8,
-                                    }}
-                                    className="inline-block w-1.5 h-3 ml-0.5 bg-violet-400 align-middle"
-                                  />
+                            <div className="flex items-center gap-2">
+                              <Brain
+                                className={cn(
+                                  'w-4 h-4 text-violet-400',
+                                  isThinking && 'animate-pulse text-violet-300'
                                 )}
-                              </div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </div>
-                    )}
+                              />
+                              <span>
+                                {isThinking
+                                  ? 'Thinking in progress...'
+                                  : 'Thinking Process'}
+                              </span>
+                              {isThinking && (
+                                <span className="flex h-2 w-2 relative">
+                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75"></span>
+                                  <span className="relative inline-flex rounded-full h-2 w-2 bg-violet-500"></span>
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1.5 text-violet-400/80">
+                              <span className="text-[11px] opacity-75">
+                                {
+                                  thinkingContent
+                                    .trim()
+                                    .split(/\s+/)
+                                    .filter(Boolean).length
+                                }{' '}
+                                words
+                              </span>
+                              <ChevronDown
+                                className={cn(
+                                  'w-3.5 h-3.5 transition-transform duration-200',
+                                  isThinkingOpen && 'rotate-180'
+                                )}
+                              />
+                            </div>
+                          </button>
+                          <AnimatePresence initial={false}>
+                            {isThinkingOpen && (
+                              <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{ duration: 0.2 }}
+                              >
+                                <div className="px-4 py-3 border-t border-violet-500/15 text-xs text-violet-200/90 whitespace-pre-wrap font-mono leading-relaxed bg-violet-950/10 max-h-64 overflow-y-auto">
+                                  {thinkingContent}
+                                  {isThinking && (
+                                    <motion.span
+                                      animate={{ opacity: [1, 0, 1] }}
+                                      transition={{
+                                        repeat: Infinity,
+                                        duration: 0.8,
+                                      }}
+                                      className="inline-block w-1.5 h-3 ml-0.5 bg-violet-400 align-middle"
+                                    />
+                                  )}
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                      )}
 
-                    {loading && !response && !thinkingContent ? (
-                      <div className="flex gap-1.5 items-center text-muted-foreground py-2">
-                        <motion.div
-                          animate={{ opacity: [0.4, 1, 0.4] }}
-                          transition={{ repeat: Infinity, duration: 1.5 }}
-                          className="w-2 h-2 rounded-full bg-primary/60"
-                        />
-                        <motion.div
-                          animate={{ opacity: [0.4, 1, 0.4] }}
-                          transition={{
-                            repeat: Infinity,
-                            duration: 1.5,
-                            delay: 0.2,
-                          }}
-                          className="w-2 h-2 rounded-full bg-primary/60"
-                        />
-                        <motion.div
-                          animate={{ opacity: [0.4, 1, 0.4] }}
-                          transition={{
-                            repeat: Infinity,
-                            duration: 1.5,
-                            delay: 0.4,
-                          }}
-                          className="w-2 h-2 rounded-full bg-primary/60"
-                        />
-                      </div>
-                    ) : isJsonResponse && !rawView && formattedJson ? (
-                      <pre className="p-4 rounded-xl bg-muted/40 border border-border/60 font-mono text-sm overflow-x-auto leading-relaxed text-emerald-300 whitespace-pre">
-                        <code>{formattedJson}</code>
-                      </pre>
-                    ) : (
-                      <div className="leading-relaxed whitespace-pre-wrap text-sm sm:text-base">
-                        {response}
-                        {loading && (
-                          <motion.span
-                            animate={{ opacity: [1, 0, 1] }}
-                            transition={{ repeat: Infinity, duration: 0.8 }}
-                            className="inline-block w-2 h-4 ml-1 bg-primary align-middle rounded-sm"
+                      {loading && !response && !thinkingContent ? (
+                        <div className="flex gap-1.5 items-center text-muted-foreground py-2">
+                          <motion.div
+                            animate={{ opacity: [0.4, 1, 0.4] }}
+                            transition={{ repeat: Infinity, duration: 1.5 }}
+                            className="w-2 h-2 rounded-full bg-primary/60"
                           />
-                        )}
-                      </div>
-                    )}
-                  </div>
+                          <motion.div
+                            animate={{ opacity: [0.4, 1, 0.4] }}
+                            transition={{
+                              repeat: Infinity,
+                              duration: 1.5,
+                              delay: 0.2,
+                            }}
+                            className="w-2 h-2 rounded-full bg-primary/60"
+                          />
+                          <motion.div
+                            animate={{ opacity: [0.4, 1, 0.4] }}
+                            transition={{
+                              repeat: Infinity,
+                              duration: 1.5,
+                              delay: 0.4,
+                            }}
+                            className="w-2 h-2 rounded-full bg-primary/60"
+                          />
+                        </div>
+                      ) : isJsonResponse && !rawView && formattedJson ? (
+                        <pre className="p-4 rounded-xl bg-muted/40 border border-border/60 font-mono text-sm overflow-x-auto leading-relaxed text-emerald-300 whitespace-pre">
+                          <code>{formattedJson}</code>
+                        </pre>
+                      ) : (
+                        <div className="leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-sm sm:text-base">
+                          {response}
+                          {loading && (
+                            <motion.span
+                              animate={{ opacity: [1, 0, 1] }}
+                              transition={{ repeat: Infinity, duration: 0.8 }}
+                              className="inline-block w-2 h-4 ml-1 bg-primary align-middle rounded-sm"
+                            />
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </motion.div>
             )}

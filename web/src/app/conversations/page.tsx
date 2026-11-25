@@ -556,18 +556,43 @@ export default function ChatPage() {
               break;
             }
 
+            let chunk: Record<string, unknown>;
             try {
-              const chunk = JSON.parse(payloadStr);
-              if (chunk.error) {
-                throw new Error(chunk.error.message || 'Stream error');
+              chunk = JSON.parse(payloadStr) as Record<string, unknown>;
+            } catch {
+              // Ignore malformed chunk
+              continue;
+            }
+
+            if (chunk.error && typeof chunk.error === 'object') {
+              const streamErr = chunk.error as Record<string, unknown>;
+              throw new Error(
+                typeof streamErr.message === 'string' &&
+                  streamErr.message.trim()
+                  ? streamErr.message
+                  : 'Stream error'
+              );
+            }
+
+            {
+              const typedChunk = chunk as {
+                cache_info?: CacheInfoType & { cache_hit?: boolean };
+                choices?: Array<{
+                  delta?: {
+                    reasoning_content?: string;
+                    content?: string;
+                  };
+                }>;
+              };
+
+              if (typedChunk.cache_info) {
+                latestCacheInfo = typedChunk.cache_info;
+                latestCacheStatus = typedChunk.cache_info.cache_hit
+                  ? 'HIT'
+                  : 'MISS';
               }
 
-              if (chunk.cache_info) {
-                latestCacheInfo = chunk.cache_info;
-                latestCacheStatus = chunk.cache_info.cache_hit ? 'HIT' : 'MISS';
-              }
-
-              const delta = chunk.choices?.[0]?.delta;
+              const delta = typedChunk.choices?.[0]?.delta;
               if (delta) {
                 if (delta.reasoning_content) {
                   accumulatedReasoning += delta.reasoning_content;
@@ -602,8 +627,6 @@ export default function ChatPage() {
                   )
                 );
               }
-            } catch {
-              // Ignore malformed chunk
             }
           }
         }
