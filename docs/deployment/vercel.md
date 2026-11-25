@@ -76,3 +76,25 @@ Once your Echo Gate backend is deployed (see [`llm-only-free-tier.md`](./llm-onl
    - `/signup` creates a Supabase user and handles email confirmation + resend.
    - `/login`, `/forgot-password`, `/reset-password`, and **Sign out** (both in the top navbar and workspace sidebar) work end-to-end.
 3. **API Key provisioning:** Once the backend is connected, signing in and opening `/settings` loads `/api/v1/user/me` and lets the user create, rotate, and revoke `eg_...` keys.
+
+---
+
+## 6. Deploying the FastAPI Gateway to Vercel (optional)
+
+Echo Gate's FastAPI gateway can also run on Vercel as a Python serverless function, which is convenient for end-to-end testing before moving to Render/Railway/Docker.
+
+1. Create a **second Vercel project** importing the same repository.
+2. Set **Root Directory** to `api`.
+3. Vercel detects `api/vercel.json` and `api/requirements.txt` automatically.
+4. Configure environment variables (same as Docker, see `.env.example`), at minimum:
+   - `PYTHON_ENV=production`
+   - `SUPABASE_AUTH_ENABLED=true` (if using Supabase auth)
+   - `SUPABASE_JWT_SECRET`, `SUPABASE_JWT_AUDIENCE`, `SUPABASE_JWT_ALGORITHMS`
+   - `DATABASE_URL` (Postgres with RLS role) and `REDIS_URL` (optional; degrades gracefully)
+   - `INFERENCE_BASE_URL` (point at your inference-platform deployment)
+   - `CORS_ORIGINS` including your web Vercel origin
+5. Set `NEXT_PUBLIC_API_BASE_URL` on the **web** project to this API project's URL and redeploy `web/`.
+
+Notes:
+- Vercel serverless functions have execution-time limits; heavy workloads (embeddings/rerank) should stay on a dedicated host. This setup is intended for testing the full UI/API/Supabase flow.
+- Celery background workers are not available on Vercel; cache warming/shadow tasks run only where a worker is deployed.
