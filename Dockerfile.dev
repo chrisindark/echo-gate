@@ -12,7 +12,7 @@ RUN python -m venv /opt/venv
 COPY pyproject.toml poetry.lock ./
 
 # Export and install dependencies + watchfiles for live process reloads in development
-RUN poetry export --only main --format requirements.txt \
+RUN poetry export --only main --extras worker --format requirements.txt \
         --output /tmp/requirements.txt --without-hashes ; \
     /opt/venv/bin/pip install --no-cache-dir -r /tmp/requirements.txt watchfiles
 

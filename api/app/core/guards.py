@@ -1,8 +1,10 @@
+import asyncio
 import hashlib
 import json
 import logging
 from dataclasses import dataclass
 
+import jwt
 from fastapi import Depends, Header, HTTPException, Request, Response, status
 
 from app.core.config import config
@@ -10,6 +12,11 @@ from app.core.constants import EchoGateHeaders
 from app.core.dependencies import get_llm_quota_service
 from app.core.identity import api_key_from_headers, api_key_from_values
 from app.core.rls import ANONYMOUS_TENANT
+from app.core.supabase_jwt import (
+    SupabaseJwtNotConfiguredError,
+    decode_supabase_jwt,
+    extract_supabase_claims,
+)
 from app.modules.admin.admin_api_keys_service import AdminKeyIdentity
 from app.modules.llm_quota.llm_quota_service import LlmQuotaService
 
@@ -360,31 +367,17 @@ class UserAuthGuard:
 
         jwt_token = token.strip()
 
-        if not config.SUPABASE_SECRET_KEY:
-            logger.error("SUPABASE_SECRET_KEY is not configured on the gateway.")
+        try:
+            # PyJWKClient performs synchronous HTTP fetches on cache misses, so
+            # offload verification to a worker thread to keep the loop responsive.
+            payload = await asyncio.to_thread(decode_supabase_jwt, jwt_token)
+        except SupabaseJwtNotConfiguredError:
+            logger.error(
+                "SUPABASE_JWKS_URL (or SUPABASE_URL) is not configured on the gateway."
+            )
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Supabase JWT authentication is not configured on the gateway.",
-            )
-
-        import jwt
-
-        try:
-            options = {"verify_aud": bool(config.SUPABASE_JWT_AUDIENCE)}
-            if config.SUPABASE_JWKS_URL and not config.SUPABASE_SECRET_KEY:
-                jwks_client = jwt.PyJWKClient(config.SUPABASE_JWKS_URL, cache_keys=True)
-                signing_key = jwks_client.get_signing_key_from_jwt(jwt_token)
-                key = signing_key
-            else:
-                key = config.SUPABASE_SECRET_KEY
-            payload = jwt.decode(
-                jwt_token,
-                key,
-                algorithms=config.SUPABASE_JWT_ALGORITHMS,
-                audience=config.SUPABASE_JWT_AUDIENCE
-                if config.SUPABASE_JWT_AUDIENCE
-                else None,
-                options=options,
             )
         except jwt.ExpiredSignatureError:
             raise HTTPException(
@@ -398,26 +391,18 @@ class UserAuthGuard:
                 detail="Invalid authentication token.",
             )
 
-        sub = payload.get("sub")
-        if not sub:
+        claims = extract_supabase_claims(payload)
+        if claims is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Token is missing required subject claim.",
             )
 
-        user_meta = payload.get("user_metadata") or {}
-        app_meta = payload.get("app_metadata") or {}
-        tenant_id = (
-            user_meta.get("tenant_id") or app_meta.get("tenant_id") or f"usr_{sub}"
-        )
-        email = payload.get("email") or user_meta.get("email")
-        role = payload.get("role")
-
         session_identity = UserSessionIdentity(
-            user_id=str(sub),
-            tenant_id=str(tenant_id),
-            email=str(email) if email else None,
-            role=str(role) if role else None,
+            user_id=claims.user_id,
+            tenant_id=claims.tenant_id,
+            email=claims.email,
+            role=claims.role,
         )
 
         request.state.user_id = session_identity.user_id

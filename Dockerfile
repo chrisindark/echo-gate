@@ -25,7 +25,7 @@ COPY pyproject.toml poetry.lock ./
 # No torch, transformers or sentence-transformers: dense embeddings, reranking,
 # relevance, and NLI are served by `inference-platform/` over HTTP, and the app
 # refuses to start without it. That is why this image is ~0.7GB instead of 9.4GB.
-RUN poetry export --only main --format requirements.txt \
+RUN poetry export --only main --extras worker --format requirements.txt \
         --output /tmp/requirements.txt --without-hashes ; \
     /opt/venv/bin/pip install --no-cache-dir -r /tmp/requirements.txt ; \
     # Nothing installs packages at runtime, so pip/setuptools stay out of the
