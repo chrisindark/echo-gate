@@ -1,12 +1,15 @@
+import json
 import time
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import jwt
 import pytest
+from cryptography.hazmat.primitives.asymmetric import ec
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
+from app.core import supabase_jwt
 from app.core.config import config
 from app.core.guards import UserAuthGuard
 from app.core.identity import (
@@ -18,7 +21,18 @@ from app.modules.api_keys.api_keys_schema import ApiKeyCreate
 from app.modules.api_keys.api_keys_service import ApiKeyService, hash_api_key
 from app.modules.api_keys.user_api_keys_controller import user_api_v1_router
 
-JWT_SECRET = "super-secret-jwt-key-for-test-32-chars-long"
+JWKS_URL = "https://example.supabase.co/auth/v1/.well-known/jwks.json"
+
+_EC_PRIVATE_KEY = ec.generate_private_key(ec.SECP256R1())
+_OTHER_EC_PRIVATE_KEY = ec.generate_private_key(ec.SECP256R1())
+_PUBLIC_JWK = jwt.PyJWK.from_dict(
+    {
+        **json.loads(jwt.algorithms.ECAlgorithm.to_jwk(_EC_PRIVATE_KEY.public_key())),
+        "kid": "test-kid-1",
+        "use": "sig",
+        "alg": "ES256",
+    }
+)
 
 
 def _make_jwt(
@@ -28,7 +42,7 @@ def _make_jwt(
     aud: str = "authenticated",
     tenant_id: str | None = None,
     expires_in_seconds: int = 3600,
-    secret: str = JWT_SECRET,
+    private_key=_EC_PRIVATE_KEY,
 ) -> str:
     now = int(time.time())
     payload = {
@@ -41,7 +55,18 @@ def _make_jwt(
     }
     if tenant_id:
         payload["user_metadata"] = {"tenant_id": tenant_id}
-    return jwt.encode(payload, secret, algorithm="HS256")
+    return jwt.encode(
+        payload,
+        private_key,
+        algorithm="ES256",
+        headers={"kid": "test-kid-1"},
+    )
+
+
+def _mock_jwks_client():
+    client = MagicMock()
+    client.get_signing_key_from_jwt.return_value = _PUBLIC_JWK
+    return client
 
 
 # ============================================================================
@@ -54,8 +79,10 @@ def test_supabase_jwt_identity_provider_resolves_valid_token():
     token = _make_jwt(sub="user-456", email="alice@test.com")
 
     with (
-        patch.object(config, "SUPABASE_JWT_SECRET", JWT_SECRET),
+        patch.object(config, "SUPABASE_JWKS_URL", JWKS_URL),
         patch.object(config, "SUPABASE_AUTH_ENABLED", True),
+        patch.object(config, "SUPABASE_JWT_ALGORITHMS", ["ES256", "RS256"]),
+        patch.object(supabase_jwt, "get_jwk_client", return_value=_mock_jwks_client()),
     ):
         identity = provider.resolve({"authorization": f"Bearer {token}"})
         assert identity is not None
@@ -68,8 +95,10 @@ def test_supabase_jwt_identity_provider_respects_custom_tenant():
     token = _make_jwt(sub="user-789", tenant_id="org_acme")
 
     with (
-        patch.object(config, "SUPABASE_JWT_SECRET", JWT_SECRET),
+        patch.object(config, "SUPABASE_JWKS_URL", JWKS_URL),
         patch.object(config, "SUPABASE_AUTH_ENABLED", True),
+        patch.object(config, "SUPABASE_JWT_ALGORITHMS", ["ES256", "RS256"]),
+        patch.object(supabase_jwt, "get_jwk_client", return_value=_mock_jwks_client()),
     ):
         identity = provider.resolve({"authorization": f"Bearer {token}"})
         assert identity is not None
@@ -82,7 +111,8 @@ def test_supabase_jwt_identity_provider_returns_none_when_disabled():
     token = _make_jwt()
 
     with (
-        patch.object(config, "SUPABASE_JWT_SECRET", ""),
+        patch.object(config, "SUPABASE_JWKS_URL", ""),
+        patch.object(config, "SUPABASE_URL", ""),
         patch.object(config, "SUPABASE_AUTH_ENABLED", False),
     ):
         assert provider.resolve({"authorization": f"Bearer {token}"}) is None
@@ -90,11 +120,13 @@ def test_supabase_jwt_identity_provider_returns_none_when_disabled():
 
 def test_supabase_jwt_identity_provider_returns_none_on_tampered_token():
     provider = SupabaseJwtIdentityProvider()
-    token = _make_jwt(secret="wrong-secret-key-that-will-fail-32-chars")
+    token = _make_jwt(private_key=_OTHER_EC_PRIVATE_KEY)
 
     with (
-        patch.object(config, "SUPABASE_JWT_SECRET", JWT_SECRET),
+        patch.object(config, "SUPABASE_JWKS_URL", JWKS_URL),
         patch.object(config, "SUPABASE_AUTH_ENABLED", True),
+        patch.object(config, "SUPABASE_JWT_ALGORITHMS", ["ES256", "RS256"]),
+        patch.object(supabase_jwt, "get_jwk_client", return_value=_mock_jwks_client()),
     ):
         assert provider.resolve({"authorization": f"Bearer {token}"}) is None
 
@@ -105,8 +137,10 @@ def test_chained_identity_provider_falls_through():
     api_key_provider.resolve.return_value = None
 
     with (
-        patch.object(config, "SUPABASE_JWT_SECRET", JWT_SECRET),
+        patch.object(config, "SUPABASE_JWKS_URL", JWKS_URL),
         patch.object(config, "SUPABASE_AUTH_ENABLED", True),
+        patch.object(config, "SUPABASE_JWT_ALGORITHMS", ["ES256", "RS256"]),
+        patch.object(supabase_jwt, "get_jwk_client", return_value=_mock_jwks_client()),
     ):
         jwt_provider = SupabaseJwtIdentityProvider()
         chain = ChainedIdentityProvider([api_key_provider, jwt_provider])
@@ -143,12 +177,31 @@ async def test_user_auth_guard_rejects_non_bearer_scheme():
 
 
 @pytest.mark.asyncio
+async def test_user_auth_guard_rejects_when_jwks_not_configured():
+    guard = UserAuthGuard()
+    request = MagicMock()
+    token = _make_jwt()
+
+    with (
+        patch.object(config, "SUPABASE_JWKS_URL", ""),
+        patch.object(config, "SUPABASE_URL", ""),
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            await guard(request=request, authorization=f"Bearer {token}")
+        assert exc_info.value.status_code == 500
+
+
+@pytest.mark.asyncio
 async def test_user_auth_guard_rejects_expired_token():
     guard = UserAuthGuard()
     request = MagicMock()
     expired_token = _make_jwt(expires_in_seconds=-10)
 
-    with patch.object(config, "SUPABASE_JWT_SECRET", JWT_SECRET):
+    with (
+        patch.object(config, "SUPABASE_JWKS_URL", JWKS_URL),
+        patch.object(config, "SUPABASE_JWT_ALGORITHMS", ["ES256", "RS256"]),
+        patch.object(supabase_jwt, "get_jwk_client", return_value=_mock_jwks_client()),
+    ):
         with pytest.raises(HTTPException) as exc_info:
             await guard(request=request, authorization=f"Bearer {expired_token}")
         assert exc_info.value.status_code == 401
@@ -159,9 +212,13 @@ async def test_user_auth_guard_rejects_expired_token():
 async def test_user_auth_guard_rejects_invalid_signature():
     guard = UserAuthGuard()
     request = MagicMock()
-    bad_token = _make_jwt(secret="wrong-secret-key-32-chars-long-12345")
+    bad_token = _make_jwt(private_key=_OTHER_EC_PRIVATE_KEY)
 
-    with patch.object(config, "SUPABASE_JWT_SECRET", JWT_SECRET):
+    with (
+        patch.object(config, "SUPABASE_JWKS_URL", JWKS_URL),
+        patch.object(config, "SUPABASE_JWT_ALGORITHMS", ["ES256", "RS256"]),
+        patch.object(supabase_jwt, "get_jwk_client", return_value=_mock_jwks_client()),
+    ):
         with pytest.raises(HTTPException) as exc_info:
             await guard(request=request, authorization=f"Bearer {bad_token}")
         assert exc_info.value.status_code == 401
@@ -175,7 +232,11 @@ async def test_user_auth_guard_succeeds_and_binds_request_state():
     request.state = MagicMock()
     token = _make_jwt(sub="usr-1234", email="bob@test.com")
 
-    with patch.object(config, "SUPABASE_JWT_SECRET", JWT_SECRET):
+    with (
+        patch.object(config, "SUPABASE_JWKS_URL", JWKS_URL),
+        patch.object(config, "SUPABASE_JWT_ALGORITHMS", ["ES256", "RS256"]),
+        patch.object(supabase_jwt, "get_jwk_client", return_value=_mock_jwks_client()),
+    ):
         identity = await guard(request=request, authorization=f"Bearer {token}")
         assert identity.user_id == "usr-1234"
         assert identity.tenant_id == "usr_usr-1234"
@@ -257,7 +318,11 @@ def user_test_app():
 
 def test_user_api_me_endpoint(user_test_app):
     token = _make_jwt(sub="usr-abc", email="abc@example.com")
-    with patch.object(config, "SUPABASE_JWT_SECRET", JWT_SECRET):
+    with (
+        patch.object(config, "SUPABASE_JWKS_URL", JWKS_URL),
+        patch.object(config, "SUPABASE_JWT_ALGORITHMS", ["ES256", "RS256"]),
+        patch.object(supabase_jwt, "get_jwk_client", return_value=_mock_jwks_client()),
+    ):
         client = TestClient(user_test_app)
         res = client.get(
             "/api/v1/user/me", headers={"Authorization": f"Bearer {token}"}
@@ -329,7 +394,11 @@ def test_user_api_keys_crud_lifecycle(user_test_app):
 
     user_test_app.dependency_overrides[get_api_key_service] = lambda: mock_service
 
-    with patch.object(config, "SUPABASE_JWT_SECRET", JWT_SECRET):
+    with (
+        patch.object(config, "SUPABASE_JWKS_URL", JWKS_URL),
+        patch.object(config, "SUPABASE_JWT_ALGORITHMS", ["ES256", "RS256"]),
+        patch.object(supabase_jwt, "get_jwk_client", return_value=_mock_jwks_client()),
+    ):
         client = TestClient(user_test_app)
         auth_header = {"Authorization": f"Bearer {token}"}
 

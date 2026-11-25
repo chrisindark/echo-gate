@@ -11,9 +11,17 @@ from app.core.helpers import dispatch_task
 from app.core.pricing import calculate_cost
 from app.modules.llm_usage.llm_usage_schema import LlmUsageLogUpdate
 from app.modules.llm_usage.llm_usage_service import LlmUsageService
-from app.worker.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
+
+
+def _celery_task(*args, **kwargs):
+    """Register with Celery when the optional worker extra is installed."""
+    try:
+        from app.worker.celery_app import celery_app
+    except ImportError:
+        return lambda func: func
+    return celery_app.task(*args, **kwargs)
 
 
 def execute_process_uncalculated_costs_job(
@@ -95,9 +103,7 @@ def execute_process_uncalculated_costs_job(
             raise
 
 
-@celery_app.task(
-    bind=True, name="app.modules.llm_usage.tasks.process_uncalculated_costs"
-)
+@_celery_task(bind=True, name="app.modules.llm_usage.tasks.process_uncalculated_costs")
 def process_uncalculated_costs(self=None):
     """
     Periodically checks for usage logs that don't have cost calculated.

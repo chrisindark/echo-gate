@@ -91,14 +91,19 @@ class Config:
         self.SUPABASE_PUBLISHABLE_KEY = os.getenv(
             "SUPABASE_PUBLISHABLE_KEY", ""
         ).strip()
-        self.SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "").strip()
+        explicit_jwks = os.getenv("SUPABASE_JWKS_URL", "").strip()
+        self.SUPABASE_JWKS_URL = explicit_jwks or (
+            f"{self.SUPABASE_URL.rstrip('/')}/auth/v1/.well-known/jwks.json"
+            if self.SUPABASE_URL
+            else ""
+        )
         self.SUPABASE_AUTH_ENABLED = _bool_env(
-            "SUPABASE_AUTH_ENABLED", bool(self.SUPABASE_JWT_SECRET)
+            "SUPABASE_AUTH_ENABLED", bool(self.SUPABASE_JWKS_URL)
         )
         self.SUPABASE_JWT_AUDIENCE = os.getenv(
             "SUPABASE_JWT_AUDIENCE", "authenticated"
         ).strip()
-        raw_algos = os.getenv("SUPABASE_JWT_ALGORITHMS", "HS256").strip()
+        raw_algos = os.getenv("SUPABASE_JWT_ALGORITHMS", "ES256,RS256").strip()
         self.SUPABASE_JWT_ALGORITHMS = [
             algo.strip() for algo in raw_algos.split(",") if algo.strip()
         ]

@@ -37,16 +37,16 @@ uses a handful of small tables and a 2-connection pool.
 
 ### What is intentionally not deployed
 
-| Component | Why | Controlled by |
-| --- | --- | --- |
-| Redis cache | No cache in this profile | `CACHE_MODE=disabled` |
-| Qdrant | No vector cache | `CACHE_MODE=disabled` |
-| Inference platform | No embeddings/rerank/NLI | `CACHE_MODE=disabled` |
-| Intent classifier / reranker / judge | Cache-only paths | `CACHE_MODE=disabled` |
-| Shadow cache / cache audit | Cache-only paths | `CACHE_MODE=disabled` |
-| Celery workers | No background jobs in this profile | no worker service deployed |
-| Web UI | API-only release | do not deploy `web/` |
-| Admin, analytics, usage, quota, verifier, gateway, conversation, cache APIs | Not LLM-calling surfaces | `ENABLED_SURFACES` |
+| Component                                                                   | Why                                | Controlled by              |
+| --------------------------------------------------------------------------- | ---------------------------------- | -------------------------- |
+| Redis cache                                                                 | No cache in this profile           | `CACHE_MODE=disabled`      |
+| Qdrant                                                                      | No vector cache                    | `CACHE_MODE=disabled`      |
+| Inference platform                                                          | No embeddings/rerank/NLI           | `CACHE_MODE=disabled`      |
+| Intent classifier / reranker / judge                                        | Cache-only paths                   | `CACHE_MODE=disabled`      |
+| Shadow cache / cache audit                                                  | Cache-only paths                   | `CACHE_MODE=disabled`      |
+| Celery workers                                                              | No background jobs in this profile | no worker service deployed |
+| Web UI                                                                      | API-only release                   | do not deploy `web/`       |
+| Admin, analytics, usage, quota, verifier, gateway, conversation, cache APIs | Not LLM-calling surfaces           | `ENABLED_SURFACES`         |
 
 ---
 

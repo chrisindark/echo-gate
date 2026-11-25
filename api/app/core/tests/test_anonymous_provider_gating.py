@@ -39,7 +39,8 @@ def test_config_anonymous_allowed_providers_defaults_and_overrides():
     env_keys = (
         "ANONYMOUS_ALLOWED_PROVIDERS",
         "SUPABASE_AUTH_ENABLED",
-        "SUPABASE_JWT_SECRET",
+        "SUPABASE_URL",
+        "SUPABASE_JWKS_URL",
         "PYTHON_ENV",
     )
     saved = {k: os.environ.get(k) for k in env_keys}

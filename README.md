@@ -116,12 +116,12 @@ Echo Gate accepts both OpenAI-compatible `chat/completions` and Anthropic-compat
   - **Analytics Dashboard (`/analytics`)**: Visual summaries of KPIs, cache hit rates, cost and latency saved, model breakdowns, and time-series trends, plus a cache-readiness indicator backed by shadow-mode telemetry.
   - **Quota Management (`/quota`)**: Scoped admin interface for Tokens-Per-Minute (TPM) and budget rules.
 
-| Chat Playground | Traces & Latency Waterfall |
-| --- | --- |
+| Chat Playground                                                 | Traces & Latency Waterfall                                        |
+| --------------------------------------------------------------- | ----------------------------------------------------------------- |
 | ![Chat Playground](docs/assets/screenshots/chat-playground.png) | ![Traces Dashboard](docs/assets/screenshots/traces-dashboard.png) |
 
-| Trace Detail & Waterfall | Analytics Dashboard |
-| --- | --- |
+| Trace Detail & Waterfall                                  | Analytics Dashboard                                                     |
+| --------------------------------------------------------- | ----------------------------------------------------------------------- |
 | ![Trace Detail](docs/assets/screenshots/trace-detail.png) | ![Analytics Dashboard](docs/assets/screenshots/analytics-dashboard.png) |
 
 ### 9. Background Worker (Celery)
@@ -321,6 +321,7 @@ docker compose run --rm \
 #### Option B: Local Development with Hot Reload (Docker Compose)
 
 For local development inside containers without manually installing Python/Node dependencies on the host:
+
 - Edits in `api/` immediately reload FastAPI via `uvicorn --reload`.
 - Edits to `.py` files automatically reload the Celery worker via `watchfiles`.
 - Edits in `web/` trigger Next.js Turbopack Fast Refresh in the browser.
@@ -506,22 +507,22 @@ curl -X POST "http://localhost:8000/api/v1/chat/completions/semantic-search?tena
 
 ### 7. Other Endpoints
 
-| Method             | Path                                           | Purpose                                                     |
-| ------------------ | ---------------------------------------------- | ----------------------------------------------------------- |
-| `GET`              | `/v1/models`, `/api/v1/models`                 | Model discovery for OpenAI/Anthropic SDKs.                  |
-| `POST`             | `/api/v1/messages`                             | Native Anthropic Messages API (Claude SDKs, streaming SSE). |
-| `POST`             | `/api/v1/chat/completions/exact-search`        | Test the exact-cache lookup only (admin key, `cache:read`).  |
+| Method             | Path                                           | Purpose                                                                                |
+| ------------------ | ---------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `GET`              | `/v1/models`, `/api/v1/models`                 | Model discovery for OpenAI/Anthropic SDKs.                                             |
+| `POST`             | `/api/v1/messages`                             | Native Anthropic Messages API (Claude SDKs, streaming SSE).                            |
+| `POST`             | `/api/v1/chat/completions/exact-search`        | Test the exact-cache lookup only (admin key, `cache:read`).                            |
 | `POST`             | `/api/v1/chat/completions/cache-save`          | Write a `{request, response}` pair into the cache directly (admin key, `cache:write`). |
-| `POST`             | `/api/v1/qdrant/search`                        | Dense vector search over all tenants (admin key, `cache:read`). |
-| `POST`             | `/api/v1/qdrant/search/rrf`                    | Hybrid dense + sparse RRF search (admin key, `cache:read`).  |
-| `POST`             | `/api/v1/verifier/predict/rerank`              | Cross-encoder rerank of candidate strings.                  |
-| `GET`/`POST`       | `/api/v1/llm-usage/`                           | List / create token-usage logs.                             |
-| `POST`             | `/api/v1/llm-usage/calculate-costs`            | Queue background cost calculation.                          |
-| `GET`/`POST`/`DEL` | `/api/v1/admin/api-keys/`                      | Create, list, and revoke API keys.                          |
-| `GET`/`POST`       | `/api/v1/conversations`                        | Create / list conversations (RLS-scoped).                   |
-| `GET`              | `/api/v1/conversations/{conversation_id}`      | A conversation with its messages.                           |
-| `POST`             | `/api/v1/conversations/{conversation_id}/chat` | Chat with full history; persists user + assistant messages. |
-| `GET`              | `/api/v1/health`                               | Basic health; see `/live`, `/ready`, `/worker`, `/celery`.  |
+| `POST`             | `/api/v1/qdrant/search`                        | Dense vector search over all tenants (admin key, `cache:read`).                        |
+| `POST`             | `/api/v1/qdrant/search/rrf`                    | Hybrid dense + sparse RRF search (admin key, `cache:read`).                            |
+| `POST`             | `/api/v1/verifier/predict/rerank`              | Cross-encoder rerank of candidate strings.                                             |
+| `GET`/`POST`       | `/api/v1/llm-usage/`                           | List / create token-usage logs.                                                        |
+| `POST`             | `/api/v1/llm-usage/calculate-costs`            | Queue background cost calculation.                                                     |
+| `GET`/`POST`/`DEL` | `/api/v1/admin/api-keys/`                      | Create, list, and revoke API keys.                                                     |
+| `GET`/`POST`       | `/api/v1/conversations`                        | Create / list conversations (RLS-scoped).                                              |
+| `GET`              | `/api/v1/conversations/{conversation_id}`      | A conversation with its messages.                                                      |
+| `POST`             | `/api/v1/conversations/{conversation_id}/chat` | Chat with full history; persists user + assistant messages.                            |
+| `GET`              | `/api/v1/health`                               | Basic health; see `/live`, `/ready`, `/worker`, `/celery`.                             |
 
 The full, authoritative endpoint reference is in
 [docs/API_REFERENCE.md](docs/API_REFERENCE.md); the API contract is also snapshotted

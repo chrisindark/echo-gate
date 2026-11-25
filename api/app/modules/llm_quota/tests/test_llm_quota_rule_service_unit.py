@@ -26,7 +26,6 @@ class TestLlmQuotaRuleServiceUnit(unittest.TestCase):
         )
 
     def tearDown(self):
-        self.Session.close_all()
         Base.metadata.drop_all(self.engine)
         self.engine.dispose()
 

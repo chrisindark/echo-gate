@@ -14,7 +14,6 @@ from app.modules.gateway_requests.gateway_requests_schema import (
     GatewayRequestLogUpdate,
 )
 from app.modules.gateway_requests.gateway_requests_service import GatewayRequestsService
-from app.modules.gateway_requests.tasks import dispatch_evaluate_pending_requests
 
 logger = logging.getLogger(__name__)
 
@@ -275,6 +274,11 @@ def trigger_evaluation(
     background_tasks: BackgroundTasks,
 ) -> dict:
     """Trigger background evaluation of pending requests with fallback to FastAPI background tasks."""
+    # Celery is an optional worker dependency. Importing the task module at
+    # module scope would drop the whole read-only trace surface when the worker
+    # extra is absent (e.g. Vercel), because main.py swallows import failures.
+    from app.modules.gateway_requests.tasks import dispatch_evaluate_pending_requests
+
     task_id, dispatched_to_celery = dispatch_evaluate_pending_requests(
         background_tasks=background_tasks
     )

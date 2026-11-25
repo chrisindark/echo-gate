@@ -100,47 +100,33 @@ class ApiKeyIdentityProvider:
 class SupabaseJwtIdentityProvider:
     """Resolves a Supabase JWT (Bearer token) to an authenticated tenant/user identity.
 
-    When ``SUPABASE_AUTH_ENABLED`` or ``SUPABASE_JWT_SECRET`` is configured, this
-    provider verifies incoming Bearer JWT tokens and maps the subject (user UUID)
-    to a personal tenant (``usr_<uuid>``) or an explicit ``tenant_id`` set in metadata.
+    When ``SUPABASE_AUTH_ENABLED`` and a JWKS URL (``SUPABASE_JWKS_URL`` or
+    derived from ``SUPABASE_URL``) are configured, this provider verifies
+    incoming Bearer JWT tokens and maps the subject (user UUID) to a personal
+    tenant (``usr_<uuid>``) or an explicit ``tenant_id`` set in metadata.
     """
 
     def resolve(self, headers: dict[str, str]) -> Identity | None:
         from app.core.config import config
+        from app.core.supabase_jwt import (
+            decode_supabase_jwt,
+            extract_supabase_claims,
+            resolve_supabase_jwks_url,
+        )
 
-        if not config.SUPABASE_AUTH_ENABLED and not config.SUPABASE_JWT_SECRET:
+        if not config.SUPABASE_AUTH_ENABLED or not resolve_supabase_jwks_url():
             return None
 
         token = api_key_from_headers(headers)
         if not token or token.count(".") != 2:
             return None
 
-        if not config.SUPABASE_JWT_SECRET:
-            return None
-
         try:
-            import jwt
-
-            options = {"verify_aud": bool(config.SUPABASE_JWT_AUDIENCE)}
-            payload = jwt.decode(
-                token,
-                config.SUPABASE_JWT_SECRET,
-                algorithms=config.SUPABASE_JWT_ALGORITHMS,
-                audience=config.SUPABASE_JWT_AUDIENCE
-                if config.SUPABASE_JWT_AUDIENCE
-                else None,
-                options=options,
-            )
-            sub = payload.get("sub")
-            if not sub:
+            payload = decode_supabase_jwt(token)
+            claims = extract_supabase_claims(payload)
+            if claims is None:
                 return None
-
-            user_meta = payload.get("user_metadata") or {}
-            app_meta = payload.get("app_metadata") or {}
-            tenant_id = (
-                user_meta.get("tenant_id") or app_meta.get("tenant_id") or f"usr_{sub}"
-            )
-            return Identity(tenant_id=str(tenant_id), user_id=str(sub))
+            return Identity(tenant_id=claims.tenant_id, user_id=claims.user_id)
         except Exception:
             return None
 
