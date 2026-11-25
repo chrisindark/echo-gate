@@ -60,27 +60,55 @@ class OpenAICompatibleProvider:
                         line = line.strip()
                         if not line or line.startswith(":"):
                             continue
-                        if line.startswith("data: "):
-                            data_str = line[6:].strip()
+                        if line.startswith("data:"):
+                            data_str = line[5:].strip()
                             if data_str == "[DONE]":
                                 break
                             try:
                                 chunk_data = json.loads(data_str)
-                                if isinstance(chunk_data, dict):
-                                    chunk_data.setdefault(
-                                        "id", f"chatcmpl-{uuid.uuid4().hex}"
-                                    )
-                                    chunk_data.setdefault("created", int(time.time()))
-                                    chunk_data.setdefault(
-                                        "model",
-                                        payload_data.get("model", "unknown"),
-                                    )
-                                    chunk_data.setdefault("choices", [])
-                                    yield ChatCompletionChunk.model_validate(chunk_data)
                             except Exception as e:
                                 logger.warning(
                                     f"Failed to parse chunk from {service_label}: {e} - line: {line}"
                                 )
+                                continue
+                            if isinstance(chunk_data, dict):
+                                if chunk_data.get("error"):
+                                    err = chunk_data["error"]
+                                    err_msg = (
+                                        err.get("message", str(err))
+                                        if isinstance(err, dict)
+                                        else str(err)
+                                    )
+                                    err_code = (
+                                        err.get("code")
+                                        if isinstance(err, dict)
+                                        else None
+                                    )
+                                    err_status = (
+                                        err_code
+                                        if isinstance(err_code, int)
+                                        and 400 <= err_code < 600
+                                        else 502
+                                    )
+                                    raise HTTPException(
+                                        status_code=err_status,
+                                        detail=f"{service_label} stream error: {err_msg}",
+                                    )
+                                chunk_data.setdefault(
+                                    "id", f"chatcmpl-{uuid.uuid4().hex}"
+                                )
+                                chunk_data.setdefault("created", int(time.time()))
+                                chunk_data.setdefault(
+                                    "model",
+                                    payload_data.get("model", "unknown"),
+                                )
+                                chunk_data.setdefault("choices", [])
+                                try:
+                                    yield ChatCompletionChunk.model_validate(chunk_data)
+                                except Exception as e:
+                                    logger.warning(
+                                        f"Failed to validate chunk from {service_label}: {e} - line: {line}"
+                                    )
         except HTTPException:
             raise
         except httpx.HTTPStatusError as e:
