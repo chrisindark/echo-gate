@@ -1,12 +1,9 @@
 alembic==1.20.0
-amqp==5.4.0
 annotated-doc==0.0.5
 annotated-types==0.8.0
 anyio==4.15.1
-billiard==4.2.4
 boolean.py==5.0
 CacheControl==0.14.4
-celery==5.6.3
 certifi==2026.10.23
 cffi==2.1.1
 cfgv==3.5.0
@@ -24,7 +21,6 @@ distlib==0.4.3
 distro==1.9.0
 fastapi==0.141.1
 fastapi-health==0.4.0
-fastembed==0.8.1
 filelock==4.2.10
 flatbuffers==25.12.19
 fsspec==2026.9.0
@@ -46,7 +42,6 @@ iniconfig==2.3.1
 isort==9.0.1
 Jinja2==3.1.6
 joblib==1.6.0
-kombu==5.6.2
 license-expression==30.4.4
 loguru==0.7.3
 Mako==1.4.3
@@ -61,7 +56,6 @@ narwhals==2.26.0
 networkx==3.6
 nodeenv==1.11.0
 numpy==2.5.3
-onnxruntime==1.30.0
 opentelemetry-api==1.45.2
 opentelemetry-exporter-http-transport==0.66b2
 opentelemetry-exporter-otlp==1.45.2
@@ -105,7 +99,6 @@ python-dateutil==2.9.0.post0
 python-discovery==1.6.1
 python-dotenv==1.2.3
 PyYAML==6.0.3
-qdrant-client==1.19.1
 redis==5.3.1
 regex==2026.9.29
 requests==2.34.2
@@ -139,7 +132,6 @@ tzdata==2026.4
 tzlocal==5.4.4
 urllib3==2.8.0
 uvicorn==0.53.0
-vine==5.1.0
 virtualenv==21.15.6
 wcwidth==0.9.1
 websockets==16.1.1

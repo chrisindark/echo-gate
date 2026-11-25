@@ -12,5 +12,10 @@
       "source": "/(.*)",
       "destination": "/api/index"
     }
-  ]
+  ],
+  "env": {
+    "ENABLED_SURFACES": "health,models,chat,anthropic",
+    "CACHE_MODE": "disabled",
+    "ALLOW_ANONYMOUS": "false"
+  }
 }
