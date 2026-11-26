@@ -11,16 +11,19 @@ changes' entry with a `[BREAKING]` marker.
 ## [Unreleased]
 
 ### Added
+
 - LLM-only minimal gateway profile: `CACHE_MODE=disabled` + `ENABLED_SURFACES` to run with no Redis/Qdrant/inference/Celery/web stack
 - Supabase Auth integration (AuthProvider, login/signup, user API keys)
 - `ALLOW_ANONYMOUS` request-time enforcement in `ApiKeyAuthGuard`
 
 ### Fixed
+
 - Web: conversations route infinite re-render ("Maximum update depth exceeded") in `ConversationSidebar`
 - Web: gateway error messages showing `[object Object]` (nested `detail` payloads)
 - Minimal gateway: `ApiKeyAuthGuard` now honors `config.ALLOW_ANONYMOUS=false` (was ignored)
 
 ### Changed
+
 - Cache/inference services are skipped entirely when `CACHE_MODE=disabled`
 - Docs consolidated to cut duplication: the active work queue moved into `docs/ROADMAP.md` (removing `PRIORITIES.md`), the API reference now indexes operations from the OpenAPI snapshot instead of restating schemas, `docs/CONFIGURATION.md` documents the resolution rules and points at the annotated `.env.example` instead of restating every default, and `README.md` is a quick-start instead of a second setup guide
 - Landed feature history and completed phases 0-4 moved to `docs/archive/ROADMAP_HISTORY.md`, leaving `docs/ROADMAP.md` as the open-work plan (~450 lines, down from ~1,080)
@@ -163,7 +166,7 @@ Version sources (gateway `pyproject.toml`, `web/package.json`,
   a drift-guard eval set, a latency bench, and a compose file for the Infinity
   deployment.
 - **`sparse` role on the shared contract**: `POST /embeddings` accepts `sparse:
-  true` and returns BM25 `indices`/`values` for the same batch as the dense
+true` and returns BM25 `indices`/`values` for the same batch as the dense
   `data`, in one round trip — a hybrid consumer pays one hop, not two. `/health`
   reports every role's `kind` and, for sparse, the `fastembed` `backend` version,
   because the tokenizer build is part of the sparse vector space. A sparse
@@ -182,7 +185,7 @@ Version sources (gateway `pyproject.toml`, `web/package.json`,
   per-label entailment probabilities (`scores`), a softmax across labels
   (`scores_normalized`) for single-choice ranking, and a pre-sorted `ranked` list.
   The label set, the `hypothesis_template`, and the pair budget are validated with
-  structured `400`s. Documented honestly as a *ranking*: with noun labels the
+  structured `400`s. Documented honestly as a _ranking_: with noun labels the
   shipped NLI checkpoint separates topics well and intents poorly (the
   `hypotheses` entry below is the fix for that).
 - **A dedicated `zero-shot` role, and a model set sized for the machine it runs
@@ -209,7 +212,7 @@ Version sources (gateway `pyproject.toml`, `web/package.json`,
   optional model-cache PVC with a prefetch init container, and an
   `inference-platform-prefetch` command that fills a cache without serving.
 - **`hypotheses` on `/classify`: verbatim assertions instead of one template.**
-  Zero-shot's real weakness is the *question*, not the checkpoint: with noun
+  Zero-shot's real weakness is the _question_, not the checkpoint: with noun
   labels the shipped model ranks a phishing email "account notice" at 0.983
   ("phishing" 0.016), because the message genuinely is notice-shaped. Callers can
   now send `hypotheses` (label → assertions, each scored by entailment, label

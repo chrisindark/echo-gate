@@ -38,11 +38,11 @@ Anything not set falls back to the default in `config.py`.
 `Config.cache_layer_enabled(layer)`, which returns `False` unless
 `CACHE_MODE == "active"` and the underlying service is enabled.
 
-| Mode | Behaviour |
-| --- | --- |
-| `disabled` | No cache reads, no cache writes. Every request hits the provider. |
-| `shadow` | Requests hit the provider; a background task replays the full pipeline, logs what *would* have happened to `shadow_cache_evaluations`, and still writes embeddings + responses to warm the corpus. |
-| `active` | Normal serving path: Redis exact → Qdrant exact → semantic, per the `USE_*` flags, with background cache writes. |
+| Mode       | Behaviour                                                                                                                                                                                          |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `disabled` | No cache reads, no cache writes. Every request hits the provider.                                                                                                                                  |
+| `shadow`   | Requests hit the provider; a background task replays the full pipeline, logs what _would_ have happened to `shadow_cache_evaluations`, and still writes embeddings + responses to warm the corpus. |
+| `active`   | Normal serving path: Redis exact → Qdrant exact → semantic, per the `USE_*` flags, with background cache writes.                                                                                   |
 
 Resolution rules (`api/app/core/config.py`):
 
@@ -59,48 +59,57 @@ like an LLM-only gateway.
 
 ## Operational knobs
 
+<<<<<<< HEAD
 These are the variables worth knowing by name. For the complete set — including
 every prompt-optimization, shadow, audit, telemetry, and webhook knob — see the
 generated [`ENV_VARS.md`](ENV_VARS.md) or the annotated `api/app/.env.example`.
+=======
+
+These are the variables worth knowing by name. Defaults and the rest of the set —
+including every prompt-optimization, shadow, audit, telemetry, and webhook knob —
+are annotated in `api/app/.env.example`; anything absent there is read in
+`api/app/core/config.py`.
+
+> > > > > > > d3eed55760e3f292c1bc1bbfd3c7ad7805cb9017
 
 ### Identity and storage
 
-| Variable | Why it matters |
-| --- | --- |
-| `DATABASE_URL` | **Must be the non-owner app role** (`echo_gate_app`) so RLS applies. |
-| `DATABASE_URL_READ` | Read connection; defaults to `DATABASE_URL`. |
-| `MIGRATION_DATABASE_URL` | Owner credentials, read **only by Alembic**, never by the app. |
-| `DB_APP_ROLE` / `DB_APP_PASSWORD` | Role the baseline migration provisions. |
-| `REDIS_URL`, `QDRANT_URL`, `QDRANT_API_KEY` | Cache backends. |
-| `QDRANT_COLLECTION_NAME` | Default `embeddings_multivector`. Point at a migrated collection (`..._v2`) and restart to complete an embedding-model swap. |
-| `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND` | Default Redis DB 1. |
-| `SUPABASE_URL`, `SUPABASE_AUTH_ENABLED`, `SUPABASE_JWT_AUDIENCE` | Optional Supabase auth and user-key surface. Disabled by default. |
+| Variable                                                         | Why it matters                                                                                                               |
+| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                                                   | **Must be the non-owner app role** (`echo_gate_app`) so RLS applies.                                                         |
+| `DATABASE_URL_READ`                                              | Read connection; defaults to `DATABASE_URL`.                                                                                 |
+| `MIGRATION_DATABASE_URL`                                         | Owner credentials, read **only by Alembic**, never by the app.                                                               |
+| `DB_APP_ROLE` / `DB_APP_PASSWORD`                                | Role the baseline migration provisions.                                                                                      |
+| `REDIS_URL`, `QDRANT_URL`, `QDRANT_API_KEY`                      | Cache backends.                                                                                                              |
+| `QDRANT_COLLECTION_NAME`                                         | Default `embeddings_multivector`. Point at a migrated collection (`..._v2`) and restart to complete an embedding-model swap. |
+| `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`                     | Default Redis DB 1.                                                                                                          |
+| `SUPABASE_URL`, `SUPABASE_AUTH_ENABLED`, `SUPABASE_JWT_AUDIENCE` | Optional Supabase auth and user-key surface. Disabled by default.                                                            |
 
 ### Providers and routing
 
-| Variable | Why it matters |
-| --- | --- |
-| `DEFAULT_LLM_SERVICE` | `google-genai` when the request omits a provider. |
-| `USE_FALLBACK_LLM`, `FALLBACK_LLM_SERVICE`, `FALLBACK_LLM_MODEL` | Primary→fallback switchover on the blocking and streaming paths. |
-| `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `CLAUDE_API_KEY`, `OLLAMA_URL` | Upstream credentials and local endpoint. |
-| `LLM_MAX_RETRIES`, `RETRY_BACKOFF_INITIAL_SECONDS`, `RETRY_BACKOFF_MAX_SECONDS` | Retry policy. |
-| `ALLOWED_MODELS_JSON`, `MODEL_ALIASES_JSON`, `MODEL_CONTEXT_WINDOWS_JSON` | Runtime allowlist extension, alias routing, and headroom-trim budgets. |
+| Variable                                                                                                 | Why it matters                                                         |
+| -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `DEFAULT_LLM_SERVICE`                                                                                    | `google-genai` when the request omits a provider.                      |
+| `USE_FALLBACK_LLM`, `FALLBACK_LLM_SERVICE`, `FALLBACK_LLM_MODEL`                                         | Primary→fallback switchover on the blocking and streaming paths.       |
+| `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `CLAUDE_API_KEY`, `OLLAMA_URL` | Upstream credentials and local endpoint.                               |
+| `LLM_MAX_RETRIES`, `RETRY_BACKOFF_INITIAL_SECONDS`, `RETRY_BACKOFF_MAX_SECONDS`                          | Retry policy.                                                          |
+| `ALLOWED_MODELS_JSON`, `MODEL_ALIASES_JSON`, `MODEL_CONTEXT_WINDOWS_JSON`                                | Runtime allowlist extension, alias routing, and headroom-trim budgets. |
 
 Retries apply only to timeouts/connection errors and HTTP 408/429/500/502/503/504
 (`api/app/core/retry.py`). 400/401/403 are fatal and short-circuit the fallback.
 
 ### Resilience
 
-| Variable | Default | Why it matters |
-| --- | --- | --- |
-| `CIRCUIT_BREAKER_ENABLED` | `true` | Per-provider open/half-open/closed breaker. |
-| `CIRCUIT_BREAKER_FAILURE_THRESHOLD` | `5` | Consecutive retryable errors before OPEN. |
-| `CIRCUIT_BREAKER_RECOVERY_TIMEOUT_SECONDS` | `30` | Wait before a HALF_OPEN probe. |
-| `GLOBAL_MAX_CONCURRENCY` | `100` | Global bulkhead; excess load is shed with `429`. |
-| `PROVIDER_MAX_CONCURRENCY` | `25` | Per-provider bulkhead. |
-| `BULKHEAD_ACQUIRE_TIMEOUT_SECONDS` | `0.0` | How long to wait before shedding. |
-| `STREAM_MAX_CONTENT_BYTES` | `2097152` | Guardrail on the streaming accumulator. |
-| `MAX_COMPLETION_TOKENS_CAP` | `2000000` | Hard ceiling on caller-supplied `max_tokens`. |
+| Variable                                   | Default   | Why it matters                                   |
+| ------------------------------------------ | --------- | ------------------------------------------------ |
+| `CIRCUIT_BREAKER_ENABLED`                  | `true`    | Per-provider open/half-open/closed breaker.      |
+| `CIRCUIT_BREAKER_FAILURE_THRESHOLD`        | `5`       | Consecutive retryable errors before OPEN.        |
+| `CIRCUIT_BREAKER_RECOVERY_TIMEOUT_SECONDS` | `30`      | Wait before a HALF_OPEN probe.                   |
+| `GLOBAL_MAX_CONCURRENCY`                   | `100`     | Global bulkhead; excess load is shed with `429`. |
+| `PROVIDER_MAX_CONCURRENCY`                 | `25`      | Per-provider bulkhead.                           |
+| `BULKHEAD_ACQUIRE_TIMEOUT_SECONDS`         | `0.0`     | How long to wait before shedding.                |
+| `STREAM_MAX_CONTENT_BYTES`                 | `2097152` | Guardrail on the streaming accumulator.          |
+| `MAX_COMPLETION_TOKENS_CAP`                | `2000000` | Hard ceiling on caller-supplied `max_tokens`.    |
 
 ### Inference platform
 
@@ -109,14 +118,14 @@ served: they live in `inference-platform/` and answer over HTTP. Nothing is load
 in-process, so this is not optional — with no engine configured the gateway refuses
 to start.
 
-| Variable | Default | Why it matters |
-| --- | --- | --- |
-| `INFERENCE_BASE_URL` | empty | Required at boot when `INFERENCE_ENABLED` is active. |
-| `INFERENCE_*_URL` | derived | Optional per-role overrides (`EMBED`, `RERANK`, `RELEVANCE`, `NLI`). |
-| `INFERENCE_*_MODEL` | empty | Pin a model per role; required by gateways that route by model id only (Infinity). |
-| `INFERENCE_EMBEDDING_DIM` | `384` | Locked into the Qdrant collection; startup fails when the engine disagrees. |
-| `INFERENCE_TIMEOUT_SECONDS` | `5.0` | Per-attempt budget, clamped to `0.1`–`120`. |
-| `INFERENCE_MAX_RETRIES` | `1` | Retries for 5xx/throttling/timeouts; a refused connection is never retried. |
+| Variable                    | Default | Why it matters                                                                     |
+| --------------------------- | ------- | ---------------------------------------------------------------------------------- |
+| `INFERENCE_BASE_URL`        | empty   | Required at boot when `INFERENCE_ENABLED` is active.                               |
+| `INFERENCE_*_URL`           | derived | Optional per-role overrides (`EMBED`, `RERANK`, `RELEVANCE`, `NLI`).               |
+| `INFERENCE_*_MODEL`         | empty   | Pin a model per role; required by gateways that route by model id only (Infinity). |
+| `INFERENCE_EMBEDDING_DIM`   | `384`   | Locked into the Qdrant collection; startup fails when the engine disagrees.        |
+| `INFERENCE_TIMEOUT_SECONDS` | `5.0`   | Per-attempt budget, clamped to `0.1`–`120`.                                        |
+| `INFERENCE_MAX_RETRIES`     | `1`     | Retries for 5xx/throttling/timeouts; a refused connection is never retried.        |
 
 - **Strict at boot.** `InferenceClient.verify()` raises when no URL is configured,
   an endpoint is unreachable, a required role is not loaded, or the engine's
@@ -136,13 +145,13 @@ to start.
 
 ### Semantic search and retention
 
-| Variable | Default | Why it matters |
-| --- | --- | --- |
-| `QDRANT_DENSE_SEARCH_HIGH_THRESHOLD` | `0.98` | Dense score at/above which the fast path serves immediately. |
-| `QDRANT_SPARSE_SEARCH_HIGH_THRESHOLD` | `0.33` | Minimum RRF score to be reranked. |
-| `QDRANT_SEARCH_LIMIT` | `10` | Candidate pool for the RRF query. |
-| `CACHE_CONFIDENCE_THRESHOLDS` | per intent | JSON map of intent → `{high, moderate}` acceptance thresholds (0.85–0.98). |
-| `INTENT_TTL_SECONDS` | per intent | JSON map of intent → TTL seconds. |
+| Variable                              | Default    | Why it matters                                                             |
+| ------------------------------------- | ---------- | -------------------------------------------------------------------------- |
+| `QDRANT_DENSE_SEARCH_HIGH_THRESHOLD`  | `0.98`     | Dense score at/above which the fast path serves immediately.               |
+| `QDRANT_SPARSE_SEARCH_HIGH_THRESHOLD` | `0.33`     | Minimum RRF score to be reranked.                                          |
+| `QDRANT_SEARCH_LIMIT`                 | `10`       | Candidate pool for the RRF query.                                          |
+| `CACHE_CONFIDENCE_THRESHOLDS`         | per intent | JSON map of intent → `{high, moderate}` acceptance thresholds (0.85–0.98). |
+| `INTENT_TTL_SECONDS`                  | per intent | JSON map of intent → TTL seconds.                                          |
 
 `time_sensitivity >= 0.9` or intent `finance_market` is never cached.
 
@@ -158,7 +167,7 @@ served hit bumps `hit_count` and `retention_value` out of band.
 ### Models and version tags
 
 `EMBEDDING_MODEL_NAME` (`BAAI/bge-small-en-v1.5`) is the model the engine is
-expected to serve *and* the tag stored on every cached point; semantic search
+expected to serve _and_ the tag stored on every cached point; semantic search
 filters on it, so a swap quarantines old vectors instead of mixing spaces.
 `RERANKER_MODEL_NAME` declares the reranker whose raw score scale the confidence
 thresholds were calibrated against — recalibrate with
@@ -177,19 +186,21 @@ role drops out of the startup check.
 
 ### Observability and events
 
-| Variable | Default | Why it matters |
-| --- | --- | --- |
-| `OTEL_ENABLED` | `true` | Instrumentation on; with `OTEL_EXPORTER_OTLP_ENDPOINT` unset it is a zero-overhead NoOp. |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | empty | Set to export spans (Langfuse, Datadog, Jaeger). |
-| `TELEMETRY_ENABLED` | `false` | Opt-in anonymous ping (version, generated instance id, deployment mode). Fail-open; never sends prompts, responses, keys, or IPs. |
-| `EVENTS_ENABLED` | `true` | Kill switch for the webhook bus. |
-| `EVENTS_WEBHOOK_CACHE_MISS`, `..._QUOTA_EXCEEDED`, `..._PROVIDER_FAILURE`, `..._AUDIT_FAILED` | unset | Per-event delivery URL. **No URL means the event is dropped before any dispatch work.** |
+| Variable                                                                                      | Default | Why it matters                                                                                                                    |
+| --------------------------------------------------------------------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `OTEL_ENABLED`                                                                                | `true`  | Instrumentation on; with `OTEL_EXPORTER_OTLP_ENDPOINT` unset it is a zero-overhead NoOp.                                          |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`                                                                 | empty   | Set to export spans (Langfuse, Datadog, Jaeger).                                                                                  |
+| `TELEMETRY_ENABLED`                                                                           | `false` | Opt-in anonymous ping (version, generated instance id, deployment mode). Fail-open; never sends prompts, responses, keys, or IPs. |
+| `EVENTS_ENABLED`                                                                              | `true`  | Kill switch for the webhook bus.                                                                                                  |
+| `EVENTS_WEBHOOK_CACHE_MISS`, `..._QUOTA_EXCEEDED`, `..._PROVIDER_FAILURE`, `..._AUDIT_FAILED` | unset   | Per-event delivery URL. **No URL means the event is dropped before any dispatch work.**                                           |
 
 Event delivery is `POST {"type", "ts", "payload"}` with a 3-second timeout, through
 Celery when the broker is online and a task/daemon thread otherwise. Payloads carry
 operational metadata only — never prompt or response text — and credential-shaped
 keys are stripped recursively. A cloud overlay replaces the sink with
 `app.core.events.set_event_sink()`; see `docs/EXTENSION_SEAMS.md`.
+
+<<<<<<< HEAD
 
 ## Templated but not read by the app
 
@@ -203,3 +214,13 @@ documented in [DEVELOPMENT.md](DEVELOPMENT.md) instead of the template.
 If you add an env var, add it to `api/app/core/config.py` and — when an operator sets
 it — to `api/app/.env.example`, then run `python scripts/gen_env_docs.py`; CI fails
 when `ENV_VARS.md` disagrees with the code.
+=======
+
+## Not read by anything
+
+`MIGRATION_DATABASE_URL` is consumed by Alembic's `env.py` / `alembic.ini`, not by
+the application. If you add an env var, add it to `api/app/.env.example` in the same
+change; `scripts/check_doc_capabilities.py` guards documented claims but not the
+env list, so an unlisted variable is easier to lose than a broken one.
+
+> > > > > > > d3eed55760e3f292c1bc1bbfd3c7ad7805cb9017

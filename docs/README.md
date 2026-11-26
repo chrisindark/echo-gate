@@ -3,19 +3,19 @@
 This directory is the detailed reference for the Echo Gate LLM gateway. The root
 [`README.md`](../README.md) is the quick-start; these files are the deep dive.
 
-| Document | What it covers |
-| --- | --- |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | System components, module map, the full request lifecycle, the multi-level cache pipeline, background workers, and multi-tenant isolation. |
+| Document                                                             | What it covers                                                                                                                                                      |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [ARCHITECTURE.md](ARCHITECTURE.md)                                   | System components, module map, the full request lifecycle, the multi-level cache pipeline, background workers, and multi-tenant isolation.                          |
 | [MULTI_REGION_CACHE_FEDERATION.md](MULTI_REGION_CACHE_FEDERATION.md) | Multi-region cache federation design: local-first read → provider, async replication of high-value entries via Celery, trust boundary, and the Qdrant schema seams. |
-| [EXTENSION_SEAMS.md](EXTENSION_SEAMS.md) | Open-core extension seams: feature flags, IdentityProvider, MeteringSink, storage factory, and the conditional billing surface. |
-| [API_REFERENCE.md](API_REFERENCE.md) | Auth, headers, error behavior, and an index of every operation in the OpenAPI snapshot (schemas live in `/docs`). |
-| [CONFIGURATION.md](CONFIGURATION.md) | How configuration loads, the `CACHE_MODE` contract, inference and retention behavior, and the operational knobs. |
-| [DATA_MODEL.md](DATA_MODEL.md) | Postgres tables, Row-Level Security policies, and the Qdrant cache collection schema. |
-| [DEVELOPMENT.md](DEVELOPMENT.md) | Local setup, test/build/lint commands, migrations, scripts, and contribution conventions. |
-| [limitations.md](limitations.md) | Intentional architectural boundaries, deferred capabilities, and known gaps — the anti-hallucination guardrail for agents. |
-| [ROADMAP.md](ROADMAP.md) | Single plan of record: the active queue, the open phases (5, 7, 8, 9), and model selection. |
-| [ENV_VARS.md](ENV_VARS.md) | Generated index of every environment variable the gateway reads, with type, default, and source module. |
-| [archive/ROADMAP_HISTORY.md](archive/ROADMAP_HISTORY.md) | Landed feature record and completed phases (0-4), kept for design rationale and defect history. |
+| [EXTENSION_SEAMS.md](EXTENSION_SEAMS.md)                             | Open-core extension seams: feature flags, IdentityProvider, MeteringSink, storage factory, and the conditional billing surface.                                     |
+| [API_REFERENCE.md](API_REFERENCE.md)                                 | Auth, headers, error behavior, and an index of every operation in the OpenAPI snapshot (schemas live in `/docs`).                                                   |
+| [CONFIGURATION.md](CONFIGURATION.md)                                 | How configuration loads, the `CACHE_MODE` contract, inference and retention behavior, and the operational knobs.                                                    |
+| [DATA_MODEL.md](DATA_MODEL.md)                                       | Postgres tables, Row-Level Security policies, and the Qdrant cache collection schema.                                                                               |
+| [DEVELOPMENT.md](DEVELOPMENT.md)                                     | Local setup, test/build/lint commands, migrations, scripts, and contribution conventions.                                                                           |
+| [limitations.md](limitations.md)                                     | Intentional architectural boundaries, deferred capabilities, and known gaps — the anti-hallucination guardrail for agents.                                          |
+| [ROADMAP.md](ROADMAP.md)                                             | Single plan of record: the active queue, the open phases (5, 7, 8, 9), and model selection.                                                                         |
+| [ENV_VARS.md](ENV_VARS.md)                                           | Generated index of every environment variable the gateway reads, with type, default, and source module.                                                             |
+| [archive/ROADMAP_HISTORY.md](archive/ROADMAP_HISTORY.md)             | Landed feature record and completed phases (0-4), kept for design rationale and defect history.                                                                     |
 
 ## What Echo Gate is
 
