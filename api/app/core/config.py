@@ -78,9 +78,47 @@ class Config:
     def __init__(self):
         self.load()
 
+    @staticmethod
+    def _read_pyproject_version() -> str | None:
+        try:
+            import tomllib
+        except ModuleNotFoundError:  # pragma: no cover - Python < 3.11
+            try:
+                import tomli as tomllib  # type: ignore
+            except ModuleNotFoundError:
+                return None
+
+        from pathlib import Path
+
+        candidates = [
+            Path(__file__).resolve().parents[3] / "pyproject.toml",
+            Path("/workspace/pyproject.toml"),
+            Path.cwd() / "pyproject.toml",
+        ]
+        for candidate in candidates:
+            try:
+                with candidate.open("rb") as fh:
+                    data = tomllib.load(fh)
+            except (OSError, ValueError):
+                continue
+            version = (data.get("project") or {}).get("version")
+            if not version:
+                version = (data.get("tool") or {}).get("poetry", {}).get("version")
+            if version:
+                return str(version).strip()
+        return None
+
     def load(self):
         self.PROJECT_NAME = os.getenv("PROJECT_NAME", "").strip() or "echo-gate"
-        self.VERSION = os.getenv("VERSION", "").strip() or "0.1.0"
+        # Prefer an explicitly stamped VERSION (e.g. from the Docker build arg /
+        # git tag), but fall back to the version declared in pyproject.toml so
+        # the API never drifts from the monorepo's single source of truth when
+        # the env var is unset (local dev, tests).
+        self.VERSION = (
+            os.getenv("VERSION", "").strip()
+            or self._read_pyproject_version()
+            or "0.1.0"
+        )
         self.PYTHON_ENV = os.getenv("PYTHON_ENV", "local").strip().lower() or "local"
 
         # CORS & Security

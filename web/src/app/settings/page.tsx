@@ -38,7 +38,7 @@ import Link from 'next/link';
 import React, { useState } from 'react';
 
 export default function SettingsPage() {
-  const { user, tenantId, signOut, isConfigured } = useAuth();
+  const { user, tenantId, signOut, isConfigured, updatePassword } = useAuth();
   const {
     apiKey,
     setApiKey,
@@ -57,6 +57,13 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [showManualCredentials, setShowManualCredentials] = useState(!user);
 
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [pwError, setPwError] = useState<string | null>(null);
+  const [pwSuccess, setPwSuccess] = useState(false);
+  const [pwSubmitting, setPwSubmitting] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     setApiKey(inputKey.trim());
@@ -71,6 +78,37 @@ export default function SettingsPage() {
     navigator.clipboard.writeText(inputKey);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isConfigured) {
+      setPwError('Supabase environment variables are not configured.');
+      return;
+    }
+    if (newPassword.length < 8) {
+      setPwError('New password must be at least 8 characters long.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPwError('Passwords do not match.');
+      return;
+    }
+    setPwError(null);
+    setPwSubmitting(true);
+    try {
+      const { error: updateErr } = await updatePassword(newPassword);
+      if (updateErr) {
+        setPwError(updateErr.message);
+      } else {
+        setPwSuccess(true);
+        setNewPassword('');
+        setConfirmPassword('');
+        setTimeout(() => setPwSuccess(false), 2500);
+      }
+    } finally {
+      setPwSubmitting(false);
+    }
   };
 
   return (
@@ -116,7 +154,57 @@ export default function SettingsPage() {
 
         {/* Supabase SaaS Logged-In User View */}
         {user ? (
-          <ApiKeysManager />
+          <>
+            <Card size="3" className="p-6 border-border/80 space-y-4">
+              <div className="flex items-center gap-2">
+                <Lock className="w-4 h-4 text-primary" />
+                <Heading size="4">Change Password</Heading>
+              </div>
+              {pwSuccess ? (
+                <Text size="2" color="green">
+                  Password updated successfully.
+                </Text>
+              ) : (
+                <form onSubmit={handleChangePassword} className="space-y-3">
+                  {pwError && (
+                    <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-xs">
+                      {pwError}
+                    </div>
+                  )}
+                  <TextField.Root
+                    type={showNewPassword ? 'text' : 'password'}
+                    placeholder="New password (min 8 chars)"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                  >
+                    <TextField.Slot side="right">
+                      <button
+                        type="button"
+                        onClick={() => setShowNewPassword((v) => !v)}
+                        className="text-muted-foreground"
+                      >
+                        {showNewPassword ? (
+                          <EyeOff className="w-4 h-4" />
+                        ) : (
+                          <Eye className="w-4 h-4" />
+                        )}
+                      </button>
+                    </TextField.Slot>
+                  </TextField.Root>
+                  <TextField.Root
+                    type="password"
+                    placeholder="Confirm new password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                  />
+                  <Button type="submit" disabled={pwSubmitting}>
+                    {pwSubmitting ? 'Updating...' : 'Update Password'}
+                  </Button>
+                </form>
+              )}
+            </Card>
+            <ApiKeysManager />
+          </>
         ) : isConfigured ? (
           <div className="relative overflow-hidden rounded-2xl border border-border/80 bg-gradient-to-br from-card via-card to-primary/[0.04] p-6 sm:p-7 shadow-xs space-y-6">
             {/* Ambient decorative background glow */}
@@ -132,10 +220,18 @@ export default function SettingsPage() {
                 </div>
                 <div className="space-y-1.5">
                   <div className="flex flex-wrap items-center gap-2">
-                    <Heading size="4" className="tracking-tight font-semibold text-foreground">
+                    <Heading
+                      size="4"
+                      className="tracking-tight font-semibold text-foreground"
+                    >
                       Production Tenant Management
                     </Heading>
-                    <Badge color="blue" variant="surface" size="1" className="font-mono text-[10px] tracking-wider uppercase">
+                    <Badge
+                      color="blue"
+                      variant="surface"
+                      size="1"
+                      className="font-mono text-[10px] tracking-wider uppercase"
+                    >
                       Cloud SaaS
                     </Badge>
                     <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
@@ -143,8 +239,15 @@ export default function SettingsPage() {
                       Automated Isolation
                     </span>
                   </div>
-                  <Text size="2" color="gray" className="leading-relaxed max-w-2xl">
-                    Authenticate to automatically provision an isolated personal tenant, generate cryptographically hashed API keys with one-click copy, and manage zero-downtime key rotations with automated grace periods.
+                  <Text
+                    size="2"
+                    color="gray"
+                    className="leading-relaxed max-w-2xl"
+                  >
+                    Authenticate to automatically provision an isolated personal
+                    tenant, generate cryptographically hashed API keys with
+                    one-click copy, and manage zero-downtime key rotations with
+                    automated grace periods.
                   </Text>
                 </div>
               </div>
@@ -180,8 +283,13 @@ export default function SettingsPage() {
                   <ShieldCheck className="w-4 h-4" />
                 </div>
                 <div className="space-y-0.5 min-w-0">
-                  <div className="font-medium text-foreground">Postgres RLS Isolation</div>
-                  <div className="text-[11px] text-muted-foreground leading-snug">Strict tenant schema isolation for traces, semantic cache, and quota rules.</div>
+                  <div className="font-medium text-foreground">
+                    Postgres RLS Isolation
+                  </div>
+                  <div className="text-[11px] text-muted-foreground leading-snug">
+                    Strict tenant schema isolation for traces, semantic cache,
+                    and quota rules.
+                  </div>
                 </div>
               </div>
 
@@ -190,8 +298,16 @@ export default function SettingsPage() {
                   <KeyRound className="w-4 h-4" />
                 </div>
                 <div className="space-y-0.5 min-w-0">
-                  <div className="font-medium text-foreground">Instant Scoped API Keys</div>
-                  <div className="text-[11px] text-muted-foreground leading-snug">Generate <code className="font-mono text-[10px] bg-muted/60 px-1 py-0.5 rounded">eg_...</code> keys with one-click clipboard copy and auto-activation.</div>
+                  <div className="font-medium text-foreground">
+                    Instant Scoped API Keys
+                  </div>
+                  <div className="text-[11px] text-muted-foreground leading-snug">
+                    Generate{' '}
+                    <code className="font-mono text-[10px] bg-muted/60 px-1 py-0.5 rounded">
+                      eg_...
+                    </code>{' '}
+                    keys with one-click clipboard copy and auto-activation.
+                  </div>
                 </div>
               </div>
 
@@ -200,8 +316,13 @@ export default function SettingsPage() {
                   <RefreshCw className="w-4 h-4" />
                 </div>
                 <div className="space-y-0.5 min-w-0">
-                  <div className="font-medium text-foreground">Zero-Downtime Rotation</div>
-                  <div className="text-[11px] text-muted-foreground leading-snug">Seamless credential rotation with 24h dual-validity grace periods for client SDKs.</div>
+                  <div className="font-medium text-foreground">
+                    Zero-Downtime Rotation
+                  </div>
+                  <div className="text-[11px] text-muted-foreground leading-snug">
+                    Seamless credential rotation with 24h dual-validity grace
+                    periods for client SDKs.
+                  </div>
                 </div>
               </div>
             </div>
@@ -215,7 +336,10 @@ export default function SettingsPage() {
                 </div>
                 <div className="space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <Heading size="4" className="tracking-tight font-semibold text-foreground">
+                    <Heading
+                      size="4"
+                      className="tracking-tight font-semibold text-foreground"
+                    >
                       Production Tenant Management
                     </Heading>
                     <Badge color="amber" variant="surface" size="1">
@@ -223,7 +347,13 @@ export default function SettingsPage() {
                     </Badge>
                   </div>
                   <Text size="2" color="gray" className="leading-relaxed">
-                    Cloud multi-tenant authentication is optional. To enable self-service signups and personal tenant keys, provide <code className="font-mono text-xs bg-muted/60 px-1 py-0.5 rounded">NEXT_PUBLIC_SUPABASE_URL</code> in your environment, or continue using the manual browser authentication below.
+                    Cloud multi-tenant authentication is optional. To enable
+                    self-service signups and personal tenant keys, provide{' '}
+                    <code className="font-mono text-xs bg-muted/60 px-1 py-0.5 rounded">
+                      NEXT_PUBLIC_SUPABASE_URL
+                    </code>{' '}
+                    in your environment, or continue using the manual browser
+                    authentication below.
                   </Text>
                 </div>
               </div>
@@ -362,8 +492,8 @@ export default function SettingsPage() {
                       </button>
                     </div>
                     <Text size="1" color="gray">
-                      Cross-tenant operator credential created on the gateway host
-                      with{' '}
+                      Cross-tenant operator credential created on the gateway
+                      host with{' '}
                       <code className="font-mono bg-muted/60 px-1 py-0.5 rounded">
                         python -m app.scripts.create_admin_key create
                       </code>
