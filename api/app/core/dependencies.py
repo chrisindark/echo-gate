@@ -57,24 +57,38 @@ class DependencyContainer:
 
     @classmethod
     async def initialize(cls) -> None:
-        cache_enabled = config.cache_enabled
+        redis_cache = config.redis_cache_enabled
+        qdrant_cache = config.qdrant_cache_enabled
+        inference_cache = config.inference_cache_enabled
+        shadow_cache = config.shadow_cache_enabled
+        cache_audit = config.cache_audit_enabled
 
-        # Redis is always constructed: LlmQuotaService binds to it. Only ping
-        # when the cache is enabled; with no server, quota operations fail open.
-        await cls.get_redis_service(ping=cache_enabled)
+        # Redis is constructed for LlmQuotaService (which fails open when no server
+        # is running). Only ping at startup when Redis caching is enabled.
+        await cls.get_redis_service(ping=redis_cache)
 
-        if cache_enabled:
+        if inference_cache:
             cls.get_embedding_service()
+            cls.get_cross_encoder_service()
+            cls.get_instruction_service()
+            cls.get_reranker_service()
+
+        if qdrant_cache:
             cls.get_qdrant_client_service()
             cache_service = cls.get_llm_cache_collection_service()
             await cache_service.ensure_indexes_async()
-            cls.get_reranker_service()
             await cls.get_intent_classifier_service()
             cls.get_entity_extractor_service()
-            cls.get_cross_encoder_service()
-            cls.get_instruction_service()
-            cls.get_judge_service()
+
+        if shadow_cache:
+            cls.get_entity_extractor_service()
             cls.get_shadow_cache_service()
+
+        if cache_audit:
+            cls.get_cache_audit_service()
+
+        if (shadow_cache and config.SHADOW_JUDGE_ENABLED) or cache_audit:
+            cls.get_judge_service()
 
         cls.get_llm_provider_service()
         await cls.get_llm_router_service()
@@ -82,7 +96,7 @@ class DependencyContainer:
         cls.get_llm_quota_service()
         cls.get_gateway_requests_service()
 
-        if cache_enabled:
+        if inference_cache:
             # Last, because it is the only check that can refuse to start: every
             # role is served over HTTP now, so an unreachable or skewed engine
             # means a process that answers every request with no cache.
@@ -160,11 +174,10 @@ class DependencyContainer:
     @classmethod
     def get_llm_cache_collection_service(cls) -> LlmCacheCollectionService:
         if cls._llm_cache_collection_service is None:
-            embedding_svc = cls.get_embedding_service()
             cls._llm_cache_collection_service = LlmCacheCollectionService(
                 client_service=cls.get_qdrant_client_service(),
                 collection_name=config.QDRANT_COLLECTION_NAME,
-                vector_size=embedding_svc.embedding_dimension,
+                vector_size=config.INFERENCE_EMBEDDING_DIM,
             )
         return cls._llm_cache_collection_service
 
@@ -208,36 +221,46 @@ class DependencyContainer:
     @classmethod
     async def get_llm_router_service(cls) -> LlmRouterService:
         if cls._llm_router_service is None:
-            cache_enabled = config.cache_enabled
+            redis_cache = config.redis_cache_enabled
+            qdrant_cache = config.qdrant_cache_enabled
+            inference_cache = config.inference_cache_enabled
+            shadow_cache = config.shadow_cache_enabled
+            cache_audit = config.cache_audit_enabled
             cls._llm_router_service = LlmRouterService(
                 llm_provider_service=cls.get_llm_provider_service(),
                 embedding_service=(
-                    cls.get_embedding_service() if cache_enabled else None
+                    cls.get_embedding_service() if inference_cache else None
                 ),
                 llm_cache_service=(
-                    cls.get_llm_cache_collection_service() if cache_enabled else None
+                    cls.get_llm_cache_collection_service() if qdrant_cache else None
                 ),
-                redis_service=await cls.get_redis_service(ping=False),
+                redis_service=(
+                    await cls.get_redis_service(ping=False) if redis_cache else None
+                ),
                 reranker_service=(
-                    cls.get_reranker_service() if cache_enabled else None
+                    cls.get_reranker_service() if inference_cache else None
                 ),
                 intent_classifier_service=(
-                    await cls.get_intent_classifier_service() if cache_enabled else None
+                    await cls.get_intent_classifier_service() if qdrant_cache else None
                 ),
                 entity_extractor_service=(
-                    cls.get_entity_extractor_service() if cache_enabled else None
+                    cls.get_entity_extractor_service()
+                    if (qdrant_cache or shadow_cache)
+                    else None
                 ),
                 llm_usage_service=cls.get_llm_usage_service(),
                 llm_quota_service=cls.get_llm_quota_service(),
                 gateway_requests_service=cls.get_gateway_requests_service(),
                 shadow_cache_service=(
-                    cls.get_shadow_cache_service() if cache_enabled else None
+                    cls.get_shadow_cache_service() if shadow_cache else None
                 ),
                 judge_service=(
-                    cls.get_judge_service() if cache_enabled else None
+                    cls.get_judge_service()
+                    if ((shadow_cache and config.SHADOW_JUDGE_ENABLED) or cache_audit)
+                    else None
                 ),
                 cache_audit_service=(
-                    cls.get_cache_audit_service() if cache_enabled else None
+                    cls.get_cache_audit_service() if cache_audit else None
                 ),
                 prompt_optimizer=cls.get_prompt_optimizer(),
             )
@@ -292,7 +315,11 @@ class DependencyContainer:
         if cls._judge_service is None:
             cls._judge_service = JudgeService(
                 llm_provider_service=cls.get_llm_provider_service(),
-                cross_encoder_service=cls.get_cross_encoder_service(),
+                cross_encoder_service=(
+                    cls.get_cross_encoder_service()
+                    if config.inference_cache_enabled
+                    else None
+                ),
                 instruction_service=cls.get_instruction_service(),
             )
         return cls._judge_service

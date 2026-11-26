@@ -71,8 +71,9 @@ default in `config.py`. Copy `api/app/.env.example` to `api/app/.env.local` (or
 | `DB_POOL_SIZE`     | `20`    |
 | `DB_MAX_OVERFLOW`  | `10`    |
 | `DB_POOL_TIMEOUT`  | `30`    |
-| `DB_POOL_RECYCLE`  | `1800`  |
-| `DB_POOL_PRE_PING` | `true`  |
+| `DB_POOL_RECYCLE`                   | `1800`  |
+| `DB_POOL_PRE_PING`                  | `true`  |
+| `DB_HEALTH_PROBE_TIMEOUT_SECONDS`   | `5.0`   |
 
 ## Routing, fallback, and retries
 
@@ -144,11 +145,13 @@ calling a provider (see `docs/API_REFERENCE.md`). Prompt tokens come from
 
 | Variable                       | Default             | Purpose                                                                          |
 | ------------------------------ | ------------------- | -------------------------------------------------------------------------------- |
-| `CACHE_MODE`                   | derived (see below) | `disabled`, `shadow`, or `active`. Only `active` lets the cache answer requests. |
+| `CACHE_MODE`                   | derived (see below) | `disabled`, `shadow`, or `active`. Top-level switch; `disabled` turns all cache services off. |
+| `REDIS_ENABLED`                | derived (see below) | Optional explicit toggle (`true`/`false`). Unset derives from `REDIS_URL` and `USE_REDIS_EXACT_MATCHING`. |
 | `USE_REDIS_EXACT_MATCHING`     | `false`             | Enable the Redis exact cache (layer 1).                                          |
 | `REDIS_TTL`                    | `3600`              | Default Redis TTL (seconds).                                                     |
+| `QDRANT_ENABLED`               | derived (see below) | Optional explicit toggle (`true`/`false`). Unset derives from `QDRANT_URL` and `USE_QDRANT_*`. |
 | `USE_QDRANT_EXACT_MATCHING`    | `false`             | Enable the Qdrant exact cache (layer 2).                                         |
-| `USE_QDRANT_SEMANTIC_MATCHING` | `false`             | Enable the semantic cache (layer 3).                                             |
+| `USE_QDRANT_SEMANTIC_MATCHING` | `false`             | Enable the semantic cache (layer 3; requires inference platform).                |
 
 `CACHE_MODE` values:
 
@@ -168,19 +171,18 @@ Resolution rules (`app/core/config.py`):
    deployments created before `CACHE_MODE` existed working unchanged.
 
 All three serving-path gates go through `Config.cache_layer_enabled(layer)`,
-which returns `False` unless `CACHE_MODE == "active"`. Background and shadow
-callers bypass those gates explicitly (`force=True`) so `shadow` mode can
-exercise every layer while `disabled`/`shadow` never serve a cached answer.
-
-In `active` mode the three `USE_*` flags still choose which layers are enabled.
-In `shadow` mode every layer runs in the background regardless of the flags, so
-`shadow` supersedes them for observation; leave the flags unset until you flip to
-`active`.
+which returns `False` unless `CACHE_MODE == "active"` and the underlying service
+is enabled. `CACHE_MODE=disabled` disables every cache service regardless of
+individual flags, while `CACHE_MODE=shadow` or `active` only initializes the
+external services (Redis, Qdrant, Inference) enabled by their own env settings.
+This allows enabling external services step by step (for example, `CACHE_MODE=shadow`
+with Redis, Qdrant, and Inference all off behaves like an LLM-only gateway).
 
 ### Shadow pipeline tuning
 
 | Variable                                | Default | Purpose                                                                                                                                     |
 | --------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SHADOW_CACHE_ENABLED`                  | `true`  | Allow shadow pipeline execution in `CACHE_MODE=shadow` when at least one cache backend (Redis or Qdrant) is enabled.                        |
 | `SHADOW_SAMPLE_RATE`                    | `1.0`   | Fraction (0–1) of provider responses replayed through the shadow pipeline. Lower it to cap judge/embedding cost on high-volume deployments. |
 | `SHADOW_JUDGE_ENABLED`                  | `true`  | Run the LLM equivalence judge when a shadow match is found; the judge is what populates `is_equivalent`.                                    |
 | `SHADOW_READINESS_MIN_EVALUATIONS`      | `200`   | Evaluations required before `/api/v1/shadow-cache/summary` can report `READY`.                                                              |
@@ -212,7 +214,8 @@ is not optional — with no engine configured the gateway refuses to start.
 
 | Variable                              | Default                    | Purpose                                                                                                              |
 | ------------------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `INFERENCE_BASE_URL`                  | _(empty = not configured)_ | Base URL of the inference engine, e.g. `http://localhost:7997`. Required: startup fails without it.                  |
+| `INFERENCE_ENABLED`                   | derived (from URLs)        | Optional explicit toggle (`true`/`false`). When unset, enabled iff an inference URL is configured.                   |
+| `INFERENCE_BASE_URL`                  | _(empty = not configured)_ | Base URL of the inference engine, e.g. `http://localhost:7997`. Required at boot when `INFERENCE_ENABLED` is active. |
 | `INFERENCE_EMBED_URL`                 | _(empty = fallback)_       | Optional override for dense embeddings route (`/embeddings`).                                                        |
 | `INFERENCE_RERANK_URL`                | _(empty = fallback)_       | Optional override for primary reranking route (`/rerank`).                                                           |
 | `INFERENCE_RELEVANCE_URL`             | _(empty = fallback)_       | Optional override for relevance scoring (defaults to `INFERENCE_RERANK_URL`).                                        |

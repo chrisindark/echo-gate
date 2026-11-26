@@ -4,7 +4,8 @@ from typing import Any
 
 from sqlalchemy import text
 
-from app.core.database import SessionLocal
+from app.core import database
+from app.core.config import config
 from app.core.dependencies import DependencyContainer
 
 logger = logging.getLogger(__name__)
@@ -55,12 +56,18 @@ _CHECK_LABELS = {
 
 
 def _check_status(kwargs: dict[str, Any]) -> dict[str, str]:
-    """Render probe results as ``{name: "ok" | "failed"}``."""
-    return {
-        _CHECK_LABELS[key]: "ok" if value else "failed"
-        for key, value in kwargs.items()
-        if key in _CHECK_LABELS
-    }
+    """Render probe results as ``{name: "ok" | "disabled" | "failed"}``."""
+    checks: dict[str, str] = {}
+    for key, value in kwargs.items():
+        if key not in _CHECK_LABELS:
+            continue
+        if value is None:
+            checks[_CHECK_LABELS[key]] = "disabled"
+        elif value:
+            checks[_CHECK_LABELS[key]] = "ok"
+        else:
+            checks[_CHECK_LABELS[key]] = "failed"
+    return checks
 
 
 async def check_liveness() -> bool:
@@ -69,24 +76,36 @@ async def check_liveness() -> bool:
 
 
 async def check_database() -> bool:
-    """Relational Database probe with strict 1s timeout."""
+    """Relational Database probe with configurable timeout."""
     try:
 
         def _ping():
-            with SessionLocal() as db:
-                db.execute(text("SELECT 1"))
+            with database.engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
 
-        await asyncio.wait_for(asyncio.to_thread(_ping), timeout=PROBE_TIMEOUT_SECONDS)
+        await asyncio.wait_for(
+            asyncio.to_thread(_ping),
+            timeout=config.DB_HEALTH_PROBE_TIMEOUT_SECONDS,
+        )
         return True
     except Exception as e:
-        logger.error("Health check failed for Database: %s", e)
+        detail = str(e).strip()
+        logger.error(
+            "Health check failed for Database (%s)%s",
+            type(e).__name__,
+            f": {detail}" if detail else "",
+        )
         return False
 
 
-async def check_redis() -> bool:
-    """Redis cache probe with strict 1s timeout."""
+async def check_redis() -> bool | None:
+    """Redis cache probe with strict 1s timeout; returns ``None`` when disabled."""
+    if not config.redis_cache_enabled:
+        return None
     try:
-        redis_service = await DependencyContainer.get_redis_service()
+        redis_service = await DependencyContainer.get_redis_service(ping=False)
+        if redis_service.redis is None:
+            return None
         res = await asyncio.wait_for(
             redis_service.redis.ping(), timeout=PROBE_TIMEOUT_SECONDS
         )
@@ -96,8 +115,10 @@ async def check_redis() -> bool:
         return False
 
 
-async def check_vector_db() -> bool:
-    """Qdrant vector database probe with strict 1s timeout."""
+async def check_vector_db() -> bool | None:
+    """Qdrant vector database probe with strict 1s timeout; ``None`` when disabled."""
+    if not config.qdrant_cache_enabled:
+        return None
     try:
         qdrant_service = DependencyContainer.get_qdrant_client_service()
         await asyncio.wait_for(
@@ -128,8 +149,10 @@ async def check_celery_broker() -> bool:
         return False
 
 
-async def check_inference() -> bool:
-    """Inference engine probe: reachable and serving every required role."""
+async def check_inference() -> bool | None:
+    """Inference engine probe: reachable and serving every required role, or ``None`` when disabled."""
+    if not config.inference_cache_enabled:
+        return None
     try:
         inference = DependencyContainer.get_inference_client()
         return await asyncio.wait_for(
@@ -208,7 +231,7 @@ async def dependencies_report_handler(**kwargs: Any) -> dict[str, Any]:
     rotation. Alerting reads ``status`` instead of the HTTP code.
     """
     checks = _check_status(kwargs)
-    failed = sorted(name for name, state in checks.items() if state != "ok")
+    failed = sorted(name for name, state in checks.items() if state == "failed")
 
     if GATING_DEPENDENCIES.intersection(failed):
         overall = "unhealthy"

@@ -11,13 +11,19 @@ logger = logging.getLogger(__name__)
 
 class RedisService:
     def __init__(self, redis_url: str | None = None):
-        self.redis_url = redis_url or config.REDIS_URL
-        self.redis = aioredis.from_url(self.redis_url, decode_responses=True)
-
+        resolved_url = (redis_url if redis_url is not None else config.REDIS_URL) or ""
+        self.redis_url = resolved_url.strip()
         self.ttl = int(config.REDIS_TTL)
+        if not self.redis_url:
+            self.redis = None
+            logger.info("REDIS_URL is empty; Redis client disabled (fail-open mode).")
+            return
+        self.redis = aioredis.from_url(self.redis_url, decode_responses=True)
         logger.info(f"Connecting to Redis at {self.redis_url}")
 
     async def ping(self):
+        if self.redis is None:
+            return
         try:
             if await self.redis.ping():
                 logger.info("Redis connection is successful")
@@ -27,6 +33,8 @@ class RedisService:
     @log_latency()
     async def get(self, key: str) -> str | None:
         """Retrieve an exact match from Redis cache."""
+        if self.redis is None:
+            return None
         try:
             cached_data = await self.redis.get(key)
             if cached_data:
@@ -41,6 +49,8 @@ class RedisService:
     @log_latency()
     async def set(self, key: str, value: str, ttl: int | None = None) -> None:
         """Cache the exact response for a prompt in Redis."""
+        if self.redis is None:
+            return None
         try:
             expire_time = ttl if ttl is not None else self.ttl
             logger.info("Successfully saved exact match to Redis")
@@ -54,6 +64,8 @@ class RedisService:
     @log_latency()
     async def delete(self, key: str) -> None:
         """Delete a key from Redis cache."""
+        if self.redis is None:
+            return None
         try:
             return await self.redis.delete(key)
         except Exception as e:
@@ -62,12 +74,16 @@ class RedisService:
 
     async def close(self):
         """Close Redis connection."""
+        if self.redis is None:
+            return
         if hasattr(self.redis, "aclose"):
             await self.redis.aclose()
         else:
             await self.redis.close()
 
     async def expire(self, key: str, seconds: int):
+        if self.redis is None:
+            return None
         try:
             return await self.redis.expire(key, seconds)
         except Exception as e:
@@ -76,6 +92,8 @@ class RedisService:
         return None
 
     async def incr(self, key: str):
+        if self.redis is None:
+            return None
         try:
             return await self.redis.incr(key)
         except Exception as e:
@@ -89,6 +107,8 @@ class RedisService:
         Named `remaining_ttl`, not `ttl`: the instance already carries a `ttl`
         attribute (the default cache TTL), which would shadow a method of that name.
         """
+        if self.redis is None:
+            return None
         try:
             return await self.redis.ttl(key)
         except Exception as e:
@@ -104,6 +124,8 @@ class RedisService:
         be left permanent (which would otherwise lock out a rate-limited key
         forever) if the process dies between the two commands.
         """
+        if self.redis is None:
+            return None
         try:
             pipe = self.redis.pipeline()
             pipe.incr(key)
@@ -116,6 +138,8 @@ class RedisService:
         return None
 
     async def incrby(self, key: str, amount: int):
+        if self.redis is None:
+            return None
         try:
             return await self.redis.incrby(key, amount)
         except Exception as e:
@@ -125,6 +149,8 @@ class RedisService:
 
     async def incrby_with_ttl(self, key: str, amount: int, ttl: int) -> int | None:
         """Increment a counter by ``amount`` and guarantee the key has a TTL."""
+        if self.redis is None:
+            return None
         try:
             pipe = self.redis.pipeline()
             pipe.incrby(key, amount)
@@ -139,6 +165,8 @@ class RedisService:
         return None
 
     async def decr(self, key: str):
+        if self.redis is None:
+            return None
         try:
             return await self.redis.decr(key)
         except Exception as e:
@@ -147,6 +175,8 @@ class RedisService:
         return None
 
     async def decrby(self, key: str, amount: int):
+        if self.redis is None:
+            return None
         try:
             return await self.redis.decrby(key, amount)
         except Exception as e:

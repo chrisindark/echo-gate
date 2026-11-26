@@ -155,16 +155,14 @@ pydantic==2.14.4
 pydantic-core==2.50.5
     # via pydantic
 pyjwt==2.15.1
-    # via
-    #   echo-gate
-    #   redis
+    # via echo-gate
 python-dotenv==1.2.4
     # via echo-gate
 qdrant-client==1.20.0
     # via echo-gate
-redis==5.3.1
+redis==8.2.0
     # via echo-gate
-regex==2026.11.24
+regex==2026.11.25
     # via tiktoken
 requests==2.34.2
     # via

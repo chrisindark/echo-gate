@@ -1,6 +1,6 @@
 [project]
 name = "echo-gate"
-version = "0.4.3"
+version = "0.4.4"
 description = "Echo Gate LLM Gateway"
 authors = [{ name = "Christopher Paul", email = "14836101+chrisindark@users.noreply.github.com" }]
 requires-python = ">=3.11,<4"
@@ -23,7 +23,7 @@ dependencies = [
     "google-genai>=0.1.0",
     "sqlalchemy>=2.0.54,<3",
     "alembic>=1.20.0,<2",
-    "redis>=5.0.8,<6",
+    "redis (>=8.2,<9)",
     "isort>=9.0.1,<10",
     "tenacity>=9.1.4,<10",
     "fastapi-health>=0.4.0,<0.5",
