@@ -238,9 +238,8 @@ export default function ChatPage() {
     jumpToBottom,
   } = useStickToBottom([messages, loading]);
 
-  const scrollToBottom = useCallback(() => {
-    jumpToBottom('smooth');
-  }, [jumpToBottom]);
+  // (scrolling is handled by useStickToBottom; jumpToBottom is used by the
+  // "Jump to latest" pill below)
 
   const activeModelContextWindow = activeModel
     ? modelMetadata[activeModel]?.context_window
@@ -267,10 +266,6 @@ export default function ChatPage() {
       (contextUsage.level === 'warning' &&
         dismissedWarningKey !== warningScopeKey))
   );
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages, scrollToBottom]);
 
   useEffect(() => {
     if (!loading) return;
