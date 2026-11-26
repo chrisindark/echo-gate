@@ -7,8 +7,10 @@ import time
 import uuid
 from typing import Any
 
-from pydantic import BaseModel, Field, PrivateAttr, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, field_validator, model_validator
 
+from app.core.config import DEFAULT_MAX_COMPLETION_TOKENS_CAP
+from app.core.helpers import validate_max_tokens_cap
 from app.modules.llm.model_registry import model_registry
 from app.modules.prompt_optimization.prompt_optimization_schema import (
     PromptOptimizationConfig,
@@ -166,7 +168,15 @@ class ChatCompletionRequest(BaseModel):
     n: int | None = 1
     stream: bool | None = False
     stop: list[str] | None = None
-    max_tokens: int | None = None
+    max_tokens: int | None = Field(
+        default=None, ge=1, le=DEFAULT_MAX_COMPLETION_TOKENS_CAP
+    )
+
+    @field_validator("max_tokens")
+    @classmethod
+    def _validate_max_tokens(cls, value: int | None) -> int | None:
+        return validate_max_tokens_cap(value)
+
     presence_penalty: float | None = 0.0
     frequency_penalty: float | None = 0.0
     logit_bias: dict[str, float] | None = None
@@ -303,7 +313,15 @@ class ChatEstimateRequest(BaseModel):
 
     messages: list[ChatMessage]
     tools: list[Tool] | None = None
-    max_tokens: int | None = None
+    max_tokens: int | None = Field(
+        default=None, ge=1, le=DEFAULT_MAX_COMPLETION_TOKENS_CAP
+    )
+
+    @field_validator("max_tokens")
+    @classmethod
+    def _validate_max_tokens(cls, value: int | None) -> int | None:
+        return validate_max_tokens_cap(value)
+
     # Tokenizer hint only. Aliases are resolved to their first target.
     model: str | None = None
 

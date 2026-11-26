@@ -7,6 +7,9 @@ logger = logging.getLogger(__name__)
 #: Valid values for ``CACHE_MODE``.
 CACHE_MODES = ("disabled", "shadow", "active")
 
+#: Hard ceiling on caller-supplied ``max_tokens`` across completion APIs.
+DEFAULT_MAX_COMPLETION_TOKENS_CAP = 2_000_000
+
 #: ``USE_*`` flag consulted by :meth:`Config.cache_layer_enabled` per layer.
 _CACHE_LAYER_FLAGS = {
     "redis": "USE_REDIS_EXACT_MATCHING",
@@ -335,6 +338,11 @@ class Config:
         # assumes `max_tokens` when the caller sets it and this budget when not.
         self.ESTIMATE_DEFAULT_COMPLETION_TOKENS = _int_env(
             "ESTIMATE_DEFAULT_COMPLETION_TOKENS", 256
+        )
+        # Hard anti-exploitation cap on caller-supplied `max_tokens` (clamped at >= 1).
+        self.MAX_COMPLETION_TOKENS_CAP = max(
+            1,
+            _int_env("MAX_COMPLETION_TOKENS_CAP", DEFAULT_MAX_COMPLETION_TOKENS_CAP),
         )
 
         # Value-aware cache retention.

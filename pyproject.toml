@@ -1,6 +1,6 @@
 [project]
 name = "echo-gate"
-version = "0.4.2"
+version = "0.4.3"
 description = "Echo Gate LLM Gateway"
 authors = [{ name = "Christopher Paul", email = "14836101+chrisindark@users.noreply.github.com" }]
 requires-python = ">=3.11,<4"

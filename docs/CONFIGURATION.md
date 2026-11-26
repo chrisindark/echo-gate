@@ -102,6 +102,7 @@ default in `config.py`. Copy `api/app/.env.example` to `api/app/.env.local` (or
 | `STREAM_CACHE_PACING_ENABLED`                 | `true`                  | When true, streams cache hits with natural word/token chunking and micro-interval pacing rather than a single monolithic chunk.                                                                                                    |
 | `STREAM_CACHE_PACING_DELAY_MS`                | `8.0`                   | Default inter-chunk playback delay (milliseconds) for streaming cache hits. Overridable per request via `X-EchoGate-Stream-Pacing` header or `stream_pacing_delay_ms` body field.                                                  |
 | `STREAM_CACHE_WORDS_PER_CHUNK`                | `3`                     | Number of words/tokens grouped per natural streaming delta chunk on cache hits.                                                                                                                                                    |
+| `MAX_COMPLETION_TOKENS_CAP`                   | `2000000`               | Hard anti-exploitation upper bound on caller-supplied `max_tokens` across completion, conversation, estimate, and Anthropic messages schemas.                                                                                      |
 
 Retries apply only to timeouts/connection errors and HTTP 408/429/500/502/503/504
 (`app/core/retry.py`). HTTP 400/401/403/500 are fatal and short-circuit the

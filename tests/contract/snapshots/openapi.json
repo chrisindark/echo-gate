@@ -173,6 +173,7 @@
           },
           "max_tokens": {
             "default": 1024,
+            "maximum": 2000000.0,
             "minimum": 1.0,
             "title": "Max Tokens",
             "type": "integer"
@@ -3047,6 +3048,8 @@
           "max_tokens": {
             "anyOf": [
               {
+                "maximum": 2000000.0,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -3369,6 +3372,8 @@
           "max_tokens": {
             "anyOf": [
               {
+                "maximum": 2000000.0,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -3539,6 +3544,8 @@
           "max_tokens": {
             "anyOf": [
               {
+                "maximum": 2000000.0,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {

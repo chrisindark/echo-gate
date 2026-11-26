@@ -914,8 +914,8 @@ reuses the existing auth, quota, metering, RLS, and observability layers.
 **Explicitly deferred from Phases 6–8:** OpenAI Responses API, Batch API,
 audio/image generation, and an in-repo MCP endpoint (the external MCP server
 decision stands). SSO/SCIM, the hosted portal, and Stripe metering remain
-cloud-tier Phase 4 work. Zero-retention mode and the PII scrubber remain open
-under P3 and are not duplicated here.
+cloud-tier Phase 4 work. Zero-retention mode, the PII scrubber, and
+soft-steering guardrails remain open under P3 and are not duplicated here.
 
 ---
 

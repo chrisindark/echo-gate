@@ -55,6 +55,7 @@
 - [ ] **Zero-Retention Mode & In-Flight PII Redaction**:
   - Zero-Retention flag (`disable_log: true` or `X-EchoGate-Disable-Log: true`): serve completions with normal quota checks, but completely skip persistence in PostgreSQL (`gateway_requests_log`, `llm_usage_log`) and cache storage (Redis / Qdrant) for HIPAA/GDPR compliance.
   - Pre-routing PII scrubber: scrub sensitive entities (email, phone, credit card with Luhn verification, SSN, IBAN) in Stage 0 before cache key generation and dense/sparse vectorization to prevent cross-tenant/cross-session PII storage.
+  - Soft-Steering Guardrails: support hard-blocking rule evaluation (abort request with structured audit logs) and soft-steering mode (`inject`, appending policy instructions directly to the system prompt so the downstream LLM self-enforces behavior without failing the call).
 
 ### P4 — Interop & SDK Drop-In Parity (start here)
 Goal: official OpenAI/Anthropic SDKs work by changing only `base_url` + `api_key`.

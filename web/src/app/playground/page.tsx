@@ -33,6 +33,8 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { MaxTokensField } from '@/components/max-tokens-field';
+import { DEFAULT_MAX_TOKENS, clampMaxTokens } from '@/lib/tokens';
 import { useApiKey } from '@/context/api-key-context';
 import { useAuth } from '@/context/auth-context';
 import { API_ROOT, errorMessageFrom } from '@/lib/api';
@@ -158,7 +160,7 @@ export default function Home() {
     return availableModels[0] ?? '';
   }, [availableModels, selectedModel]);
   const [temperature, setTemperature] = useState<number>(0.7);
-  const [maxTokens, setMaxTokens] = useState<number>(8192);
+  const [maxTokens, setMaxTokens] = useState<number>(DEFAULT_MAX_TOKENS);
   const [stream, setStream] = useState<boolean>(true);
   const [thinking, setThinking] = useState<boolean>(false);
   const [thinkingBudget, setThinkingBudget] = useState<number>(2048);
@@ -297,7 +299,7 @@ export default function Home() {
         model: activeModel,
         messages: [{ role: 'user', content: prompt }],
         temperature: temperature,
-        max_tokens: maxTokens,
+        max_tokens: clampMaxTokens(maxTokens),
         stream: stream,
         thinking: thinking,
         thinking_budget: thinking ? thinkingBudget : undefined,
@@ -1153,16 +1155,15 @@ export default function Home() {
                     />
                   </Box>
 
-                  <Flex direction="column" gap="1">
-                    <Text as="label" size="2" weight="bold">
-                      Max Tokens
-                    </Text>
-                    <TextField.Root
-                      type="number"
-                      value={maxTokens.toString()}
-                      onChange={(e) => setMaxTokens(parseInt(e.target.value))}
-                    />
-                  </Flex>
+                  <MaxTokensField
+                    value={maxTokens}
+                    onChange={setMaxTokens}
+                    modelContextWindow={
+                      activeModel
+                        ? modelMetadata[activeModel]?.context_window
+                        : undefined
+                    }
+                  />
 
                   <Flex align="center" gap="2" pt="1">
                     <Checkbox
