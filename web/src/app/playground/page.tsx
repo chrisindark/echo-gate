@@ -24,6 +24,7 @@ import {
   Database,
   RefreshCw,
   Settings2,
+  Square,
   Sparkles,
   Tag,
   Terminal,
