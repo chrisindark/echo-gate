@@ -43,6 +43,7 @@ import React, {
 } from 'react';
 
 import { ConversationSidebar } from '@/components/conversation-sidebar';
+import { MessageContent } from '@/components/chat/message-content';
 import { MaxTokensField } from '@/components/max-tokens-field';
 import {
   DEFAULT_MAX_TOKENS,
@@ -1180,15 +1181,11 @@ export default function ChatPage() {
                         </pre>
                       </div>
                     ) : (
-                      <div className="leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-sm relative group/msg min-w-0">
-                        {msg.content}
-                        {msg.isStreaming && (
-                          <motion.span
-                            animate={{ opacity: [1, 0, 1] }}
-                            transition={{ repeat: Infinity, duration: 0.8 }}
-                            className="inline-block w-1.5 h-3.5 ml-1 bg-primary align-middle rounded-xs"
-                          />
-                        )}
+                      <div className="relative group/msg min-w-0">
+                        <MessageContent
+                          content={msg.content}
+                          isStreaming={msg.isStreaming}
+                        />
                         {!msg.isStreaming && msg.content && (
                           <button
                             type="button"

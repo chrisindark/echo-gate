@@ -35,6 +35,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStickToBottom } from '@/hooks/use-stick-to-bottom';
 import Link from 'next/link';
 import { MaxTokensField } from '@/components/max-tokens-field';
+import { MessageContent } from '@/components/chat/message-content';
 import { DEFAULT_MAX_TOKENS, clampMaxTokens } from '@/lib/tokens';
 import { useApiKey } from '@/context/api-key-context';
 import { useAuth } from '@/context/auth-context';
@@ -954,16 +955,10 @@ export default function Home() {
                           <code>{formattedJson}</code>
                         </pre>
                       ) : (
-                        <div className="leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-sm sm:text-base">
-                          {response}
-                          {loading && (
-                            <motion.span
-                              animate={{ opacity: [1, 0, 1] }}
-                              transition={{ repeat: Infinity, duration: 0.8 }}
-                              className="inline-block w-2 h-4 ml-1 bg-primary align-middle rounded-sm"
-                            />
-                          )}
-                        </div>
+                        <MessageContent
+                          content={response}
+                          isStreaming={loading}
+                        />
                       )}
                     </div>
                   )}
