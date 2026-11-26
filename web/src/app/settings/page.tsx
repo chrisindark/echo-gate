@@ -33,6 +33,7 @@ import {
   Shield,
   ShieldCheck,
   UserPlus,
+  Trash2,
 } from 'lucide-react';
 import Link from 'next/link';
 import React, { useState } from 'react';
@@ -528,6 +529,28 @@ export default function SettingsPage() {
                     <Server className="w-4 h-4" />
                     <span>Gateway Backend: {API_ROOT}</span>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      try {
+                        localStorage.removeItem('echo_gate_api_key');
+                        localStorage.removeItem('echo_gate_admin_key');
+                        localStorage.removeItem('echo_gate_quota_tenant');
+                      } catch {
+                        // ignore
+                      }
+                      setApiKey('');
+                      setAdminKey('');
+                      setQuotaTenant('');
+                      setInputKey('');
+                      setInputAdminKey('');
+                      setInputQuotaTenant('');
+                    }}
+                    className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold whitespace-nowrap border border-destructive/30 text-destructive hover:bg-destructive/10 transition-all active:scale-[0.98] cursor-pointer"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    <span>Clear Browser Credentials</span>
+                  </button>
                   <button
                     type="submit"
                     className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-white whitespace-nowrap bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 hover:from-blue-500 hover:to-indigo-500 shadow-md shadow-blue-500/20 hover:shadow-lg hover:shadow-blue-500/30 active:scale-[0.98] transition-all duration-200 cursor-pointer"
