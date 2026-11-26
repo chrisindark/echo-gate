@@ -31,7 +31,8 @@ import {
   Terminal,
   X,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useStickToBottom } from '@/hooks/use-stick-to-bottom';
 import Link from 'next/link';
 import { MaxTokensField } from '@/components/max-tokens-field';
 import { DEFAULT_MAX_TOKENS, clampMaxTokens } from '@/lib/tokens';
@@ -127,7 +128,7 @@ export default function Home() {
   const [latency, setLatency] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const { apiKey, setApiKey, isSettingsOpen, setIsSettingsOpen } = useApiKey();
-  const { user, accessToken } = useAuth();
+  const { user, accessToken, isLoading: authLoading } = useAuth();
   const {
     providers,
     modelsByProvider,
@@ -203,62 +204,77 @@ export default function Home() {
     }
   };
 
-  const loadHash = async (hash: string) => {
-    setLoading(true);
-    setResponse('');
-    setError(null);
-    setThinkingContent('');
-    setIsThinking(false);
-    setCacheStatus(null);
-    setCacheInfo(null);
-    setLatency(null);
-    setPromptSavings(null);
+  const loadHash = useCallback(
+    async (hash: string) => {
+      setLoading(true);
+      setResponse('');
+      setError(null);
+      setThinkingContent('');
+      setIsThinking(false);
+      setCacheStatus(null);
+      setCacheInfo(null);
+      setLatency(null);
+      setPromptSavings(null);
 
-    const startTime = performance.now();
-    try {
-      const res = await fetch(
-        `${API_ROOT}/api/v1/gateway-requests/by-hash/${hash}`
-      );
-      const endTime = performance.now();
-      setLatency(Math.round(endTime - startTime));
+      const startTime = performance.now();
+      try {
+        const res = await fetch(
+          `${API_ROOT}/api/v1/gateway-requests/by-hash/${hash}`,
+          {
+            headers: buildAuthHeaders(apiKey, accessToken),
+          }
+        );
+        const endTime = performance.now();
+        setLatency(Math.round(endTime - startTime));
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(errorMessageFrom(data, `HTTP ${res.status}`));
-      }
-
-      const log = data.response || data.data;
-      if (log) {
-        let originalPrompt = log.query_text || '';
-        const parts = originalPrompt.split('|user: ');
-        if (parts.length > 1) {
-          originalPrompt = parts.slice(1).join('|user: ');
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(errorMessageFrom(data, `HTTP ${res.status}`));
         }
-        setPrompt(originalPrompt);
-        setResponse(log.response_text || '');
-        setCacheStatus('DB RECOVERED');
-        setCacheInfo({
-          source: 'database',
-          intent: log.intent,
-          score: log.rerank_score,
-          exact_hash: log.exact_hash,
-        });
+
+        const log = data.response || data.data;
+        if (log) {
+          let originalPrompt = log.query_text || '';
+          const parts = originalPrompt.split('|user: ');
+          if (parts.length > 1) {
+            originalPrompt = parts.slice(1).join('|user: ');
+          }
+          setPrompt(originalPrompt);
+          setResponse(log.response_text || '');
+          setCacheStatus('DB RECOVERED');
+          setCacheInfo({
+            source: 'database',
+            intent: log.intent,
+            score: log.rerank_score,
+            exact_hash: log.exact_hash,
+          });
+        }
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setLoading(false);
       }
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  };
+    },
+    [apiKey, accessToken]
+  );
+
+  const loadedHashRef = useRef<string | null>(null);
+
+  const {
+    containerRef: feedRef,
+    isNearBottom,
+    jumpToBottom,
+  } = useStickToBottom([response, thinkingContent, loading]);
 
   useEffect(() => {
+    if (authLoading) return;
     const params = new URLSearchParams(window.location.search);
     const hash = params.get('hash');
-    if (hash) {
-      // eslint-disable-next-line
-      loadHash(hash);
-    }
-  }, []);
+    if (!hash) return;
+    if (loadedHashRef.current === hash) return;
+    loadedHashRef.current = hash;
+    loadHash(hash);
+  }, [authLoading, apiKey, accessToken, loadHash]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -641,7 +657,10 @@ export default function Home() {
         </header>
 
         {/* Chat History / Output area */}
-        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 pb-36">
+        <div
+          ref={feedRef}
+          className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 min-w-0"
+        >
           <AnimatePresence>
             {!response && !error && !loading && (
               <motion.div
@@ -669,7 +688,7 @@ export default function Home() {
               >
                 {/* User Message */}
                 <div className="flex justify-end min-w-0">
-                  <div className="bg-primary text-primary-foreground px-4 py-3 rounded-2xl rounded-tr-sm max-w-[85%] min-w-0 max-h-72 overflow-y-auto text-sm sm:text-base shadow-sm leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                  <div className="bg-primary text-primary-foreground px-4 py-3 rounded-2xl rounded-tr-sm max-w-[85%] min-w-0 text-sm sm:text-base shadow-sm leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
                     {prompt}
                   </div>
                 </div>
@@ -954,8 +973,21 @@ export default function Home() {
           </AnimatePresence>
         </div>
 
-        {/* Input Form Floating at bottom */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-background via-background to-transparent pt-12">
+        {/* Jump to latest */}
+        {!isNearBottom && (
+          <div className="px-4 pt-2 flex justify-center">
+            <button
+              type="button"
+              onClick={() => jumpToBottom('smooth')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary text-primary-foreground shadow-md text-xs font-medium transition-all cursor-pointer"
+            >
+              ↓ Jump to latest
+            </button>
+          </div>
+        )}
+
+        {/* Input Form */}
+        <div className="p-4 bg-gradient-to-t from-background via-background to-transparent pt-4">
           <div className="max-w-3xl mx-auto">
             <form
               onSubmit={handleSubmit}
