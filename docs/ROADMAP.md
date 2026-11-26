@@ -1,9 +1,11 @@
 # Echo Gate Roadmap
 
-This document is the single history and forward plan for Echo Gate. It absorbs
-the former root-level `plans.md` and `evaluation_pipeline_plans.md` so they no
-longer need to be tracked separately. It has two halves:
+This document is the single history, forward plan, and active work queue for
+Echo Gate. It absorbs the former root-level `plans.md`,
+`evaluation_pipeline_plans.md`, and `PRIORITIES.md` so they no longer need to be
+tracked separately. It has three parts:
 
+- **Active queue** — what is open right now and the rules for working on it.
 - **Landed** — features already developed and shipped, recorded here so the
   context is not lost.
 - **Planned** — approved architectural work in suggested development order.
@@ -23,6 +25,45 @@ dev tooling to be deleted once the external server covers the use case.
 
 Adopted capabilities that already exist are listed under [Landed](#landed);
 everything else below is future work.
+
+---
+
+## Active queue
+
+One row per phase, in working order. The detail for every item lives in its phase
+section below; this table exists so a reader knows where to start without reading
+the whole document.
+
+| Phase | State | Start here |
+| --- | --- | --- |
+| 0 — OSS launch hygiene | ✅ complete | — |
+| 1 — Provider resilience | ✅ complete | — |
+| 1.5 — Shadow cache pipeline | ✅ complete | — |
+| 2 — Cache-quality loop | ✅ complete | — |
+| 3 — Serving performance | ✅ complete | — |
+| 4 — Open-core & commercialization | Seams landed; the remaining portal/metering items are cloud-tier work outside this repo | — |
+| 5 — Gateway evolution | ⏳ **one item open**: zero-retention mode & in-flight PII redaction | [Phase 5](#phase-5--gateway-evolution-protocol-expansion-optimization--governance) |
+| 6 — Interop & SDK parity | ✅ complete (2026-11-18) | — |
+| 7 — SaaS operations & compliance | ⏳ planned | [Phase 7](#phase-7--saas-operations--compliance) |
+| 8 — Data plane & commercial surface | ⏳ planned; BYOK designed, not started | [Phase 8](#phase-8--data-plane--commercial-surface) |
+| 9 — Cache backend portability | ⏸ tracked, not scheduled | [Phase 9](#phase-9--cache-backend-portability-pgvector-dense-first) |
+
+**Rules:**
+
+1. Work top to bottom. Implement one item, or one clearly bounded slice, at a time.
+2. Preserve the non-negotiable invariants: fail-open caching, non-owner Postgres
+   role for RLS, and no in-process embeddings (`AGENTS.md`).
+3. Every route or schema change updates and verifies
+   `tests/contract/test_openapi_snapshot.py`.
+
+**Baseline quality gate:**
+`poetry run python -m compileall api/app &&
+poetry run pytest tests/contract/test_openapi_snapshot.py && poetry run pytest tests/`.
+
+**Explicitly out of scope:** OpenAI Responses API, Batch API, audio/image
+generation, an in-repo MCP endpoint, SSO/SCIM, the hosted portal, and Stripe
+metering. Zero-retention/PII redaction stays open under Phase 5, not duplicated
+here.
 
 ---
 
@@ -171,6 +212,13 @@ Feature-by-feature record of what exists in the codebase today.
   `api/app/modules/*/tests/` plus `tests/{integration,contract}/`;
   documentation set in `docs/` (architecture, API reference, configuration,
   data model, development).
+- [x] **CI quality, security & contract gates** *(2026-11-06)*: CI triggers on
+  `[master, staging]`; the docs capability-drift guard
+  (`scripts/check_doc_capabilities.py`) runs in the backend gate; coverage floor
+  `--cov-fail-under=70` with an HTML artifact; `gitleaks` secret scanning;
+  dependency review plus `pip-audit` / `npm audit`; a weekly security cron
+  (`.github/workflows/security.yml`); and Dependabot automation with auto-merge
+  disabled pending review.
 
 ---
 
@@ -717,10 +765,11 @@ Expanding Echo Gate's gateway surface, prompt efficiency, and safety guardrails,
 
 ### Phase 6 — Interop & SDK drop-in parity
 
-**Status: ⏳ planned (opened 2026-11-17).** No changes to the cache, resilience,
-or tenancy invariants. Goal: an application written against the official OpenAI
-or Anthropic SDK can switch `base_url` to Echo Gate and keep working without a
-translation proxy, a dummy API key, or client-side header overrides.
+**Status: ✅ complete (2026-11-18).** No changes to the cache, resilience, or
+tenancy invariants. Goal: an application written against the official OpenAI or
+Anthropic SDK can switch `base_url` to Echo Gate and keep working without a
+translation proxy, a dummy API key, or client-side header overrides. Gate held:
+snapshot test, SDK smoke (`openai` + `anthropic` clients), and the existing suite.
 
 Order within the phase is deliberate: these are small, independently shippable
 diffs, and the first three unblock SDK smoke tests that validate the rest.

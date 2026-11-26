@@ -18,7 +18,7 @@ Instead of reading all docs upfront, load the specific skill matching your task:
 - LLM Router & Cache Orchestration: `api/app/modules/llm/llm_router_service.py`
 - Upstream Adapters: `api/app/modules/llm/providers/`
 - Background Workers: `api/app/worker/celery_app.py`
-- Active Priorities: `PRIORITIES.md`
+- Plan & active queue: `docs/ROADMAP.md` (single source of truth)
 - Frontend UI: `web/` (see `web/AGENTS.md`)
 - Model Server: `inference-platform/` (independent uv project)
 

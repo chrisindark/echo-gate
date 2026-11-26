@@ -1,5 +1,12 @@
 # Deploying Echo Gate as an LLM-only API (Supabase + Render free tiers)
 
+> **Non-normative walkthrough.** This is an end-to-end example for one hosting
+> profile, not part of the architecture, API, or configuration contract. Those
+> live in `docs/ARCHITECTURE.md`, `docs/API_REFERENCE.md`, and
+> `docs/CONFIGURATION.md`; if this page disagrees with them, they win. The
+> supported deployment paths are `deploy/compose/` and `deploy/helm/`.
+
+
 This plan deploys **only the LLM-calling surfaces** of Echo Gate:
 
 - `POST /api/v1/chat/completions` (OpenAI-compatible, streaming and non-streaming)

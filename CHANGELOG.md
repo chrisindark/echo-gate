@@ -22,6 +22,7 @@ changes' entry with a `[BREAKING]` marker.
 
 ### Changed
 - Cache/inference services are skipped entirely when `CACHE_MODE=disabled`
+- Docs consolidated to cut duplication: the active work queue moved into `docs/ROADMAP.md` (removing `PRIORITIES.md`), the API reference now indexes operations from the OpenAPI snapshot instead of restating schemas, `docs/CONFIGURATION.md` documents the resolution rules and points at the annotated `.env.example` instead of restating every default, and `README.md` is a quick-start instead of a second setup guide
 
 ## [v0.4.0] - 2026-11-18
 
