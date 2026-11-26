@@ -2,6 +2,7 @@
 
 import { useApiKey } from '@/context/api-key-context';
 import { useAuth } from '@/context/auth-context';
+import { useTheme } from '@/components/theme-provider';
 import { cn } from '@/lib/utils';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
@@ -20,6 +21,8 @@ import {
   Search,
   Settings,
   Sparkles,
+  Sun,
+  Moon,
   Terminal,
   UserPlus,
   X,
@@ -35,6 +38,7 @@ export function AppSidebar() {
   const router = useRouter();
   const { apiKey } = useApiKey();
   const { user, tenantId, signOut } = useAuth();
+  const { theme, toggleTheme } = useTheme();
 
   // Desktop collapse state (w-64 vs w-16 icon rail)
   const [isCollapsed, setIsCollapsed] = useState(() => {
@@ -352,6 +356,20 @@ export function AppSidebar() {
               </span>
             </div>
             <div className="flex items-center justify-between text-[10px] text-muted-foreground/60 px-0.5">
+              <button
+                type="button"
+                onClick={toggleTheme}
+                title="Toggle theme"
+                aria-label="Toggle theme"
+                className="inline-flex items-center gap-1 hover:text-foreground transition-colors cursor-pointer"
+              >
+                {theme === 'dark' ? (
+                  <Sun className="w-3 h-3" />
+                ) : (
+                  <Moon className="w-3 h-3" />
+                )}
+                <span>{theme === 'dark' ? 'Light' : 'Dark'}</span>
+              </button>
               <span>Echo Gate v1.0</span>
               <Link
                 href="/settings"

@@ -1,13 +1,16 @@
 'use client';
 
 import { useAuth } from '@/context/auth-context';
+import { useTheme } from '@/components/theme-provider';
 import { cn } from '@/lib/utils';
 import {
   KeyRound,
   LogIn,
   LogOut,
   Menu,
+  Moon,
   Sparkles,
+  Sun,
   UserPlus,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -18,6 +21,7 @@ export function SiteNavbar() {
   const pathname = usePathname();
   const router = useRouter();
   const { user, tenantId, isLoading, signOut } = useAuth();
+  const { theme, toggleTheme } = useTheme();
 
   const headerRef = useRef<HTMLElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
@@ -160,6 +164,19 @@ export function SiteNavbar() {
             </span>
           </div>
         </Link>
+
+        <button
+          type="button"
+          onClick={toggleTheme}
+          aria-label="Toggle theme"
+          className="shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-lg border border-border bg-card hover:bg-muted text-foreground transition-colors cursor-pointer"
+        >
+          {theme === 'dark' ? (
+            <Sun className="w-4 h-4" aria-hidden="true" />
+          ) : (
+            <Moon className="w-4 h-4" aria-hidden="true" />
+          )}
+        </button>
 
         <nav className="site-nav flex items-center" aria-label="Primary">
           <button
