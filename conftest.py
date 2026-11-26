@@ -9,4 +9,3 @@ os.environ.setdefault("ENABLED_SURFACES", "all")
 os.environ.setdefault("CACHE_MODE", "disabled")
 os.environ.setdefault("INFERENCE_BASE_URL", "")
 os.environ.setdefault("EVENTS_ENABLED", "true")
-
