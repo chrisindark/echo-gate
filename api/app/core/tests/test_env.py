@@ -34,12 +34,14 @@ class TestEnvironmentLoading(unittest.TestCase):
         with TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
             env_file = tmp_path / ".env.teststaging"
-            env_file.write_text("PROJECT_NAME=echo-gate-staging-test\n", encoding="utf-8")
+            env_file.write_text(
+                "PROJECT_NAME=echo-gate-staging-test\n", encoding="utf-8"
+            )
 
             with patch("app.core.env.Path") as mock_path:
                 mock_path.side_effect = lambda *args, **kwargs: Path(*args, **kwargs)
                 # Ensure resolution points to our tmp env
-                loaded = load_app_env(python_env="teststaging")
+                load_app_env(python_env="teststaging")
                 # When loaded directly from existing file
                 self.assertIsNotNone(load_app_env)
 
