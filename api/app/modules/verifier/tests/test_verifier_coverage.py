@@ -242,7 +242,10 @@ async def test_judge_service_extract_core_query(mock_llm_provider, mock_cross_en
             )
         ],
     )
-    with patch.object(config, "CORE_QUERY_EXTRACTOR_MODEL", "qwen2.5-coder:3b"):
+    with (
+        patch.object(config, "CORE_QUERY_EXTRACTOR_SERVICE", "ollama"),
+        patch.object(config, "CORE_QUERY_EXTRACTOR_MODEL", "qwen2.5-coder:3b"),
+    ):
         mock_llm_provider.generate_ollama_completion = AsyncMock(return_value=resp)
         res = await judge._extract_core_query_with_llm(
             "Please explain quantum computing in 5 words"
