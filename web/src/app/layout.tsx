@@ -2,6 +2,8 @@ import { AppShell } from '@/components/app-shell';
 import { ApiKeyProvider } from '@/context/api-key-context';
 import { AuthProvider } from '@/context/auth-context';
 import { ThemeProvider } from '@/components/theme-provider';
+import { Analytics } from '@vercel/analytics/next';
+import { SpeedInsights } from '@vercel/speed-insights/next';
 import '@radix-ui/themes/styles.css';
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
@@ -84,6 +86,8 @@ export default function RootLayout({
             </ApiKeyProvider>
           </AuthProvider>
         </ThemeProvider>
+        <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );

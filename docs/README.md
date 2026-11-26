@@ -8,12 +8,12 @@ This directory is the detailed reference for the Echo Gate LLM gateway. The root
 | [ARCHITECTURE.md](ARCHITECTURE.md) | System components, module map, the full request lifecycle, the multi-level cache pipeline, background workers, and multi-tenant isolation. |
 | [MULTI_REGION_CACHE_FEDERATION.md](MULTI_REGION_CACHE_FEDERATION.md) | Multi-region cache federation design: local-first read → provider, async replication of high-value entries via Celery, trust boundary, and the Qdrant schema seams. |
 | [EXTENSION_SEAMS.md](EXTENSION_SEAMS.md) | Open-core extension seams: feature flags, IdentityProvider, MeteringSink, storage factory, and the conditional billing surface. |
-| [API_REFERENCE.md](API_REFERENCE.md) | Every HTTP endpoint: method, path, request/response shapes, headers, and error behavior. |
-| [CONFIGURATION.md](CONFIGURATION.md) | Every environment variable, its default, and how it changes behavior. |
+| [API_REFERENCE.md](API_REFERENCE.md) | Auth, headers, error behavior, and an index of every operation in the OpenAPI snapshot (schemas live in `/docs`). |
+| [CONFIGURATION.md](CONFIGURATION.md) | How configuration loads, the `CACHE_MODE` contract, inference and retention behavior, and the operational knobs. |
 | [DATA_MODEL.md](DATA_MODEL.md) | Postgres tables, Row-Level Security policies, and the Qdrant cache collection schema. |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Local setup, test/build/lint commands, migrations, scripts, and contribution conventions. |
 | [limitations.md](limitations.md) | Intentional architectural boundaries, deferred capabilities, and known gaps — the anti-hallucination guardrail for agents. |
-| [ROADMAP.md](ROADMAP.md) | Current plan of record: features already landed, and the planned work (resilience, cache-quality loop, serving performance, commercialization) in development order. |
+| [ROADMAP.md](ROADMAP.md) | Single plan of record and active work queue: what is open now, features already landed, and the planned work (resilience, cache-quality loop, serving performance, commercialization) in development order. |
 
 ## What Echo Gate is
 

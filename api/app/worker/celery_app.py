@@ -1,11 +1,9 @@
 import asyncio
 import logging
 import os
-from pathlib import Path
 
 from celery import Celery
 from celery.signals import setup_logging, worker_process_init, worker_process_shutdown
-from dotenv import load_dotenv
 
 from app.core.config import config
 from app.core.dependencies import DependencyContainer

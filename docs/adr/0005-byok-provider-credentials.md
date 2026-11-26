@@ -2,8 +2,7 @@
 
 ## Status
 Proposed (2026-11-25) — design agreed and tracked; **not implemented**. Owner: unassigned.
-Tracking: [`PRIORITIES.md` P6](../../PRIORITIES.md#p6--data-plane--commercial-surface),
-[`docs/ROADMAP.md` Phase 8](../ROADMAP.md#phase-8--data-plane--commercial-surface).
+Tracking: [`docs/ROADMAP.md` Phase 8](../ROADMAP.md#phase-8--data-plane--commercial-surface).
 Security review required before the first slice ships.
 
 ## Context

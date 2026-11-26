@@ -96,19 +96,19 @@ class TestConstantsAndConfig(unittest.TestCase):
             "VERSION": os.environ.get("VERSION"),
         }
         try:
-            # When unset, defaults to echo-gate / 0.1.0
+            # When unset, defaults to echo-gate / pyproject version
             os.environ.pop("PROJECT_NAME", None)
             os.environ.pop("VERSION", None)
             config.load()
             self.assertEqual(config.PROJECT_NAME, "echo-gate")
-            self.assertEqual(config.VERSION, "0.1.0")
+            self.assertEqual(config.VERSION, "0.5.0")
 
             # When empty string or whitespace, falls back to defaults
             os.environ["PROJECT_NAME"] = "   "
             os.environ["VERSION"] = ""
             config.load()
             self.assertEqual(config.PROJECT_NAME, "echo-gate")
-            self.assertEqual(config.VERSION, "0.1.0")
+            self.assertEqual(config.VERSION, "0.5.0")
 
             # When explicitly provided, honors the value
             os.environ["PROJECT_NAME"] = "custom-gateway"

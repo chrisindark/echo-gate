@@ -1,9 +1,10 @@
 # Multi-Region Cache Federation — Design
 
 > **Status:** Design (architecture-only, 2026-11-05). This is the record
-> required by PRIORITIES.md §P1 so the Qdrant collection schema does not
-> accidentally add region-incompatible assumptions. It ships no behavior:
-> replication is disabled until implemented off these seams.
+> required by the Phase 1 resilience plan in [`docs/ROADMAP.md`](ROADMAP.md) so the
+> Qdrant collection schema does not accidentally add region-incompatible
+> assumptions. It ships no behavior: replication is disabled until implemented
+> off these seams.
 
 ## Goals & non-goals
 

@@ -3,10 +3,12 @@
 Base URL for local development: `http://localhost:8000`. All JSON endpoints live
 under `/api/v1`. Interactive docs are served at `/docs` (Swagger) and `/redoc`.
 
-The authoritative contract is the generated OpenAPI document, snapshotted in
-`tests/contract/snapshots/openapi.json` and enforced by `tests/contract/test_openapi_snapshot.py`.
-This reference matches that snapshot; if they ever disagree, the snapshot (and
-`app.openapi()`) wins.
+**The authoritative contract is the generated OpenAPI document**, snapshotted in
+`tests/contract/snapshots/openapi.json` and enforced by
+`tests/contract/test_openapi_snapshot.py`. This page documents the cross-cutting
+conventions (auth, headers, errors) and indexes every operation; for exact request
+and response schemas, use `/docs` or `GET /openapi.json`, or read the snapshot. If
+this page and the snapshot ever disagree, the snapshot wins.
 
 ## Conventions
 
@@ -24,101 +26,80 @@ Most non-chat endpoints wrap their payload in `BaseAPIResponse`:
 }
 ```
 
-The chat completion endpoint is the exception: it returns a bare
-`ChatCompletionResponse` (OpenAI shape) for compatibility.
+The completion endpoints are the exception: they return a bare
+`ChatCompletionResponse` (OpenAI shape) or Anthropic `message` object for SDK
+compatibility.
 
 ### Identity headers
 
 | Header | Used by | Effect |
 | --- | --- | --- |
-| `X-API-Key` | analytics, gateway-requests, chat, conversations | Resolved server-side to a `tenant_id`/`user_id`; establishes the Postgres RLS context. **Required** by analytics and gateway-requests; **optional but validated** on chat and conversations. |
-| `Authorization: Bearer <key>` | analytics, gateway-requests, chat, conversations | Alias for `X-API-Key` so OpenAI SDK clients work unchanged. `X-API-Key` takes precedence when both are sent. |
-| `X-Admin-Key` | `/api/v1/admin/*` | Scoped operator credential. Required by every admin route; see [Admin authentication](#admin-authentication--x-admin-key). |
+| `X-API-Key` | analytics, gateway-requests, chat, conversations, user keys | Resolved server-side to a `tenant_id`/`user_id`; establishes the Postgres RLS context. **Required** by analytics and gateway-requests; **optional but validated** on chat and conversations. |
+| `Authorization: Bearer <key>` | same | Alias for `X-API-Key` so OpenAI SDK clients work unchanged. `X-API-Key` takes precedence when both are sent. |
+| `X-Admin-Key` | `/api/v1/admin/*` | Scoped operator credential. Required by every admin route; see [Admin authentication](#admin-authentication). |
 | `X-Session-ID` / `X-EchoGate-Session-ID` | chat | Binds the request to a session cache scope. |
 | `X-Conversation-ID` / `X-EchoGate-Conversation-ID` | chat | Binds the request to a conversation cache scope. |
 | `X-Request-ID` / `X-Correlation-ID` | all | Accepted and echoed back for tracing. |
 
-`X-API-Key` (or its `Authorization: Bearer` alias) is the **only** source of
-tenant and user identity; an explicit `X-API-Key` wins if both are present.
-`tenant_id` and `user_id` are not request fields at all — they are resolved from the key and
-stamped onto the request server-side. A body carrying `tenant_id` or `user_id` is
-parsed and the values discarded, and `user` in the body is not read for identity
-or billing purposes.
+`X-API-Key` (or its Bearer alias) is the **only** source of tenant and user
+identity. `tenant_id` and `user_id` are not request fields: a body carrying them
+is parsed and the values discarded. The former caller-supplied `X-Tenant-ID` /
+`X-User-ID` headers are ignored — honouring them let anyone who could reach the
+gateway choose the tenant its request ran as.
 
-The former `X-Tenant-ID` / `X-User-ID` headers are **ignored**. They were
-caller-supplied, so honouring them let anyone who could reach the gateway choose
-the tenant its request ran as — and, together with the request body, read another
-tenant's cached answers.
-
-The chat controller accepts `session_id` and `conversation_id` in the JSON body as
-well as the matching headers; body values win.
+The chat controller also accepts `session_id` and `conversation_id` in the JSON
+body; body values win over headers.
 
 ### Control and optimization headers
 
 | Header | Direction | Used by | Effect |
 | --- | --- | --- | --- |
-| `X-EchoGate-Prompt-Optimization` / `X-Prompt-Optimization` | Request | chat, messages, conversations | `true` (enables default optimization pipeline), `false` (disables), or comma-separated strategies: `whitespace`, `session-dedup`, `json-table`, `ccr`, `headroom-trim`, `compress`. |
-| `X-EchoGate-Prompt-Optimization-CCR-Turns` | Request | chat, messages, conversations | Integer (default `5`): number of recent turns to preserve in full fidelity when CCR is active. |
-| `X-EchoGate-Cache` / `X-Cache-Control` | Request | chat, messages, conversations | `true` (enforce cache), `false` / `bypass` / `off` / `no-cache` (bypass cache and force fresh provider generation; sets response `X-Cache: BYPASS`). |
-| `X-EchoGate-Cache-TTL` / `X-Cache-TTL` | Request | chat, messages, conversations | Integer seconds override for cache retention across Redis and Qdrant. |
-| `X-EchoGate-Retries` / `X-Retries` | Request | chat, messages, conversations | Integer (0 to 10): maximum retry attempts against upstream provider. |
-| `X-EchoGate-Stream-Pacing` / `X-Stream-Pacing` | Request | chat, messages, conversations | When streaming: `natural` / `true` (smooth word/token chunk pacing on cache hits), `off` / `false` / `instant` (disable pacing), or explicit float millisecond delay (e.g. `12.0`). |
-| `X-Timeout-Budget-Ms` / `X-EchoGate-Timeout-Budget-Ms` | Request | chat, messages, conversations | Millisecond timeout budget for upstream generation. |
-| `X-Cache-Prefer` | Request | chat (`stream: true`) | When set to `instant`, an exact/semantic cache hit is served immediately as a single JSON response (`ChatCompletionResponse`) instead of replaying SSE chunks. |
-| `X-EchoGate-Prompt-Optimization` | Response | chat, messages, conversations | Emitted with value `applied` when prompt optimization modified the prompt and saved tokens or characters. |
-| `X-EchoGate-Prompt-Savings` | Response | chat, messages, conversations | Emitted when optimization was applied: `tokens=<saved_tokens>,chars=<saved_chars>` (e.g. `tokens=12,chars=48`). |
-| `X-EchoGate-Gateway-Degradation` | Response | chat, messages, conversations | Gateway resilience indicator: `none`, `fallback`, `cache_degraded`, or other degradation state. Error responses use `none` for `4xx` and `hard_down` for terminal `5xx`. |
-| `X-EchoGate-Error-Code` | Response | chat, messages | Stable provider/gateway error classification (for example `provider_rate_limit`, `provider_unavailable`) when the failure was classified. |
+| `X-EchoGate-Prompt-Optimization` / `X-Prompt-Optimization` | Request | chat, messages, conversations | `true`, `false`, or comma-separated strategies: `whitespace`, `session-dedup`, `json-table`, `ccr`, `headroom-trim`, `compress`. |
+| `X-EchoGate-Prompt-Optimization-CCR-Turns` | Request | same | Integer (default `5`): recent turns kept in full fidelity when CCR is active. |
+| `X-EchoGate-Cache` / `X-Cache-Control` | Request | same | `true` to enforce, `false` / `bypass` / `off` / `no-cache` to bypass and force a fresh provider call (`X-Cache: BYPASS`). |
+| `X-EchoGate-Cache-TTL` / `X-Cache-TTL` | Request | same | Integer seconds override for cache retention across Redis and Qdrant. |
+| `X-EchoGate-Retries` / `X-Retries` | Request | same | Integer 0–10: maximum retry attempts against the upstream provider. |
+| `X-EchoGate-Stream-Pacing` / `X-Stream-Pacing` | Request | same | `natural` / `true`, `off` / `false` / `instant`, or a float millisecond delay. |
+| `X-Timeout-Budget-Ms` / `X-EchoGate-Timeout-Budget-Ms` | Request | same | Millisecond timeout budget for upstream generation. |
+| `X-Cache-Prefer: instant` | Request | chat (`stream: true`) | Serve a hit as one JSON body instead of replaying SSE chunks. |
+| `X-EchoGate-Prompt-Optimization` | Response | same | `applied` when optimization changed the prompt and saved tokens. |
+| `X-EchoGate-Prompt-Savings` | Response | same | `tokens=<n>,chars=<n>`. |
+| `X-Gateway-Degradation` | Response | same | `none`, `fallback`, `cache_degraded`, … Error responses use `none` for `4xx` and `hard_down` for terminal `5xx`. |
+| `X-EchoGate-Error-Code` | Response | chat, messages | Stable classification (`provider_rate_limit`, `provider_unavailable`, …). |
 | `X-Cache` | Response | chat, messages | `HIT`, `MISS`, or `BYPASS`. |
-| `anthropic-version` | Response | messages | Always emitted as `2023-06-01` for Anthropic client compatibility. |
+| `anthropic-version` | Response | messages | Always `2023-06-01` for Anthropic client compatibility. |
 
 ### Chat authentication
 
 `POST /api/v1/chat/completions` runs two guards, in order:
 
-1. **Optional API key auth.** If an `X-API-Key` (or `Authorization: Bearer`) is
-   supplied it must resolve to an active tenant key, otherwise the request is a
-   `401`. If no key is supplied the request proceeds as the `anonymous` tenant —
-   anonymous access is an intended feature of the chat endpoint, and those
-   callers fall under the default quota limits.
-2. **`llm_quota_guard`** — RPM/TPM/budget enforcement.
+1. **Optional API key auth.** A supplied key must resolve to an active tenant key,
+   otherwise `401`. With no key the request proceeds as the `anonymous` tenant
+   under the default quota limits.
+2. **Quota guard** — RPM/TPM/budget enforcement.
 
-Auth runs first so an invalid key is rejected without consuming a request from
-the rate-limit bucket. Supplying an unusable key is always an error; only
-*omitting* one is anonymous.
+Auth runs first so an invalid key is rejected without consuming rate-limit budget.
+Supplying an unusable key is always an error; only *omitting* one is anonymous.
 
 ### Rate-limit headers
 
-Every guarded route (chat completions, conversations) advertises the caller's
-remaining budget on the response, so clients can self-throttle rather than
-discover the limit by being rejected:
+Every guarded route advertises the caller's remaining budget so clients can
+self-throttle: `X-RateLimit-Limit-Requests`, `X-RateLimit-Remaining-Requests`,
+`X-RateLimit-Reset-Requests`, `X-RateLimit-Limit-Tokens`,
+`X-RateLimit-Remaining-Tokens`, `X-RateLimit-Reset-Tokens`, and `Retry-After`
+(`429`/`503` only).
 
-| Header | Meaning |
-| --- | --- |
-| `X-RateLimit-Limit-Requests` | RPM ceiling that applied to this request (rule from `llm_quota_rules`, else the default 10). |
-| `X-RateLimit-Remaining-Requests` | Requests left in the current 60s window, **after** counting this one. |
-| `X-RateLimit-Reset-Requests` | Seconds until the request window resets. |
-| `X-RateLimit-Limit-Tokens` | TPM ceiling that applied (rule, else the default 20000). |
-| `X-RateLimit-Remaining-Tokens` | Tokens left in the current window. |
-| `X-RateLimit-Reset-Tokens` | Seconds until the token window resets. |
-| `Retry-After` | Sent only on `429` / `503`: seconds to wait before retrying. |
-
-The counters are per bucket: the resolved API key (`X-API-Key` or Bearer) for
-keyed callers, or the `anon:<sha256-prefix>` fingerprint for anonymous ones (see
-[Rate limiting notes](#rate-limiting-notes)). Limits are resolved per
-provider/model/user/tenant, and `remaining` is clamped at zero. Reset values come
-from the live Redis key TTLs, clamped to the 60s window; if Redis is unreachable
-the gateway degrades to "unlimited" and still emits the headers using a full
-window.
-
-Streamed (`stream: true`) responses carry the same headers: they are set on the
-`text/event-stream` response before the first chunk is written.
+Counters are per bucket: the resolved API key for keyed callers, or
+`anon:<sha256-prefix>` for anonymous ones. Reset values come from live Redis key
+TTLs, clamped to the 60s window; if Redis is unreachable the gateway degrades to
+"unlimited" and still emits the headers. Streamed responses carry the same
+headers, set before the first chunk.
 
 ### Error behavior
 
-The two SDK completion surfaces answer with the provider-native error body so the
-official SDKs raise typed errors instead of failing to parse `{"detail": ...}`.
-Gateway-native routes keep FastAPI's default body.
+The two SDK completion surfaces answer with the provider-native envelope so the
+official SDKs raise typed errors; gateway-native routes keep FastAPI's
+`{"detail": ...}`.
 
 | Surface | Error body |
 | --- | --- |
@@ -126,985 +107,143 @@ Gateway-native routes keep FastAPI's default body.
 | `POST /api/v1/messages`, `POST /v1/messages` | `{"type": "error", "error": {"type", "message"}}` (Anthropic) |
 | Everything else | `{"detail": ...}` |
 
-On the OpenAI surface `type` is the standard class (`invalid_request_error`,
-`authentication_error`, `permission_error`, `rate_limit_error`,
-`insufficient_quota`, `server_error`) and `code` is the gateway/provider
-`error_code` (for example `provider_rate_limit`) when one exists — never a
-numeric status. On the Anthropic surface `type` is the standard class
-(`invalid_request_error`, `authentication_error`, `rate_limit_error`,
-`overloaded_error`, `api_error`, …). Validation failures keep status `422`; only
-the body shape changes, and the first failing field is named in `param`
-(OpenAI) or prefixed to the message. Any `error_code` is also echoed in
-`X-EchoGate-Error-Code`.
+On the OpenAI surface `code` is the gateway/provider `error_code` when one
+exists, never a numeric status. Validation failures keep status `422` and name the
+first failing field in `param` (OpenAI) or prefix it to the message. Any
+`error_code` is also echoed in `X-EchoGate-Error-Code`.
 
-Error responses still carry `X-Gateway-Degradation`: `none` for `4xx`, and
-`hard_down` for terminal `5xx` failures, matching the resilience contract.
-
-- `401` — missing or invalid key. On `/api/v1/admin/*` this means a missing,
-  unknown, revoked, or expired `X-Admin-Key`; on analytics/gateway-requests it
-  means a missing or invalid `X-API-Key`/Bearer token; on chat it means a
-  credential that was supplied but did not resolve.
-- `403` — an admin key that is valid but lacks the scope the route requires.
-- `429` — RPM or TPM quota exceeded (see `llm_quota`), carrying the
-  `X-RateLimit-*` headers plus `Retry-After`. The same status is returned when the
-  global or per-provider bulkhead sheds load, also with `Retry-After`.
-- `402` — prepaid budget exhausted (`budget:<api_key>` ≤ 0 in Redis), carrying the
-  `X-RateLimit-*` headers.
-- `400` — validation error, unsupported service, or a model not in the
-  provider's allowlist.
-- `503` — no candidate provider could answer: every target failed (retries and
-  alias/fallback candidates included), a circuit breaker was open, or a stream
-  broke after it had started. The body carries the classified message and
-  `error_code` (the provider name remains in the message and in the SSE event).
-  Retryable `503`s also carry `Retry-After`: the longest remaining breaker
-  recovery window among the candidates, else `RETRY_AFTER_DEFAULT_SECONDS`
-  (default 5) when no breaker is counting down. When a stream breaks after
-  content was emitted, the SSE body ends with an `error` event and no replay is
-  attempted.
-- `500` — unexpected server error in a controller.
+- `400` — validation error, unsupported service, or a model outside the provider's allowlist.
+- `401` — key supplied but missing, unknown, revoked, or expired.
+- `402` — prepaid budget exhausted (`budget:<api_key>` ≤ 0 in Redis).
+- `403` — a valid admin key lacks the scope the route requires.
 - `404` — resource not found on CRUD endpoints.
+- `429` — RPM/TPM quota exceeded, or global/per-provider bulkhead shedding load.
+- `500` — unexpected controller error.
+- `503` — no candidate provider could answer (all targets failed, breaker open, or
+  a stream broke after starting). Retryable `503`s carry `Retry-After`: the longest
+  remaining breaker recovery window among candidates, else
+  `RETRY_AFTER_DEFAULT_SECONDS` (5).
 
-`Retry-After` is deliberately absent from non-retryable failures (`400`, `401`,
-`403`, `402`): the same request would fail again, so a wait only wastes the
-caller's budget.
+`Retry-After` is deliberately absent from `400`, `401`, `402`, and `403`: the same
+request would fail again, so a wait only wastes the caller's budget.
 
----
+## Endpoint index
 
-## Root
+Every operation in the snapshot, grouped by surface. Descriptions here are short;
+schemas and full parameter lists live in `/docs`.
 
-### `GET /`
+### Completion surfaces
 
-Returns app metadata.
-
-```json
-{
-  "success": true,
-  "response": { "app": "echo-gate", "version": "0.1.0", "docs": "/docs", "api_prefix": "/api/v1" },
-  "status_code": 200
-}
-```
-
----
-
-## Health — `/api/v1/health`
-
-| Method | Path | Description |
+| Method | Path | Notes |
 | --- | --- | --- |
-| `GET` | `/api/v1/health` | Basic check. `{"status": "healthy", "version": ...}`. |
-| `GET` | `/api/v1/health/live` | Process liveness. 200 healthy, 503 otherwise. |
-| `GET` | `/api/v1/health/ready` | Gating probe. Postgres only (1s timeout). 200/503. |
-| `GET` | `/api/v1/health/deps` | Non-gating dependency report for alerting. **Always 200.** |
-| `GET` | `/api/v1/health/worker` | Checks Celery broker + workers. 200/503. |
-| `GET` | `/api/v1/health/celery` | Alias of `/worker`. |
+| `POST` | `/api/v1/chat/completions` | OpenAI-compatible chat, streaming and non-streaming. |
+| `POST` | `/api/v1/messages` | Native Anthropic Messages, streaming and non-streaming. |
+| `POST` | `/v1/messages` | `api/v1` alias used by Anthropic SDKs. |
+| `POST` | `/api/v1/chat/estimate` | Prompt tokens + cheapest-first cost matrix across enabled models, no provider call. |
+| `GET` | `/v1/models` | Model list in the envelope selected by `anthropic-version`. |
+| `GET` | `/api/v1/models` | Same list. `?include_unavailable=true` with an admin key shows disabled/unconfigured models. |
 
-### Probe tiering
+### Stateful conversations
 
-The three probes answer different questions and are wired to different consumers:
-
-| Probe | Question | Gate? | Dependencies |
-| --- | --- | --- | --- |
-| `/live` | Is the process running? | Restarts the container | None |
-| `/ready` | Can this replica serve a *correct* response? | Load-balancer membership | Postgres |
-| `/deps` | Is anything degraded? | No — alerting only | Postgres, Redis, Qdrant, Celery |
-
-`/ready` deliberately excludes Redis and Qdrant. Both are degradable: a failed
-lookup is treated as a cache miss and the router answers from the provider, so
-their absence produces slower responses, never wrong ones. Postgres is not
-degradable — quota rules are read through an unguarded session (a failure 500s
-every chat request) and API-key resolution swallows the database error and
-returns "unauthenticated" (a failure 401s valid keys). Gating on it would let a
-cache blip evict every replica and turn graceful degradation into an outage.
-
-`/deps` never returns 503, so it can be scraped without any risk of a probe
-taking a replica out of rotation. Alert on the `status` field instead:
-
-```json
-{
-  "status": "degraded",
-  "gating": ["database"],
-  "failed": ["redis"],
-  "checks": {
-    "database": "ok",
-    "redis": "failed",
-    "vector_db": "ok",
-    "celery_broker": "ok",
-    "celery_workers": "ok"
-  }
-}
-```
-
-`status` is `healthy` (all ok), `degraded` (a non-gating dependency failed), or
-`unhealthy` (the gating dependency failed). Page on `unhealthy`; warn on
-`degraded`.
-
----
-
-## Models — `/v1/models` and `/api/v1/models`
-
-Model discovery for SDK clients. Both paths return the same catalog; the
-response *shape* depends on the caller:
-
-- **OpenAI shape** (default): `{"object": "list", "data": [...]}`. This is what
-  `openai.OpenAI(...).models.list()` parses.
-- **Anthropic shape**: returned when the request carries `anthropic-version`,
-  which `anthropic.Anthropic(...).models.list()` always sends.
-
-The catalog comes from `DynamicModelRegistry`, so a model added through
-`ALLOWED_MODELS_JSON` (or registered at runtime) appears here without a code
-change. Aliases (`fast`, `cheap`, `quality`) are listed as their own entries.
-
-```bash
-curl http://localhost:8000/v1/models
-curl http://localhost:8000/v1/models -H "anthropic-version: 2023-06-01"
-```
-
-```json
-{
-  "object": "list",
-  "data": [
-    {
-      "id": "fast",
-      "object": "model",
-      "created": 0,
-      "owned_by": "echo-gate",
-      "available": true,
-      "enabled": true,
-      "providers": ["groq", "google-genai", "openai"],
-      "context_window": 131072,
-      "targets": [
-        {"service": "groq", "model": "openai/gpt-oss-20b", "available": true, "enabled": true},
-        {"service": "google-genai", "model": "gemini-3.1-flash-lite", "available": false, "enabled": true},
-        {"service": "openai", "model": "gpt-4o-mini", "available": true, "enabled": true}
-      ]
-    }
-  ]
-}
-```
-
-| Field | Meaning |
-| --- | --- |
-| `id` | Model name or alias. Use it as `model` on completions. |
-| `object` | Always `"model"`. |
-| `created` | Unix timestamp. The registry has no release dates, so this is `0` (unknown) rather than an invented date. |
-| `owned_by` | Provider service, or `echo-gate` for an alias. |
-| `available` | At least one hosting provider is **configured**. Configured is not healthy: a provider can still fail at call time and is handled by retry/fallback. |
-| `enabled` | `false` when the registry marks the model disabled. Aliases have no disable flag and are always `true`. |
-| `providers` | Every service hosting the model, or an alias's ranked targets. A model id served under two service names (`gemini`/`google-genai`, `claude`/`anthropic`) is listed once. |
-| `context_window` | Maximum context in tokens (`MODEL_CONTEXT_WINDOWS_JSON` / defaults). |
-| `targets` | Alias-only: the ranked `{service, model, available, enabled}` list the router walks. |
-
-By default the list contains only entries that can currently serve a request
-(enabled **and** available). `?include_unavailable=true` reveals disabled models
-and models whose provider is unconfigured, with the flags set accordingly. That
-view is operator metadata and requires a valid `X-Admin-Key` (any scope); it is
-a `401` otherwise.
-
-Authentication is the same optional tenant auth as chat: a supplied
-`X-API-Key`/`Authorization: Bearer` is validated (unknown keys are `401`), and a
-keyless discovery call is allowed. The Anthropic SDK's `x-api-key` header is the
-same header as `X-API-Key` — header names are case-insensitive — so both SDKs
-authenticate without extra configuration.
-
-The Anthropic envelope uses `type: "model"`, `display_name` (the model id), and
-`created_at` (`1970-01-01T00:00:00Z`, the same unknown-date sentinel), plus
-`has_more`, `first_id`, and `last_id`. Pagination parameters are not implemented
-because the catalog is small and fully enumerated in one response.
-
----
-
-## Chat — `/api/v1/chat`
-
-### `POST /api/v1/chat/completions`
-
-The main gateway endpoint. OpenAI-compatible request; returns a
-`ChatCompletionResponse`. Requires `X-API-Key`.
-
-**Request body** (`ChatCompletionRequest`):
-
-| Field | Type | Default | Notes |
-| --- | --- | --- | --- |
-| `service_name` | string | `"ollama"` | Provider. `ollama`, `gemini`/`google-genai`, `openai`, `groq`, `openrouter`. |
-| `model` | string | required | Must be in [`ALLOWED_MODELS`](#allowed-models). |
-| `messages` | array | required | `{role, content, name?, tool_call_id?, tool_calls?}`. |
-| `temperature` | float | `0.7` | Part of the cache key and confidence gate. |
-| `top_p` | float | `1.0` | Cache key. |
-| `n` | int | `1` | Accepted, not separately handled by cache. |
-| `stream` | bool | `false` | When `true`, returns Server-Sent Events (`text/event-stream`) emitting `ChatCompletionChunk` SSE payloads and ending with `data: [DONE]`. |
-| `stop` | string[] | `null` | Cache key via `stop_hash`. |
-| `max_tokens` | int | `null` | Cache key; also filters candidates by completion tokens. |
-| `presence_penalty` / `frequency_penalty` | float | `0.0` | Cache key. |
-| `logit_bias` | object | `null` | Cache key. |
-| `user` | object/string | `null` | OpenAI-compatible end-user field. **Not** an identity — see [Identity headers](#identity-headers). |
-| `session_id`, `conversation_id` | string | `null` | Cache key + scope. Also accepted as the `X-Session-ID` / `X-Conversation-ID` headers. |
-| `response_format` | object | `null` | `{"type":"json_object"}` or `{"type":"json_schema", ...}`. Cache key via `response_format_hash`. |
-| `reasoning_effort` | string | `null` | Passed to reasoning-capable providers (`low`, `medium`, `high`). Cache key. |
-| `thinking` | bool | `false` | Enable extended thinking / reasoning mode across Gemini, Claude, OpenAI, and Ollama. Cache key. |
-| `thinking_budget` | int | `null` | Maximum token budget for reasoning (e.g. 1024-16384). Cache key. |
-| `tools` | array | `null` | OpenAI tool schema. **Presence bypasses the semantic cache.** |
-| `tool_choice` | string/object | `null` | Cache key. |
-| `prompt_optimization` | bool/object | `null` | Opt-in prompt token optimization. Pass `true`/`false`, or a `PromptOptimizationConfig` object (see below). When omitted, falls back to `PROMPT_OPTIMIZATION_*` server settings or `X-EchoGate-Prompt-Optimization` header. |
-| `cache_enabled` | bool | `null` | Direct cache control override. Set `false` to bypass semantic and exact caches and force fresh upstream generation (sets response `X-Cache: BYPASS`). Overrides `X-EchoGate-Cache`. |
-| `cache_ttl` | int | `null` | Custom cache TTL in seconds overriding retention policy for Redis and Qdrant. Overrides `X-EchoGate-Cache-TTL`. |
-| `retries` | int | `null` | Upstream provider retry attempts (`0` to `10`). Overrides `X-EchoGate-Retries`. |
-| `stream_pacing` | bool | `null` | Control smooth word/token chunk pacing on cache-hit SSE streams. Set `false` to disable pacing and emit single-frame chunks. Overrides `X-EchoGate-Stream-Pacing`. |
-| `stream_pacing_delay_ms` | float | `null` | Custom inter-chunk delay in milliseconds (`0.0` to `1000.0`) when stream pacing is active. |
-
-#### `PromptOptimizationConfig` object
-
-| Field | Type | Default | Description |
-| --- | --- | --- | --- |
-| `enabled` | bool | `true` | Gate for running prompt optimization on this request. |
-| `whitespace` | bool | `true` | Collapse runs of spaces/tabs to single space, cap duplicate newlines to 2; preserves indentation and content within markdown code blocks (``` / ~~~) and inline code backticks. |
-| `session_dedup` | bool | `true` | Detect and prune consecutive identical turns in multi-turn threads (preserving tool call-response pairings and active user prompt). |
-| `json_table` | bool | `true` | Rewrite large uniform JSON arrays returned from tool calls into compact markdown pipe tables. |
-| `json_table_min_rows` | int | `2` | Minimum uniform items required before tabularizing JSON arrays. |
-| `ccr` | bool | `false` | Conversation Context Reduction: preserve initial system prompt and recent turns while condensing or dropping intermediate turns. |
-| `ccr_keep_last_n_turns` | int | `5` | Number of recent turns to preserve in full fidelity when CCR is active. |
-| `ccr_strategy` | string | `"condense"` | Strategy for older turns: `"condense"` (compact briefing marker) or `"drop"` (omit with reduction notice). |
-| `ccr_max_turn_chars` | int | `150` | Maximum character length per summarized turn when condensing. |
-| `headroom_trim` | bool | `false` | Dynamically prune oldest conversational turns to guarantee the prompt fits within the target model context limit minus completion tokens. |
-| `headroom_buffer_tokens` | int | `100` | Safety token buffer subtracted below the target context window ceiling. |
-| `headroom_target_tokens` | int | `null` | Explicit token ceiling override (bypasses model context limit lookup). |
-| `compress` | bool | `false` | Lossy prompt compression offloaded to `inference-platform/` over HTTP via `POST /compress`. |
-| `compress_rate` | float | `0.5` | Target retention ratio (fraction of content to retain, `0.05` to `0.95`). |
-| `compress_target_tokens` | int | `null` | Explicit token count ceiling; overrides `compress_rate` if specified. |
-| `compress_method` | string | `"lexical"` | Compression method: `"lexical"` (token pruning preserving code blocks) or `"extractive"` (sentence centroid ranking). |
-
-**Response** (`ChatCompletionResponse`):
-
-```json
-{
-  "id": "...",
-  "object": "chat.completion",
-  "created": 1710000000,
-  "model": "gemini-3.5-flash-lite",
-  "choices": [{ "index": 0, "message": {"role": "assistant", "content": "...", "reasoning_content": "..."}, "finish_reason": "stop" }],
-  "usage": { "prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30 },
-  "system_fingerprint": null,
-  "cache_info": {
-    "matched": true,
-    "cache_hit": true,
-    "source": "qdrant_semantic_path",
-    "score": 0.97,
-    "rerank_score": 0.96,
-    "score_breakdown": {
-      "scoring_mode": "multiplicative",
-      "base_score": 0.991,
-      "final_score": 0.96,
-      "factors": { "intent": 1.0, "metadata": 1.0, "entities": 1.0, "...": 1.0 },
-      "details": { "entity_conflict": false, "metadata_mismatches": [], "metadata_comparisons": { "...": "..." } }
-    },
-    "intent": "code_generation",
-    "point_id": "...",
-    "exact_hash": "...",
-    "latency_breakdown": { "total_ms": 42.1, "...": 0.0 }
-  }
-}
-```
-
-**Streaming cache hits — `X-Cache-Prefer: instant`.** A `stream: true` cache hit
-is normally replayed as SSE chunks. Send `X-Cache-Prefer: instant` to get the
-hit as a single `ChatCompletionResponse` JSON body instead (with
-`X-Cache: HIT`), which lets a client skip the stream parser. A cache miss still
-returns a normal `text/event-stream` response; the gateway does not repeat the
-lookups it already missed. Unknown values are ignored, so the header is safe to
-set unconditionally.
-
-`cache_info.source` is one of `redis`, `qdrant_exact_path`, `qdrant_fast_path`,
-`qdrant_semantic_path`, `llm`, or `mock`. `cache_info.cache_hit` distinguishes
-served-from-cache from a fresh provider call. For `QDRANT_SEMANTIC` decisions,
-`cache_info.score_breakdown` exposes the reranker's composite decomposition
-(`scoring_mode`, `base_score`, `final_score`, per-signal `factors`, `details`);
-it is also persisted on the corresponding `gateway_requests` trace row. The
-response header `X-Cache` also reflects cache status.
-
-```bash
-curl -X POST "http://localhost:8000/api/v1/chat/completions" \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: <key>" \
-  -d '{
-    "service_name": "google-genai",
-    "model": "gemini-3.5-flash-lite",
-    "messages": [{"role": "user", "content": "Explain quantum computing in one paragraph."}]
-  }'
-```
-
-### `POST /api/v1/chat/estimate`
-
-Pre-flight cost estimate. Counts prompt tokens with `tiktoken` and prices the
-request across every enabled provider/model pair **without calling a provider**.
-Optional `X-API-Key` (anonymous is allowed); no quota guard, because nothing is
-billed upstream.
-
-**Request body** (`ChatEstimateRequest`):
-
-| Field | Type | Notes |
+| Method | Path | Notes |
 | --- | --- | --- |
-| `messages` | array | Same shape as completions. Per-message overhead (+4) and reply priming (+3) are included. |
-| `tools` | array | Optional tool declarations; their JSON is counted as prompt tokens. |
-| `max_tokens` | int | Assumed completion length. Falls back to `ESTIMATE_DEFAULT_COMPLETION_TOKENS` (256). |
-| `model` | string | Optional tokenizer hint; aliases resolve to their first target. Unknown models use `cl100k_base`. |
+| `GET` | `/api/v1/conversations` | List (RLS-scoped). |
+| `POST` | `/api/v1/conversations` | Create a thread. |
+| `GET` | `/api/v1/conversations/{conversation_id}` | Thread with messages. |
+| `PATCH` | `/api/v1/conversations/{conversation_id}` | Rename. |
+| `DELETE` | `/api/v1/conversations/{conversation_id}` | Cascade delete. |
+| `POST` | `/api/v1/conversations/{conversation_id}/chat` | History-aware completion; persists both turns atomically. |
 
-**Response** (`ChatEstimateResponse`):
+### Health and root
 
-```json
-{
-  "model": "gpt-4o-mini",
-  "tokenizer": "o200k_base",
-  "prompt_tokens": 24,
-  "completion_tokens": 256,
-  "estimates": [
-    { "service": "ollama", "model": "qwen3:8b", "cost_prompt": 0.0, "cost_completion": 0.0, "cost_total": 0.0 },
-    { "service": "openai", "model": "gpt-4o-mini", "cost_prompt": 0.0000036, "cost_completion": 0.0001536, "cost_total": 0.0001572 }
-  ]
-}
-```
-
-`estimates` is sorted cheapest first. `tokenizer` names the vocabulary that
-produced the count; a `heuristic (4 chars/token)` label means the BPE encoding
-was unavailable (offline engine) and the counts are approximate.
-
-```bash
-curl -X POST "http://localhost:8000/api/v1/chat/estimate" \
-  -H "Content-Type: application/json" \
-  -d '{"model": "gpt-4o-mini", "max_tokens": 256,
-       "messages": [{"role": "user", "content": "Explain quantum computing in one paragraph."}]}'
-```
-
-### Chat cache diagnostics
-
-These three routes are **operator diagnostics**, not tenant API. A tenant
-`X-API-Key` is not accepted and an anonymous caller cannot reach the shared
-anonymous cache scope through them. An admin key never establishes a tenant
-identity (`TenantContextMiddleware` resolves it to `anonymous`), so the tenant
-being inspected is passed explicitly.
-
-### `POST /api/v1/chat/completions/semantic-search`
-
-Requires `X-Admin-Key` with `cache:read`. Optional query parameter `tenant_id`
-selects the tenant whose cache is inspected (omitted: the anonymous scope).
-
-Runs only the semantic cache path and returns its internal result (matches,
-intent, embeddings, latency breakdown) without calling a provider. Same
-`ChatCompletionRequest` body. Wrapped in `BaseAPIResponse`.
-
-### `POST /api/v1/chat/completions/exact-search`
-
-Requires `X-Admin-Key` with `cache:read`; same optional `?tenant_id=`. Returns
-the Qdrant exact-match payload and `point_id` for the request's exact hash,
-without a provider call.
-
-### `POST /api/v1/chat/completions/cache-save`
-
-Requires `X-Admin-Key` with `cache:write`, which is not implied by `cache:read`.
-Body: `{ "request": ChatCompletionRequest, "response": ChatCompletionResponse,
-"tenant_id": "acme" }` — `tenant_id` is optional and defaults to the resolved
-scope. Writes the pair into the Qdrant cache and returns `{"point_id": ...}`.
-For a tenant-scoped seed that also fills Redis, prefer
-`POST /api/v1/admin/cache/warmup`.
-
----
-
-## Anthropic Messages — `/api/v1/messages`
-
-Drop-in compatibility adapter implementing the Anthropic Messages API specification for Claude SDKs (Python, TypeScript), Cursor in Claude mode, and Claude Code. Also mounted at `/v1/messages` for clients expecting a root base path.
-
-Runs the same authentication (`X-API-Key` optional guard) and rate-limiting / quota guards as chat completions. Always responds with the `anthropic-version: 2023-06-01` header.
-
-### `POST /api/v1/messages`
-
-**Request body** (`AnthropicMessagesRequest`):
-
-| Field | Type | Default | Notes |
-| --- | --- | --- | --- |
-| `model` | string | required | Anthropic model identifier (e.g. `claude-3-5-sonnet-20241022`, `claude-3-haiku-20240307`, or provider/alias). |
-| `messages` | array | required | List of turns `{role: "user" \| "assistant", content: string \| array}` with text or structured content blocks. |
-| `max_tokens` | int | required | Maximum tokens to generate (Anthropic protocol requires this). |
-| `system` | string/array | `null` | System prompt string or array of system text blocks. |
-| `temperature` | float | `null` | Sampling temperature (`0.0` to `1.0`). |
-| `top_p` | float | `null` | Nucleus sampling probability (`0.0` to `1.0`). |
-| `top_k` | int | `null` | Top-k sampling limit. |
-| `stream` | bool | `false` | When `true`, streams Server-Sent Events adhering to the Anthropic SSE protocol. |
-| `stop_sequences` | string[] | `null` | Custom stop sequences. |
-| `tools` | array | `null` | Anthropic tool definitions `[{name, description, input_schema}]`. Declaring tools bypasses semantic caching. |
-| `tool_choice` | object/string | `null` | `{"type": "auto" \| "any" \| "tool", "name": "..."}`. |
-| `thinking` | object | `null` | Extended thinking configuration: `{"type": "enabled", "budget_tokens": int}`. |
-| `metadata` | object | `null` | Request metadata; `user_id` inside metadata is accepted for compatibility. |
-| `prompt_optimization` | bool/object | `null` | Opt-in prompt token optimization (same options as chat completion). |
-| `cache_enabled` | bool | `null` | Set `false` to bypass cache and force fresh generation (`X-Cache: BYPASS`). |
-| `cache_ttl` | int | `null` | Custom cache TTL override in seconds. |
-| `retries` | int | `null` | Upstream provider retry attempts (`0` to `10`). |
-| `stream_pacing` | bool | `null` | Enable/disable natural chunk pacing on cache hits. |
-| `stream_pacing_delay_ms` | float | `null` | Custom delay in ms for streaming chunk pacing. |
-
-**Response** (`AnthropicMessagesResponse`):
-
-```json
-{
-  "id": "msg_01...",
-  "type": "message",
-  "role": "assistant",
-  "content": [
-    {
-      "type": "text",
-      "text": "Hello! How can I assist you today?"
-    }
-  ],
-  "model": "claude-3-5-sonnet-20241022",
-  "stop_reason": "end_turn",
-  "stop_sequence": null,
-  "usage": {
-    "input_tokens": 12,
-    "output_tokens": 8
-  }
-}
-```
-
-**Streaming format (`stream: true`)**:
-Streams SSE events adhering to the Anthropic wire format:
-- `event: message_start` with initial message metadata and input token count.
-- `event: content_block_start` opening text or tool blocks.
-- `event: content_block_delta` with `delta.type = "text_delta"` and incremental text chunks.
-- `event: content_block_stop`.
-- `event: message_delta` with final `stop_reason` and output token usage.
-- `event: message_stop`.
-
-Cached responses replayed over streaming automatically pace chunks using natural word boundaries and the configured `STREAM_CACHE_PACING_DELAY_MS`.
-
-```bash
-curl -X POST "http://localhost:8000/api/v1/messages" \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: <key>" \
-  -H "anthropic-version: 2023-06-01" \
-  -d '{
-    "model": "claude-3-5-sonnet-20241022",
-    "max_tokens": 1024,
-    "messages": [{"role": "user", "content": "Explain relativity in one sentence."}]
-  }'
-```
-
----
-
-## Gateway request traces — `/api/v1/gateway-requests`
-
-| Method | Path | Description |
+| Method | Path | Notes |
 | --- | --- | --- |
-| `POST` | `/` | Create a trace log. Body `GatewayRequestLogCreate`. |
-| `GET` | `/` | Filtered, paginated list. Returns `{items, total, skip, limit}`. |
-| `GET` | `/pending-evaluations` | Traces awaiting evaluation (`?limit=`). |
-| `PUT` | `/{log_id}` | Update evaluation fields. Body `GatewayRequestLogUpdate`. |
-| `GET` | `/{log_id}` | Fetch one trace. |
-| `GET` | `/by-hash/{exact_hash}` | Fetch a trace by its exact cache hash. |
-| `DELETE` | `/{log_id}` | Delete a trace. |
-| `POST` | `/evaluate` | Queue background evaluation (Celery, else FastAPI background). |
+| `GET` | `/` | App metadata. |
+| `GET` | `/api/v1/health` | Basic health. |
+| `GET` | `/live`, `/api/v1/health/live` | Process liveness only. |
+| `GET` | `/ready`, `/api/v1/health/ready` | Readiness; gates on Postgres only (1s timeout). |
+| `GET` | `/health/deps`, `/api/v1/health/deps` | Non-gating dependency roll-up (Postgres, Redis, Qdrant, Celery). Always `200`; read `status`. |
+| `GET` | `/health/worker`, `/api/v1/health/worker` | Celery worker readiness. |
+| `GET` | `/health/celery`, `/api/v1/health/celery` | Celery worker and broker readiness alias. |
 
-`GET /` query parameters: `skip`, `limit` (1–200), `tenant_id`, `user_id`,
-`routing_decision`, `provider`, `model`, `search`, `min_latency_ms`,
-`max_latency_ms`, `evaluation_status`, `is_false_positive`, `has_error`,
-`time_range` (`1h|3h|6h|12h|1d|3d|7d|14d|30d`), `start_time`, `end_time`.
+Redis and Qdrant are degradable, so a cache blip must not evict every replica
+from the load balancer: they are reported on `/health/deps`, never on `/ready`.
 
-`RoutingDecision`: `LLM`, `REDIS_EXACT`, `QDRANT_EXACT`, `QDRANT_SEMANTIC`,
-`QDRANT_FAST`. `EvaluationStatus`: `PENDING`, `IN_PROGRESS`, `EVALUATED`,
-`SKIPPED`, `FAILED`. Full field list in [DATA_MODEL.md](DATA_MODEL.md).
+### Traces, analytics, shadow cache
 
----
-
-## Analytics — `/api/v1/analytics`
-
-### `GET /api/v1/analytics/dashboard`
-
-Aggregated dashboard data. Query: `time_range`, `start_time`, `end_time`,
-`tenant_id`. Response `AnalyticsDashboardResponse`:
-
-```json
-{
-  "kpis": { "total_requests": 0, "total_cost": 0.0, "total_tokens": 0, "avg_latency_ms": 0.0, "cache_hit_rate": 0.0 },
-  "time_series": [{ "date_label": "2026-10-01", "requests": 0, "cost": 0.0, "tokens": 0, "cache_hits": 0, "llm_calls": 0 }],
-  "cache_performance": { "llm_calls": 0, "redis_exact": 0, "qdrant_exact": 0, "qdrant_semantic": 0, "total": 0, "cache_hit_percentage": 0.0 },
-  "model_breakdown": [{ "model": "...", "provider": "...", "requests": 0, "total_cost": 0.0, "total_tokens": 0 }],
-  "prompt_breakdown": [{ "prompt_hash": "sha256-hex-or-null", "requests": 0, "total_cost": 0.0, "total_tokens": 0 }],
-  "evaluations": { "avg_relevance_score": null, "avg_contradiction_score": null, "avg_entailment_score": null, "false_positive_rate": null, "evaluated_count": 0 },
-  "top_intents": [{ "intent": "code_generation", "count": 0 }],
-  "latency_metrics": { "...": "LatencyMetricsResponse" }
-}
-```
-
-> The dashboard already contains the KPI and cache-performance data. There are no
-> separate `/kpis` or `/cache-performance` endpoints (older READMEs referenced
-> them).
-
-> `prompt_breakdown` attributes cost per downstream application without caller
-> tagging: `prompt_hash` is the SHA-256 of the system prompt only, ordered by
-> cost descending. A `null` hash is the unattributed bucket — rows written
-> before the column existed that the backfill could not recover
-> (`python -m app.scripts.backfill_prompt_hashes`).
-
-### `GET /api/v1/analytics/latency`
-
-`LatencyMetricsResponse`: `total_requests`, `avg_latency_ms`,
-`avg_provider_latency_ms`, `avg_cache_lookup_latency_ms`, `percentiles`
-(`p50`/`p90`/`p95`/`p99`), `component_breakdown` (the per-stage ms fields),
-`by_routing_decision[]`, and `time_series[]`. Query params as above.
-
----
-
-## Shadow cache — `/api/v1/shadow-cache`
-
-Read-only views over `shadow_cache_evaluations`
-([DATA_MODEL.md](DATA_MODEL.md#shadow_cache_evaluations)). Rows exist only when
-the gateway runs `CACHE_MODE=shadow`
-([CONFIGURATION.md](CONFIGURATION.md#shadow-pipeline-tuning)). Both endpoints
-require `X-API-Key` and are tenant-scoped by RLS.
-
-### `GET /api/v1/shadow-cache/summary`
-
-Readiness view for a window. Query: `time_range` (`1h` … `30d`, default `7d`
-when no bounds are given), `start_time`, `end_time`, `tenant_id`.
-
-```json
-{
-  "cache_mode": "shadow",
-  "start_time": "2026-10-19T00:00:00Z",
-  "end_time": "2026-10-26T00:00:00Z",
-  "time_range": "7d",
-  "total_evaluations": 0,
-  "would_have_hits": 0,
-  "hit_rate": 0.0,
-  "match_type_breakdown": [{ "match_type": "MISS", "count": 0 }],
-  "compared_evaluations": 0,
-  "equivalent_evaluations": 0,
-  "non_equivalent_evaluations": 0,
-  "equivalence_rate": null,
-  "avg_latency_saved_ms": null,
-  "projected_latency_saved_ms": null,
-  "avg_cache_lookup_ms": null,
-  "avg_provider_ms": null,
-  "by_intent": [{ "intent": "code_generation", "evaluations": 0, "would_have_hits": 0, "hit_rate": 0.0 }],
-  "by_model": [{ "model": "...", "provider": "...", "evaluations": 0, "would_have_hits": 0, "hit_rate": 0.0 }],
-  "readiness": {
-    "status": "NOT_READY",
-    "reasons": [],
-    "min_evaluations": 200,
-    "min_hit_rate": 0.05,
-    "min_equivalence_rate": 0.98
-  }
-}
-```
-
-`hit_rate` / `equivalence_rate` / `readiness` thresholds are fractions (`0–1`);
-`equivalence_rate` is `null` until at least one would-be hit has been compared.
-`readiness.status` is `READY`, `WARMING_UP` (not enough data yet), or
-`NOT_READY`, with one human-readable string per unmet floor in `reasons`.
-`projected_latency_saved_ms` is the summed provider time that cache hits would
-have avoided; `avg_latency_saved_ms` is the per-hit average.
-
-### `GET /api/v1/shadow-cache/evaluations`
-
-Paginated evaluations, newest first.
-
-| Query | Default | Notes |
+| Method | Path | Notes |
 | --- | --- | --- |
-| `skip` | `0` | Offset. |
-| `limit` | `100` | 1–500. |
-| `tenant_id` | unset | Optional filter. |
-| `would_have_hit` | unset | `true`/`false`. |
-| `match_type` | unset | `REDIS_EXACT`, `QDRANT_EXACT`, `QDRANT_FAST`, `QDRANT_SEMANTIC`, `MISS`. |
-| `is_equivalent` | unset | Judge verdict filter. |
-| `model`, `intent` | unset | Exact-match filters. |
-| `start_time`, `end_time` | unset | Window; unset means no time bound. |
+| `GET` | `/api/v1/gateway-requests/` | List traces (`skip`, `limit`). |
+| `GET` | `/api/v1/gateway-requests/{log_id}` | Trace with latency breakdown and judge scores. |
+| `GET` | `/api/v1/gateway-requests/by-hash/{exact_hash}` | Lookup by exact cache hash. |
+| `POST` | `/api/v1/gateway-requests/`, `PUT` `/{log_id}`, `DELETE` `/{log_id}` | CRUD for internal/admin use. |
+| `GET` | `/api/v1/gateway-requests/pending-evaluations` | Rows awaiting judge evaluation. |
+| `POST` | `/api/v1/gateway-requests/evaluate` | Queue evaluation for pending rows. |
+| `GET` | `/api/v1/analytics/dashboard` | KPIs, cache performance, model breakdown, latency, prompt attribution. |
+| `GET` | `/api/v1/analytics/latency` | Latency percentiles. |
+| `GET` | `/api/v1/shadow-cache/summary` | Would-be hit rate, equivalence, projected savings, readiness verdict. |
+| `GET` | `/api/v1/shadow-cache/evaluations` | Per-evaluation drill-down. |
 
-Response: `{ "items": [...], "total": 0, "skip": 0, "limit": 100 }`, where each
-item is a `ShadowCacheEvaluationResponse` (`id`, `created_at`, `request_id`,
-`exact_hash`, `tenant_id`, `user_id`, `model`, `provider`, `would_have_hit`,
-`match_type`, `point_id`, `match_score`, `rerank_score`, `score_breakdown`,
-`cached_response_text`, `actual_response_text`, `is_equivalent`, `intent`,
-`entities`, `latency_breakdown`, `provider_latency_ms`,
-`cache_lookup_latency_ms`, `projected_latency_saved_ms`).
+### Usage and diagnostics
 
----
-
-## LLM usage — `/api/v1/llm-usage`
-
-| Method | Path | Description |
+| Method | Path | Notes |
 | --- | --- | --- |
-| `GET` | `/` | List usage logs. Query `start_time`, `end_time`, `skip`, `limit` (1–1000). |
-| `GET` | `/{log_id}` | Fetch one usage log. |
-| `POST` | `/` | Create a usage log (`LlmUsageLogCreate`). 201. |
-| `PUT` | `/{log_id}` | Update a usage log (`LlmUsageLogUpdate`). |
-| `DELETE` | `/{log_id}` | Delete a usage log. |
-| `POST` | `/calculate-costs` | Queue background cost calculation. |
+| `GET`/`POST` | `/api/v1/llm-usage/` | List / create usage logs; `{log_id}` supports `GET`/`PUT`/`DELETE`. |
+| `POST` | `/api/v1/llm-usage/calculate-costs` | Queue background cost calculation. |
+| `POST` | `/api/v1/chat/completions/semantic-search` | Candidate retrieval only. Admin key with `cache:read`; `?tenant_id=` selects the scope. |
+| `POST` | `/api/v1/chat/completions/exact-search` | Exact lookup only. Admin key with `cache:read`. |
+| `POST` | `/api/v1/chat/completions/cache-save` | Write a `{request, response}` pair directly. Admin key with `cache:write`. |
+| `POST` | `/api/v1/qdrant/search` | Dense search across tenants. Admin key with `cache:read`. |
+| `POST` | `/api/v1/qdrant/search/rrf` | Hybrid dense + sparse RRF search. Admin key with `cache:read`. |
+| `POST` | `/api/v1/verifier/predict/rerank` | Cross-encoder rerank of candidate strings. |
 
-`POST /calculate-costs` returns
-`{"task_id", "dispatched_to_celery", "message"}`.
+### Admin operations
 
----
+| Method | Path | Notes |
+| --- | --- | --- |
+| `GET`/`POST` | `/api/v1/admin/api-keys/` | List / create keys. |
+| `DELETE` | `/api/v1/admin/api-keys/{key_id}` | Revoke. |
+| `POST` | `/api/v1/admin/api-keys/{key_id}/rotate` | Replace with a grace-period expiry on the old key. |
+| `GET`/`POST` | `/api/v1/admin/llm-quota/` | List / create quota rules. |
+| `GET`/`PATCH`/`DELETE` | `/api/v1/admin/llm-quota/{rule_id}` | Read / update / delete a rule. |
+| `GET` | `/api/v1/admin/llm-quota/effective` | Resolved limits for a caller. |
+| `GET` | `/api/v1/admin/llm-quota/tenants` | Tenants with rules. |
+| `POST` | `/api/v1/admin/cache/warmup` | Batch `(request, response)` seeding; per-item failures reported. |
+| `POST` | `/api/v1/admin/cache/search` | Semantic or exact cache search (`mode: "exact"`). |
+| `DELETE` | `/api/v1/admin/cache/entry/{point_id}` | Evict one entry across Qdrant + Redis. |
+| `POST` | `/api/v1/admin/cache/evict` | Filtered bulk eviction, dry-run by default, capped at 1000 per call. |
 
-## Qdrant — `/api/v1/qdrant`
+### User keys and session (Supabase auth)
 
-Operator-only vector-search diagnostics. Both endpoints return raw cache
-payloads (prompts and completions) for **every tenant at once** and take no
-tenant filter, so they require an `X-Admin-Key` with the `cache:read` scope.
-A tenant `X-API-Key` is not accepted for them.
+Present only when Supabase auth is configured; these act on the caller's own
+tenant, not through `X-Admin-Key`.
 
-- `POST /api/v1/qdrant/search` — dense search over `user_prompt_embedding` (or
-  `system_prompt_embedding`). Body `QdrantSearchRequest`
-  (`messages`, `threshold` default `0.90` bounded to `[0, 1]`, `model_filter`).
-  Returns `{found, payload}`. `threshold` is a cosine-similarity floor and is
-  applied to the result set.
-- `POST /api/v1/qdrant/search/rrf` — same body, hybrid dense+sparse RRF search.
-  The fused score is a rank score, not a similarity, so `threshold` is applied
-  as a floor on each **dense prefetch** branch; the sparse BM25 branch (a
-  different score scale) is unfiltered.
+| Method | Path | Notes |
+| --- | --- | --- |
+| `GET` | `/api/v1/user/me` | Authenticated session profile. |
+| `GET`/`POST` | `/api/v1/user/api-keys` | List / create keys for the current tenant. |
+| `DELETE` | `/api/v1/user/api-keys/{key_id}` | Revoke. |
+| `POST` | `/api/v1/user/api-keys/{key_id}/rotate` | Rotate. |
 
----
+## Admin authentication
 
-## Verifier — `/api/v1/verifier`
-
-- `POST /api/v1/verifier/predict/rerank` — cross-encoder rerank of candidates.
-  Body `{"query": "...", "candidates": ["..."]}`. Returns
-  `{"results": [{"candidate": "...", "score": 0.0}]}` sorted by descending score.
-
----
-
-## Admin authentication — `X-Admin-Key`
-
-Every route under `/api/v1/admin/*` requires an **admin API key** sent as the
-`X-Admin-Key` header. A tenant `X-API-Key` is **not** accepted there, and an
-admin key is not accepted anywhere else.
-
-Admin keys are stored separately from tenant keys (`admin_api_keys`) and carry
-**scopes** rather than a tenant/user pair. They exist because the admin surface
-runs in `system_rls_context()`, which disables Postgres Row-Level Security and
-lets a caller read and write every tenant's rows.
-
-### Creating a key
-
-There is **no HTTP endpoint that mints an admin key.** Keys are created only on
-the gateway host:
+`X-Admin-Key` is a separate credential type from tenant API keys. Keys live in
+`admin_api_keys` and are minted only by the CLI, never over HTTP:
 
 ```bash
-python -m app.scripts.create_admin_key create \
-  --name ops --scopes quota:read,quota:write [--expires-in-days 90]
-python -m app.scripts.create_admin_key list
-python -m app.scripts.create_admin_key revoke --id 3
+poetry run python -m app.scripts.create_admin_key create \
+  --name "ops" --scopes "admin:*,cache:read,cache:write" --expires-in-days 90
 ```
 
-The plaintext (`ega_...`) is printed **once**; only its SHA-256 hash is stored.
-
-| Scope | Grants |
-| --- | --- |
-| `quota:read` | Read quota rules, tenants, effective limits. |
-| `quota:write` | Create/update/delete quota rules. Implies `quota:read`. |
-| `keys:read` | List tenant API keys. |
-| `keys:write` | Create/revoke tenant API keys. Implies `keys:read`. |
-| `admin:*` | Everything. |
-
-Unknown scopes are rejected at mint time (a typo like `quota:reed` fails
-loudly rather than silently granting nothing).
-
-### Behaviour
-
-- **Fails closed.** A missing, unknown, revoked, or expired key returns `401`,
-  including when no admin keys exist yet. The admin surface is locked until an
-  operator mints one.
-- `401` never distinguishes unknown from revoked, so the endpoint cannot be used
-  to enumerate keys.
-- Insufficient scope returns `403` naming the required scope and the scopes the
-  key carries.
-- **Revocation is not instantaneous.** Resolution is cached for 5s *per process*,
-  so a revoked key can keep working for up to that long on each running worker.
-- An admin key never becomes a tenant identity: `TenantContextMiddleware` only
-  resolves `api_keys` rows, so `X-Admin-Key` never establishes `app.current_tenant`.
-
----
-
-## API keys (admin) — `/api/v1/admin/api-keys`
-
-Requires `X-Admin-Key` with `keys:write` to create/revoke and `keys:read` to
-list.
-
-| Method | Path | Description |
-| --- | --- | --- |
-| `POST` | `/` | Create a key. Body `{name, tenant_id, user_id?}`. 201. |
-| `GET` | `/` | List keys (metadata only; plaintext never returned). |
-| `DELETE` | `/{key_id}` | Revoke a key (row remains; `is_active=false`). |
-
-The create response includes the plaintext `api_key` **once**:
-
-```bash
-curl -X POST http://localhost:8000/api/v1/admin/api-keys/ \
-  -H "Content-Type: application/json" \
-  -H "X-Admin-Key: ega_..." \
-  -d '{"name": "local-dev", "tenant_id": "acme", "user_id": "dev"}'
-```
-
----
-
-## LLM quota (admin) — `/api/v1/admin/llm-quota`
-
-CRUD over `llm_quota_rules`, the table `llm_quota_guard` reads on every chat
-completion. A rule scopes by any combination of `tenant_id` / `user_id` /
-`provider` / `model`; a `null` in any of those is a wildcard. A rule with every
-scope field null is **global** and applies to every tenant.
-
-| Method | Path | Description |
-| --- | --- | --- |
-| `POST` | `/` | Create a rule. Body `{tenant_id?, user_id?, provider?, model?, max_rpm?, max_tpm?, is_active?}`. 201. |
-| `GET` | `/` | List rules. Query `skip`, `limit`, `tenant_id?`, `provider?`, `model?`, `is_active?`. |
-| `GET` | `/tenants` | Distinct tenant IDs that have at least one rule. |
-| `GET` | `/effective` | Most restrictive limits applying to a scope. Query `tenant_id?`, `provider?`, `model?`, `user?`. |
-| `GET` | `/{rule_id}` | Fetch one rule. |
-| `PATCH` | `/{rule_id}` | Partial update; omitted fields are untouched. |
-| `DELETE` | `/{rule_id}` | Delete a rule permanently. |
-
-At least one of `max_rpm` / `max_tpm` is required (`422` otherwise). A rule with
-neither would never restrict anything.
-
-```bash
-curl -X POST http://localhost:8000/api/v1/admin/llm-quota/ \
-  -H "Content-Type: application/json" \
-  -d '{"tenant_id": "acme", "max_rpm": 60, "max_tpm": 40000}'
-```
-
-`GET /effective` resolves against the rule table only — it does not read the
-Redis counters, so it reports configured limits rather than live usage. When
-`uses_defaults` is true, no rule matches and the gateway falls back to its
-hardcoded 10 RPM / 20000 TPM.
-
-These handlers run inside `system_rls_context()`, so they bypass Postgres
-Row-Level Security and can read and write every tenant's rules. That is what
-makes cross-tenant management possible, and it is why every route requires an
-`X-Admin-Key` with the matching `quota:*` scope — see
-[Admin authentication](#admin-authentication--x-admin-key).
-
-`LlmQuotaRuleService` additionally refuses to open a session unless it is handed
-a resolved `AdminKeyIdentity`. That is a fail-loud guard rail, not a security
-boundary (in-process Python can call the service directly), but it means a
-mis-wired or forgotten guard raises instead of silently opening an
-RLS-bypassed session.
-
-### Rate limiting notes
-
-- **Anonymous callers are isolated per fingerprint.** `POST /api/v1/chat/completions`
-  intentionally allows keyless requests (see above). A keyless caller's counter
-  bucket is `anon:<sha256-prefix>` over the client address (preferring the first
-  `X-Forwarded-For` hop, as reported by a fronting proxy) plus an optional
-  `X-Session-ID` behind shared NAT, so one anonymous caller can never exhaust
-  the shared anonymous capacity for everyone else. Callers carrying a valid
-  `X-API-Key` bucket on their key. A caller can still rotate fingerprints to
-  obtain a fresh bucket, so this bounds honest anonymous load only — it is not
-  a security boundary; see `app/core/guards.py` and
-  `tests/test_anonymous_rate_limit.py`.
-
----
-
-## Cache (admin) — `/api/v1/admin/cache`
-
-### `POST /api/v1/admin/cache/warmup`
-
-Pre-seeds the cache with `(request, response)` pairs through the same save path
-real traffic uses. Requires an `X-Admin-Key` with the `cache:write` scope.
-
-```json
-{
-  "force": true,
-  "items": [
-    {
-      "request": {
-        "service_name": "openai",
-        "model": "gpt-4o-mini",
-        "messages": [{"role": "user", "content": "hello"}]
-      },
-      "response": {
-        "id": "chatcmpl-1",
-        "created": 1,
-        "model": "gpt-4o-mini",
-        "choices": [
-          {"index": 0, "message": {"role": "assistant", "content": "hi"}}
-        ]
-      },
-      "tenant_id": "acme"
-    }
-  ]
-}
-```
-
-- `request` is a full `ChatCompletionRequest` body and `response` a
-  `ChatCompletionResponse`. Warmup reproduces the key the original traffic would
-  have produced, so every field that affects the answer (model, temperature,
-  tools, `session_id` / `conversation_id`) has to match.
-- `tenant_id` is an **admin-only** override. `ChatCompletionRequest` deliberately
-  never honours a caller-supplied tenant — it is a private attribute resolved
-  from the API key — but cache keys and Qdrant payloads are tenant-scoped, so
-  omitting it writes a `GLOBAL`-scope entry that no tenant's exact-match lookup
-  can hit; only semantic search may serve it, and to every tenant. Set it when
-  seeding from production traces.
-- `force` (default `true`) writes both cache layers regardless of `CACHE_MODE`
-  and the per-layer flags, exactly like the shadow evaluator.
-- At most 200 items per request (`400` beyond that, and for an empty list).
-  Fan-out is bounded to 5 in-flight writes.
-
-The envelope's `response` field carries `{"queued", "succeeded", "failed"}`. A
-failing item is counted in `failed` and never fails the request: a warmup run
-must not surface a cache error as an API error.
-
-```bash
-curl -X POST http://localhost:8000/api/v1/admin/cache/warmup \
-  -H "Content-Type: application/json" \
-  -H "X-Admin-Key: $ADMIN_KEY" \
-  -d @warmup-batch.json
-```
-
-### `POST /api/v1/admin/cache/search`
-
-Search stored cache entries, either semantically or by exact hash. Requires
-`cache:read`.
-
-Body: `{mode?, query?, exact_hash?, limit?, min_score?, model?, intent?, scope?,
-tenant_id?}`.
-
-- `mode` is `"semantic"` (default) or `"exact"`.
-- **semantic** requires `query`: it is embedded with the same encoder and
-  `user_prompt_embedding` vector name the serving path uses, so the hits are the
-  entries a real request would be compared against. `limit` is 1–100 (default
-  20); `min_score` (0–1) drops weak matches.
-- **exact** requires `exact_hash` and skips the inference engine entirely, so it
-  still works while the engine is down. It deliberately ignores `cacheable` and
-  `expires_at`, like the semantic mode ignores them.
-- `model`, `intent`, `scope` and `tenant_id` are optional ANDed filters in both
-  modes.
-
-```json
-{"query": "how do I reset my password", "tenant_id": "acme", "limit": 10}
-```
-
-```json
-{"mode": "exact", "exact_hash": "9f2c...e41"}
-```
-
-`response` carries `{count, results: [...]}`. Each hit is the Qdrant payload
-flattened: `point_id`, `score`, `prompt`, `user_prompt`, `model`, `service_name`,
-`intent`, `scope`, `tenant_id`, `exact_hash`, `cacheable`, `created_at`,
-`expires_at`, `hit_count`, `entities`, `time_sensitivity`, `core_operation`,
-`core_subject`, `prompt_version`, `reranker_version`, `cache_key_version`,
-`provider_cost`, `latency_ms`, `token_count`, `retention_value`.
-
-Each hit also carries the **latest sampled audit verdict** for that point, when
-one exists: `rerank_score`, `vector_similarity`, `is_equivalent` and
-`last_audited_at` (they are query-time values, so they live in
-`cache_evaluations`, not in the payload). The lookup is best-effort: if Postgres
-is unreachable the search still returns hits with those four fields `null`.
-
-Unlike serving, the search deliberately applies **no** cacheability, expiry, or
-tenant-scope filter: an operator has to be able to see the dead and cross-tenant
-rows. This is why it needs an admin key rather than a tenant key.
-
-Returns `503` when Qdrant (either mode) or the inference engine (semantic mode
-only) is unavailable.
-
-### `DELETE /api/v1/admin/cache/entry/{point_id}`
-
-Evict one entry. Requires `cache:write`. Optional `exact_hash` query parameter
-drops the Redis copy as well (the Redis key is the exact hash, so pass the value
-returned by `/search`); omit it to delete the Qdrant vector alone.
-
-```bash
-curl -X DELETE \
-  "http://localhost:8000/api/v1/admin/cache/entry/$POINT_ID?exact_hash=$HASH" \
-  -H "X-Admin-Key: $ADMIN_KEY"
-```
-
-`response` is `{point_id, qdrant_deleted, redis_deleted}`, where `redis_deleted`
-is `null` when no hash was supplied. Qdrant deletion is idempotent, so evicting
-an already-missing point still reports success; a real Qdrant failure is `500`,
-and a Redis failure is reported in the body rather than raised.
-
-### `POST /api/v1/admin/cache/evict`
-
-Bulk eviction over a filtered slice of the cache. Requires `cache:write`.
-
-Body: `{intent?, model?, scope?, tenant_id?, older_than_days?, expired_only?,
-dry_run?, limit?, purge_redis?}`.
-
-- At least one filter is required (`400` otherwise): an empty body must never
-  mean "delete the collection". Filters are ANDed.
-- `older_than_days` matches on `created_at`; entries written before that field
-  existed do not match an age filter (they have no `created_at`).
-- `expired_only` matches on `expires_at < now`.
-- `dry_run` defaults to **true**: it reports `matched` and removes nothing.
-- `limit` (1–10000, default 1000) caps one call. If the filter matches more than
-  `limit`, the request is `400` — narrow the filter or raise the limit, because
-  an unbounded delete is not offered.
-- `purge_redis` (default true) also deletes the Redis copy of every matched exact
-  hash. Skipping it would leave exact hits servable after the vectors are gone.
-
-```json
-{"intent": "general_query", "older_than_days": 30, "dry_run": false}
-```
-
-`response` is `{filters, matched, deleted, redis_deleted, dry_run}`. `matched` is
-the exact filter count taken before anything is removed, so a dry run and a real
-sweep report the same number; `redis_deleted` counts the keys actually removed
-(a Redis failure is counted, not raised). `503` when Qdrant is unavailable.
-
----
-
-## Conversations — `/api/v1/conversations`
-
-Mounted in `app/main.py`
-(`app/modules/conversation/conversation_controller.py`):
-
-| Method | Path | Description |
-| --- | --- | --- |
-| `POST` | `/api/v1/conversations` | Create a conversation (body: `{"title": "..."}`). |
-| `GET` | `/api/v1/conversations` | List caller's conversations (query params: `skip`, `limit`). |
-| `GET` | `/api/v1/conversations/{conversation_id}` | Retrieve one conversation with its complete message history. |
-| `PATCH` | `/api/v1/conversations/{conversation_id}` | Update conversation title (body: `{"title": "..."}`). |
-| `DELETE` | `/api/v1/conversations/{conversation_id}` | Delete a conversation and cascade delete its messages (`{"id": "...", "deleted": true}`). |
-| `POST` | `/api/v1/conversations/{conversation_id}/chat` | Append user message to history, execute completion with full history, and persist turn. |
-
-Responses wrap in `BaseAPIResponse[ConversationResponse | ...]`, except non-streaming `POST /{conversation_id}/chat` which returns `ChatCompletionResponse` directly (or SSE chunks when streaming). The chat route calls `LlmRouterService`, so caching, prompt token optimization, tracing, rate limiting, and usage logging apply exactly as on `/api/v1/chat/completions`. Rows live in the RLS-scoped `conversations` and `messages` tables: the tenant/user resolved from `X-API-Key` (or session identity for anonymous callers) is stamped on writes and filters every read (see [DATA_MODEL.md](DATA_MODEL.md)). Accessing another user's conversation returns `404` (ownership is enforced server-side).
-
-### `POST /api/v1/conversations/{conversation_id}/chat`
-
-Executes a chat turn in a persistent multi-turn thread. Enforces optional API key authentication (`api_key_auth_optional_guard`) and quota enforcement (`llm_quota_guard`).
-
-**Request body** (`ChatCompletionRequestWithConversation`):
-
-| Field | Type | Default | Description |
-| --- | --- | --- | --- |
-| `service_name` | string | `"ollama"` | LLM provider (`ollama`, `gemini`/`google-genai`, `openai`, `groq`, `openrouter`). |
-| `model` | string | required | Target model name (validated against provider's allowlist). |
-| `message` | string | required | New user prompt message content to append to conversation history. |
-| `temperature` | float | `1.0` | Sampling temperature. |
-| `max_tokens` | int | `null` | Maximum completion tokens. |
-| `stream` | bool | `false` | When `true`, returns Server-Sent Events (`text/event-stream`). |
-| `thinking` | bool | `false` | Enable extended thinking / reasoning mode where supported. |
-| `thinking_budget` | int | `null` | Token budget for model reasoning. |
-| `response_format` | object | `null` | Structured outputs schema or json object request. |
-| `prompt_optimization` | bool/object | `null` | Per-request prompt optimization overrides (`PromptOptimizationConfig` or boolean). |
-
-**Turn persistence & streaming lifecycle**:
-- **Atomic persistence**: Both the user prompt turn and the assistant response turn are saved in the database. If provider dispatch fails, the user message is rolled back.
-- **Streaming support (`stream: true`)**: Streams SSE `ChatCompletionChunk` events. Content chunks are yielded to the client in real-time, while an accumulator gathers the full assistant message. Upon stream completion (`data: [DONE]`), the assembled reply is committed to the database.
-- **Prompt optimization integration**: Pre-dispatch optimization runs across the accumulated conversation history (whitespace collapse, tool table formatting, session turn dedup, CCR, headroom trimming). Emits `X-EchoGate-Prompt-Optimization: applied` and `X-EchoGate-Prompt-Savings: tokens=...,chars=...` headers.
-
----
+- The plaintext (`ega_...`) is shown once; only a hash is stored.
+- Scopes are enforced per route (`cache:read`, `cache:write`, `admin:*`).
+- `admin:*` does not imply cache scopes on the diagnostic routes; grant both.
+- An expired or revoked key is a `401`; an unscoped key is a `403`.
 
 ## Allowed models
 
-Enforced by `validate_model_for_service` in `app/modules/chat/chat_schema.py`.
-Sending a model outside its provider's list returns `400`.
-
-| Provider (`service_name`) | Allowed models |
-| --- | --- |
-| `ollama` | `qwen3:8b`, `qwen2.5-coder:14b`, `qwen2.5-coder:1.5b`, `qwen2.5-coder:3b`, `qwen2.5-coder:7b` |
-| `gemini`, `google-genai` | `gemini-3.1-flash-lite`, `gemini-3.5-flash-lite`, `gemini-3.8-flash` |
-| `openai` | `gpt-4o-mini` |
-| `groq` | `openai/gpt-oss-20b`, `openai/gpt-oss-safeguard-20b` |
-| `openrouter` | `qwen/qwen3.8-27b:free`, `google/gemma-4-26b-a4b-it:free`, `google/gemma-4-31b-it:free` |
-
-Pricing (`app/core/pricing.py`) is per 1M tokens; Ollama, Groq, and OpenRouter
-free models are `0.0`. OpenAI `gpt-4o-mini`: $0.15 / $0.60. Gemini
-`gemini-3.1-flash-lite` and `gemini-3.8-flash`: $0.075 / $0.30;
-`gemini-3.5-flash-lite`: $1.25 / $5.00.
+`ALLOWED_MODELS` in `api/app/modules/chat/chat_schema.py` is the static allowlist;
+`ALLOWED_MODELS_JSON` extends it at runtime and `MODEL_ALIASES_JSON` maps aliases
+(`fast`, `cheap`, `quality`) to ranked `(provider, model)` pairs. A request for a
+model outside the resolved set is a `400`. `/v1/models` reports what is actually
+reachable, so prefer it over hardcoding.

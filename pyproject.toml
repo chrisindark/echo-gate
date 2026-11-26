@@ -144,6 +144,10 @@ ignore = [
     "UP042", # Class inherits from both str and Enum (StrEnum)
 ]
 
+[tool.ruff.lint.per-file-ignores]
+"api/app/scripts/*.py" = ["E402"]
+"api/app/worker/celery_app.py" = ["E402"]
+
 [tool.ruff.lint.isort]
 known-first-party = ["app"]
 

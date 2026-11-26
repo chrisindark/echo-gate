@@ -98,7 +98,7 @@ Counters live in Redis (`rpm:*` 60s window, `tpm:*` 60s window, `budget:*`).
 Redis failure degrades to allow.
 
 Rules are managed through `/api/v1/admin/llm-quota` (see
-[API_REFERENCE.md](API_REFERENCE.md#llm-quota-admin--apiv1adminllm-quota)). Those
+[API_REFERENCE.md](API_REFERENCE.md#admin-operations)). Those
 handlers run in `system_rls_context()`, so they cross tenants deliberately and
 require an `X-Admin-Key` with a `quota:*` scope.
 
@@ -126,7 +126,7 @@ require an `X-Admin-Key` with a `quota:*` scope.
 
 > Conversations/messages are tenant-scoped and surfaced through the mounted
 > `conversation/` router — see
-> [API_REFERENCE.md](API_REFERENCE.md#conversations--apiv1conversations).
+> [API_REFERENCE.md](API_REFERENCE.md#stateful-conversations).
 
 #### `admin_api_keys`
 
@@ -192,7 +192,7 @@ task after the client already has its response. See
 Indexes: `created_at`, `request_id`, `exact_hash`, `tenant_id`, `user_id`,
 `model`, `would_have_hit`, `match_type`, `point_id`, `is_equivalent`, `intent`.
 Surfaced read-only through `/api/v1/shadow-cache` (see
-[API_REFERENCE.md](API_REFERENCE.md#shadow-cache--apiv1shadow-cache)), which the
+[API_REFERENCE.md](API_REFERENCE.md#traces-analytics-shadow-cache)), which the
 analytics dashboard uses for its cache-readiness indicator.
 
 #### `cache_evaluations`

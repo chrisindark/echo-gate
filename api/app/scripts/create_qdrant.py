@@ -7,6 +7,8 @@ load_app_env()
 
 from app.core.dependencies import DependencyContainer
 
-print(f"Initializing Qdrant at {config.QDRANT_URL}, collection: {config.QDRANT_COLLECTION_NAME}...")
+print(
+    f"Initializing Qdrant at {config.QDRANT_URL}, collection: {config.QDRANT_COLLECTION_NAME}..."
+)
 q = DependencyContainer.get_qdrant_client_service()
 print("Reinitialized successfully.")
