@@ -26,6 +26,7 @@ import {
   RefreshCw,
   Send,
   Settings2,
+  Square,
   Sparkles,
   Tag,
   Terminal,
@@ -128,6 +129,10 @@ export default function Home() {
   const [cacheInfo, setCacheInfo] = useState<CacheInfoType | null>(null);
   const [latency, setLatency] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const [lastLatency, setLastLatency] = useState<number | null>(null);
+  const [stopped, setStopped] = useState(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const { apiKey, setApiKey, isSettingsOpen, setIsSettingsOpen } = useApiKey();
   const { user, accessToken, isLoading: authLoading } = useAuth();
   const {
@@ -261,11 +266,33 @@ export default function Home() {
 
   const loadedHashRef = useRef<string | null>(null);
 
+  const handleStopStreaming = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setStopped(true);
+    setLoading(false);
+  };
+
   const {
     containerRef: feedRef,
     isNearBottom,
     jumpToBottom,
   } = useStickToBottom([response, thinkingContent, loading]);
+
+  useEffect(() => {
+    if (!loading) return;
+    const start = Date.now();
+    const id = window.setInterval(() => setElapsed(Date.now() - start), 100);
+    return () => window.clearInterval(id);
+  }, [loading]);
+
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
 
   useEffect(() => {
     if (authLoading) return;
@@ -281,6 +308,7 @@ export default function Home() {
     e.preventDefault();
     if (!prompt.trim()) return;
 
+    setStopped(false);
     setLoading(true);
     setResponse('');
     setError(null);
@@ -290,8 +318,11 @@ export default function Home() {
     setCacheInfo(null);
     setLatency(null);
     setPromptSavings(null);
+    setLastLatency(null);
 
     const startTime = performance.now();
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
 
     try {
       const headers: Record<string, string> = {
@@ -350,6 +381,7 @@ export default function Home() {
         method: 'POST',
         headers,
         body: JSON.stringify(bodyPayload),
+        signal: abortController.signal,
       });
 
       const cacheHeader = res.headers.get('X-Cache');
@@ -490,12 +522,16 @@ export default function Home() {
 
         setIsThinking(false);
         const endTime = performance.now();
-        setLatency(Math.round(endTime - startTime));
+        const finalLatency = Math.round(endTime - startTime);
+        setLatency(finalLatency);
+        setLastLatency(finalLatency);
         return;
       }
 
       const endTime = performance.now();
-      setLatency(Math.round(endTime - startTime));
+      const finalLatency = Math.round(endTime - startTime);
+      setLatency(finalLatency);
+      setLastLatency(finalLatency);
 
       const data = await res.json();
 
@@ -549,9 +585,14 @@ export default function Home() {
         }
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (err instanceof Error && err.name === 'AbortError') {
+        setStopped(true);
+      } else {
+        setError(err instanceof Error ? err.message : String(err));
+      }
     } finally {
       setLoading(false);
+      abortControllerRef.current = null;
     }
   };
 
@@ -640,6 +681,37 @@ export default function Home() {
                 <span className="hidden sm:inline">Reset</span>
               </button>
             )}
+            {(loading || lastLatency !== null || stopped) && (
+              <span
+                className={cn(
+                  'hidden sm:inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium',
+                  loading
+                    ? 'border-primary/30 bg-primary/10 text-primary'
+                    : stopped
+                      ? 'border-amber-500/30 bg-amber-500/10 text-amber-500'
+                      : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500'
+                )}
+                aria-live="polite"
+                aria-atomic="true"
+              >
+                {loading ? (
+                  <>
+                    <span className="h-2 w-2 animate-pulse rounded-full bg-primary" />
+                    Generating… {(elapsed / 1000).toFixed(1)}s
+                  </>
+                ) : stopped ? (
+                  <>
+                    <span className="h-2 w-2 rounded-full bg-amber-500" />
+                    Stopped
+                  </>
+                ) : (
+                  <>
+                    <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                    Complete · {lastLatency}ms
+                  </>
+                )}
+              </span>
+            )}
             <button
               type="button"
               onClick={() => setIsSettingsOpen(!isSettingsOpen)}
@@ -657,10 +729,25 @@ export default function Home() {
           </div>
         </header>
 
+        {loading && (
+          <div className="h-0.5 w-full overflow-hidden bg-primary/15">
+            <motion.div
+              className="h-full w-2/5 bg-primary"
+              animate={{ x: ['-100%', '250%'] }}
+              transition={{
+                repeat: Infinity,
+                duration: 1.3,
+                ease: 'easeInOut',
+              }}
+            />
+          </div>
+        )}
+
         {/* Chat History / Output area */}
         <div
           ref={feedRef}
           className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 min-w-0"
+          aria-busy={loading}
         >
           <AnimatePresence>
             {!response && !error && !loading && (
@@ -953,6 +1040,13 @@ export default function Home() {
                       ) : isJsonResponse && !rawView && formattedJson ? (
                         <pre className="p-4 rounded-xl bg-muted/40 border border-border/60 font-mono text-sm overflow-x-auto leading-relaxed text-emerald-300 whitespace-pre">
                           <code>{formattedJson}</code>
+                          {loading && (
+                            <motion.span
+                              animate={{ opacity: [1, 0, 1] }}
+                              transition={{ repeat: Infinity, duration: 0.8 }}
+                              className="inline-block w-2 h-4 ml-1 bg-emerald-300 align-middle rounded-sm"
+                            />
+                          )}
                         </pre>
                       ) : (
                         <MessageContent
@@ -1002,14 +1096,25 @@ export default function Home() {
                 rows={1}
               />
               <div className="absolute right-2 bottom-2">
-                <IconButton
-                  type="submit"
-                  disabled={loading || !prompt.trim()}
-                  radius="large"
-                  size="3"
-                >
-                  <Send className="w-4 h-4" />
-                </IconButton>
+                {loading ? (
+                  <IconButton
+                    type="button"
+                    onClick={handleStopStreaming}
+                    radius="large"
+                    size="3"
+                  >
+                    <Square className="w-4 h-4 fill-destructive text-destructive" />
+                  </IconButton>
+                ) : (
+                  <IconButton
+                    type="submit"
+                    disabled={!prompt.trim()}
+                    radius="large"
+                    size="3"
+                  >
+                    <Send className="w-4 h-4" />
+                  </IconButton>
+                )}
               </div>
             </form>
             <div className="flex items-center justify-between mt-2 px-1">
