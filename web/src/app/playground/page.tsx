@@ -5,7 +5,6 @@ import {
   Box,
   Checkbox,
   Flex,
-  IconButton,
   Select,
   Slider,
   Text,
@@ -24,7 +23,6 @@ import {
   Copy,
   Database,
   RefreshCw,
-  Send,
   Settings2,
   Square,
   Sparkles,
@@ -37,6 +35,7 @@ import { useStickToBottom } from '@/hooks/use-stick-to-bottom';
 import Link from 'next/link';
 import { MaxTokensField } from '@/components/max-tokens-field';
 import { MessageContent } from '@/components/chat/message-content';
+import { ChatComposer } from '@/components/chat/chat-composer';
 import { DEFAULT_MAX_TOKENS, clampMaxTokens } from '@/lib/tokens';
 import { useApiKey } from '@/context/api-key-context';
 import { useAuth } from '@/context/auth-context';
@@ -123,6 +122,7 @@ interface CacheInfoType {
 
 export default function Home() {
   const [prompt, setPrompt] = useState('');
+  const [submittedPrompt, setSubmittedPrompt] = useState('');
   const [response, setResponse] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [cacheStatus, setCacheStatus] = useState<string | null>(null);
@@ -246,6 +246,7 @@ export default function Home() {
             originalPrompt = parts.slice(1).join('|user: ');
           }
           setPrompt(originalPrompt);
+          setSubmittedPrompt(originalPrompt);
           setResponse(log.response_text || '');
           setCacheStatus('DB RECOVERED');
           setCacheInfo({
@@ -304,10 +305,12 @@ export default function Home() {
     loadHash(hash);
   }, [authLoading, apiKey, accessToken, loadHash]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!prompt.trim()) return;
+  const handleSubmit = async () => {
+    const text = prompt.trim();
+    if (!text) return;
 
+    setSubmittedPrompt(text);
+    setPrompt('');
     setStopped(false);
     setLoading(true);
     setResponse('');
@@ -345,7 +348,7 @@ export default function Home() {
           ? { service_name: activeProvider }
           : {}),
         model: activeModel,
-        messages: [{ role: 'user', content: prompt }],
+        messages: [{ role: 'user', content: text }],
         temperature: temperature,
         max_tokens: clampMaxTokens(maxTokens),
         stream: stream,
@@ -661,18 +664,21 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-2">
-            {(response || error || loading) && (
+            {(submittedPrompt || response || error || loading) && (
               <button
                 type="button"
                 onClick={() => {
                   setResponse('');
                   setError(null);
                   setPrompt('');
+                  setSubmittedPrompt('');
                   setThinkingContent('');
                   setLatency(null);
                   setCacheInfo(null);
                   setCacheStatus(null);
                   setPromptSavings(null);
+                  setLastLatency(null);
+                  setStopped(false);
                 }}
                 className="px-2.5 py-1.5 rounded-lg border border-border/70 hover:bg-muted text-muted-foreground hover:text-foreground text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer"
                 title="Reset Playground"
@@ -750,7 +756,7 @@ export default function Home() {
           aria-busy={loading}
         >
           <AnimatePresence>
-            {!response && !error && !loading && (
+            {!submittedPrompt && !response && !error && !loading && (
               <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
@@ -768,7 +774,7 @@ export default function Home() {
               </motion.div>
             )}
 
-            {(loading || response || error) && (
+            {(submittedPrompt || loading || response || error) && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -777,7 +783,7 @@ export default function Home() {
                 {/* User Message */}
                 <div className="flex justify-end min-w-0">
                   <div className="bg-primary text-primary-foreground px-4 py-3 rounded-2xl rounded-tr-sm max-w-[85%] min-w-0 text-sm sm:text-base shadow-sm leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-                    {prompt}
+                    {submittedPrompt}
                   </div>
                 </div>
 
@@ -1076,52 +1082,31 @@ export default function Home() {
         )}
 
         {/* Input Form */}
-        <div className="p-4 bg-gradient-to-t from-background via-background to-transparent pt-4">
+        <div className="p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] bg-gradient-to-t from-background via-background to-transparent pt-4">
           <div className="max-w-3xl mx-auto">
-            <form
+            <ChatComposer
+              value={prompt}
+              onChange={setPrompt}
               onSubmit={handleSubmit}
-              className="relative shadow-lg shadow-black/5 rounded-2xl bg-card border border-border overflow-hidden focus-within:ring-1 focus-within:ring-primary/50 transition-shadow"
-            >
-              <textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSubmit(e);
-                  }
-                }}
-                placeholder="Message Echo Gate..."
-                className="w-full h-12 min-h-[48px] max-h-32 p-3.5 pr-14 bg-transparent border-none focus:ring-0 resize-none outline-none text-sm text-foreground placeholder:text-muted-foreground"
-                rows={1}
-              />
-              <div className="absolute right-2 bottom-2">
-                {loading ? (
-                  <IconButton
-                    type="button"
-                    onClick={handleStopStreaming}
-                    radius="large"
-                    size="3"
-                  >
-                    <Square className="w-4 h-4 fill-destructive text-destructive" />
-                  </IconButton>
-                ) : (
-                  <IconButton
-                    type="submit"
-                    disabled={!prompt.trim()}
-                    radius="large"
-                    size="3"
-                  >
-                    <Send className="w-4 h-4" />
-                  </IconButton>
-                )}
-              </div>
-            </form>
+              onStop={handleStopStreaming}
+              loading={loading}
+              placeholder="Message Echo Gate..."
+              tokenCount={
+                prompt.trim() ? Math.ceil(prompt.trim().length / 4) : undefined
+              }
+              autoFocus={!loading}
+            />
             <div className="flex items-center justify-between mt-2 px-1">
               <span className="text-[10px] text-muted-foreground">
                 Echo Gate may produce inaccurate information about people,
                 places, or facts.
               </span>
+              <Link
+                href="/conversations"
+                className="text-[10px] text-primary hover:underline"
+              >
+                Continue in Conversations →
+              </Link>
               {responseFormatType !== 'text' && (
                 <button
                   type="button"

@@ -5,7 +5,6 @@ import {
   Box,
   Checkbox,
   Flex,
-  IconButton,
   Select,
   Slider,
   Text,
@@ -26,7 +25,6 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   RefreshCw,
-  Send,
   Settings2,
   Sparkles,
   Square,
@@ -44,6 +42,7 @@ import React, {
 
 import { ConversationSidebar } from '@/components/conversation-sidebar';
 import { MessageContent } from '@/components/chat/message-content';
+import { ChatComposer } from '@/components/chat/chat-composer';
 import { MaxTokensField } from '@/components/max-tokens-field';
 import {
   DEFAULT_MAX_TOKENS,
@@ -452,8 +451,7 @@ export default function ChatPage() {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async () => {
     if (!prompt.trim() || loading || !activeModel) return;
 
     const userText = prompt.trim();
@@ -1310,7 +1308,7 @@ export default function ChatPage() {
         )}
 
         {/* Input Bar */}
-        <div className="p-4 bg-gradient-to-t from-background via-background/95 to-transparent pt-4">
+        <div className="p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] bg-gradient-to-t from-background via-background/95 to-transparent pt-4">
           <div className="max-w-3xl mx-auto">
             {showContextWarning && contextUsage && (
               <div
@@ -1365,34 +1363,24 @@ export default function ChatPage() {
               </div>
             )}
 
-            <form
+            <ChatComposer
+              value={prompt}
+              onChange={setPrompt}
               onSubmit={handleSubmit}
-              className="relative shadow-lg shadow-black/5 rounded-2xl bg-card border border-border overflow-hidden focus-within:ring-1 focus-within:ring-primary/50 transition-shadow"
-            >
-              <textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSubmit(e);
-                  }
-                }}
-                placeholder="Message Echo Gate..."
-                className="w-full h-14 min-h-[56px] max-h-32 p-4 pr-14 bg-transparent border-none focus:ring-0 resize-none outline-none text-sm text-foreground"
-                rows={1}
-              />
-              <div className="absolute right-2.5 bottom-2.5">
-                <IconButton
-                  type="submit"
-                  disabled={loading || !prompt.trim()}
-                  radius="large"
-                  size="2"
-                >
-                  <Send className="w-4 h-4" />
-                </IconButton>
-              </div>
-            </form>
+              onStop={handleStopStreaming}
+              loading={loading}
+              disabled={!activeModel}
+              placeholder="Message Echo Gate..."
+              tokenCount={
+                prompt.trim() ? Math.ceil(prompt.trim().length / 4) : undefined
+              }
+              autoFocus={!loading}
+              hint={
+                loading
+                  ? 'Stop generating to send a new message'
+                  : 'Enter to send · Shift+Enter for newline'
+              }
+            />
 
             <div className="flex items-center justify-between mt-2 px-1 gap-2">
               <span className="text-[11px] text-muted-foreground">
