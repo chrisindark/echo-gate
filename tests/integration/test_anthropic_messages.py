@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
 
+from app.core.config import config
 from app.core.constants import EchoGateHeaders
 from app.core.dependencies import get_llm_router_service
 from app.core.guards import llm_quota_guard
@@ -32,8 +33,14 @@ class TestAnthropicMessagesIntegration(unittest.TestCase):
         app.dependency_overrides[get_llm_router_service] = lambda: self.router
         app.dependency_overrides[llm_quota_guard] = dummy_quota
 
+        # Anonymous provider allowlist is configured in .env.local; disable it for
+        # this adapter test so the (keyless) request reaches the mocked router.
+        self._saved_allowed = config.ANONYMOUS_ALLOWED_PROVIDERS
+        config.ANONYMOUS_ALLOWED_PROVIDERS = None
+
     def tearDown(self):
         app.dependency_overrides.clear()
+        config.ANONYMOUS_ALLOWED_PROVIDERS = self._saved_allowed
 
     def test_create_message_non_streaming(self):
         mock_chat_response = ChatCompletionResponse(

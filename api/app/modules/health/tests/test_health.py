@@ -1,7 +1,11 @@
+import time
 import unittest
+from unittest.mock import MagicMock, patch
 
 from starlette.testclient import TestClient
 
+from app.core import database
+from app.core.config import config
 from app.main import app
 from app.modules.health.health_service import (
     check_celery_broker,
@@ -193,6 +197,41 @@ class TestHealthEndpoints(unittest.TestCase):
             data["checks"],
             {"celery_broker": "failed", "celery_workers": "failed"},
         )
+
+
+class TestCheckDatabase(unittest.IsolatedAsyncioTestCase):
+    async def test_check_database_uses_engine_connect_and_returns_true(self):
+        mock_conn = MagicMock()
+        mock_cm = MagicMock()
+        mock_cm.__enter__.return_value = mock_conn
+        mock_cm.__exit__.return_value = False
+        mock_engine = MagicMock()
+        mock_engine.connect.return_value = mock_cm
+
+        with patch.object(database, "engine", mock_engine):
+            ok = await check_database()
+
+        self.assertTrue(ok)
+        mock_engine.connect.assert_called_once_with()
+        mock_conn.execute.assert_called_once()
+
+    async def test_check_database_respects_timeout_and_logs_exception_type(self):
+        def _slow_connect():
+            time.sleep(0.25)
+            return MagicMock()
+
+        mock_engine = MagicMock()
+        mock_engine.connect.side_effect = _slow_connect
+
+        with (
+            patch.object(database, "engine", mock_engine),
+            patch.object(config, "DB_HEALTH_PROBE_TIMEOUT_SECONDS", 0.05),
+            self.assertLogs("app.modules.health.health_service", level="ERROR") as logs,
+        ):
+            ok = await check_database()
+
+        self.assertFalse(ok)
+        self.assertTrue(any("TimeoutError" in msg for msg in logs.output))
 
 
 if __name__ == "__main__":

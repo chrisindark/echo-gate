@@ -66,6 +66,14 @@ def _bool_env(name: str, default: bool) -> bool:
     return raw.strip().lower() in ("true", "1", "yes", "on")
 
 
+def _optional_bool_env(name: str) -> bool | None:
+    """Read an optional boolean env var; return ``None`` when unset or empty."""
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return None
+    return raw.strip().lower() in ("true", "1", "yes", "on")
+
+
 class Config:
     def __init__(self):
         self.load()
@@ -221,6 +229,9 @@ class Config:
         self.DB_POOL_TIMEOUT = int(os.getenv("DB_POOL_TIMEOUT", "30"))
         self.DB_POOL_RECYCLE = int(os.getenv("DB_POOL_RECYCLE", "1800"))
         self.DB_POOL_PRE_PING = os.getenv("DB_POOL_PRE_PING", "true").lower() == "true"
+        self.DB_HEALTH_PROBE_TIMEOUT_SECONDS = _bounded_float_env(
+            "DB_HEALTH_PROBE_TIMEOUT_SECONDS", 5.0, 0.1, 60.0
+        )
 
         # Provider API Keys
         openai_key = os.getenv("OPENAI_API_KEY")
@@ -249,6 +260,7 @@ class Config:
         self.USE_REDIS_EXACT_MATCHING = os.getenv(
             "USE_REDIS_EXACT_MATCHING", "false"
         ).lower()
+        self._redis_enabled_override = _optional_bool_env("REDIS_ENABLED")
 
         # Provider & Fallback Defaults
         self.USE_FALLBACK_LLM = os.getenv("USE_FALLBACK_LLM", "true")
@@ -322,6 +334,7 @@ class Config:
         self.USE_QDRANT_SEMANTIC_MATCHING = os.getenv(
             "USE_QDRANT_SEMANTIC_MATCHING", "false"
         ).lower()
+        self._qdrant_enabled_override = _optional_bool_env("QDRANT_ENABLED")
         self.QDRANT_DENSE_SEARCH_HIGH_THRESHOLD = float(
             os.getenv("QDRANT_DENSE_SEARCH_HIGH_THRESHOLD", "0.98")
         )
@@ -444,6 +457,7 @@ class Config:
 
         # Shadow cache pipeline (CACHE_MODE=shadow). The pipeline runs out of
         # band, so these knobs throttle how much work it may do per request.
+        self.SHADOW_CACHE_ENABLED = _bool_env("SHADOW_CACHE_ENABLED", True)
         self.SHADOW_SAMPLE_RATE = _bounded_float_env(
             "SHADOW_SAMPLE_RATE", 1.0, lower=0.0, upper=1.0
         )
@@ -645,7 +659,8 @@ class Config:
         self.INFERENCE_COMPRESS_URL = os.getenv("INFERENCE_COMPRESS_URL", "").rstrip(
             "/"
         )
-        self.INFERENCE_ENABLED = bool(
+        self._inference_enabled_override = _optional_bool_env("INFERENCE_ENABLED")
+        has_inference_url = bool(
             self.INFERENCE_BASE_URL
             or self.INFERENCE_EMBED_URL
             or self.INFERENCE_RERANK_URL
@@ -653,6 +668,10 @@ class Config:
             or self.INFERENCE_NLI_URL
             or self.INFERENCE_COMPRESS_URL
         )
+        if self._inference_enabled_override is None:
+            self.INFERENCE_ENABLED = has_inference_url
+        else:
+            self.INFERENCE_ENABLED = self._inference_enabled_override
         self.INFERENCE_TIMEOUT_SECONDS = _bounded_float_env(
             "INFERENCE_TIMEOUT_SECONDS", 5.0, 0.1, 120.0
         )
@@ -759,20 +778,90 @@ class Config:
         """Whether ``layer`` may read from / serve out of the cache.
 
         The cache only ever *serves* in ``active`` mode. In ``shadow`` mode the
-        pipeline runs with ``force=True`` from the background evaluator, and in
-        ``disabled`` mode it does not run at all.
+        pipeline runs with ``force=True`` from the background evaluator for any
+        enabled backend, and in ``disabled`` mode it does not run at all.
         """
         if self.CACHE_MODE != "active":
             return False
         flag = _CACHE_LAYER_FLAGS.get(layer)
         if flag is None:
             raise ValueError(f"Unknown cache layer: {layer!r}")
+        if layer == "redis" and not self.redis_cache_enabled:
+            return False
+        if (
+            layer in ("qdrant_exact", "qdrant_semantic")
+            and not self.qdrant_cache_enabled
+        ):
+            return False
         return (getattr(self, flag, "false") or "").strip().lower() == "true"
 
     @property
     def cache_enabled(self) -> bool:
-        """True when cache services may be constructed or read."""
+        """Top-level cache switch; ``CACHE_MODE=disabled`` turns everything off."""
         return self.CACHE_MODE != "disabled"
+
+    @property
+    def redis_enabled(self) -> bool:
+        """Whether Redis is enabled by its own env configuration."""
+        if not (self.REDIS_URL or "").strip():
+            return False
+        if self._redis_enabled_override is not None:
+            return self._redis_enabled_override
+        return (self.USE_REDIS_EXACT_MATCHING or "").strip().lower() == "true"
+
+    @property
+    def redis_cache_enabled(self) -> bool:
+        """True when cache mode is enabled and Redis is enabled."""
+        return self.cache_enabled and self.redis_enabled
+
+    @property
+    def qdrant_enabled(self) -> bool:
+        """Whether Qdrant is enabled by its own env configuration."""
+        if not (self.QDRANT_URL or "").strip():
+            return False
+        if self._qdrant_enabled_override is not None:
+            return self._qdrant_enabled_override
+        return (self.USE_QDRANT_EXACT_MATCHING or "").strip().lower() == "true" or (
+            self.USE_QDRANT_SEMANTIC_MATCHING or ""
+        ).strip().lower() == "true"
+
+    @property
+    def qdrant_cache_enabled(self) -> bool:
+        """True when cache mode is enabled and Qdrant is enabled."""
+        return self.cache_enabled and self.qdrant_enabled
+
+    @property
+    def inference_cache_enabled(self) -> bool:
+        """True when cache mode is enabled and cache inference roles are enabled."""
+        if not self.cache_enabled or not self.INFERENCE_ENABLED:
+            return False
+        if self._inference_enabled_override is True:
+            return True
+        return bool(
+            self.INFERENCE_BASE_URL
+            or self.INFERENCE_EMBED_URL
+            or self.INFERENCE_RERANK_URL
+            or self.INFERENCE_RELEVANCE_URL
+            or self.INFERENCE_NLI_URL
+        )
+
+    @property
+    def shadow_cache_enabled(self) -> bool:
+        """True when shadow mode is active and at least one cache backend is enabled."""
+        return (
+            self.CACHE_MODE == "shadow"
+            and self.SHADOW_CACHE_ENABLED
+            and (self.redis_cache_enabled or self.qdrant_cache_enabled)
+        )
+
+    @property
+    def cache_audit_enabled(self) -> bool:
+        """True when active-mode cache audit is enabled and Qdrant cache is enabled."""
+        return (
+            self.CACHE_MODE == "active"
+            and self.CACHE_AUDIT_ENABLED
+            and self.qdrant_cache_enabled
+        )
 
     def surface_enabled(self, name: str) -> bool:
         """Whether an API surface should be mounted. `all` mounts everything."""

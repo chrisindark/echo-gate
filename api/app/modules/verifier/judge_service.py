@@ -69,7 +69,7 @@ class JudgeService:
     def __init__(
         self,
         llm_provider_service: LlmProviderService,
-        cross_encoder_service: CrossEncoderService,
+        cross_encoder_service: CrossEncoderService | None = None,
         instruction_service: InstructionVerifier | None = None,
     ):
         self.llm_provider_service = llm_provider_service
@@ -250,12 +250,17 @@ class JudgeService:
             # 1. Relevance Score (1 to 5)
             # Cross-encoder typically returns logits (e.g., -10 to +10).
             # We map this approximately to a 1-5 scale.
-            try:
-                rel_scores = await self.cross_encoder_service.relevance_predict_async(
-                    semantic_query_text, [semantic_response_text]
-                )
-            except InferenceUnavailable as exc:
-                logger.warning("relevance cross-encoder unavailable: %s", exc)
+            if self.cross_encoder_service is not None:
+                try:
+                    rel_scores = (
+                        await self.cross_encoder_service.relevance_predict_async(
+                            semantic_query_text, [semantic_response_text]
+                        )
+                    )
+                except InferenceUnavailable as exc:
+                    logger.warning("relevance cross-encoder unavailable: %s", exc)
+                    rel_scores = []
+            else:
                 rel_scores = []
             logger.debug(f"rel_scores: {rel_scores}")
             rel_score_raw = rel_scores[0] if rel_scores else 0.0
@@ -265,12 +270,15 @@ class JudgeService:
 
             # 2. Contradiction & Entailment Score from DeBERTa-v3 NLI
             # NLI models output logits for [Contradiction, Entailment, Neutral]
-            try:
-                nli_scores = await self.cross_encoder_service.nli_predict_async(
-                    semantic_query_text, [semantic_response_text]
-                )
-            except InferenceUnavailable as exc:
-                logger.warning("NLI cross-encoder unavailable: %s", exc)
+            if self.cross_encoder_service is not None:
+                try:
+                    nli_scores = await self.cross_encoder_service.nli_predict_async(
+                        semantic_query_text, [semantic_response_text]
+                    )
+                except InferenceUnavailable as exc:
+                    logger.warning("NLI cross-encoder unavailable: %s", exc)
+                    nli_scores = []
+            else:
                 nli_scores = []
             logger.debug(f"nli_scores: {nli_scores}")
             nli_score_raw = nli_scores[0] if nli_scores else [0.0, 0.0, 0.0]

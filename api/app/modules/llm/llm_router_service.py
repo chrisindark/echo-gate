@@ -213,7 +213,7 @@ class LlmRouterService:
         llm_provider_service: LlmProviderService,
         embedding_service: EmbeddingService | None,
         llm_cache_service: LlmCacheCollectionService | None,
-        redis_service: RedisService,
+        redis_service: RedisService | None,
         reranker_service: RerankerService | None,
         intent_classifier_service: IntentClassifierService | None,
         entity_extractor_service: EntityExtractorService | None,
@@ -1151,6 +1151,10 @@ class LlmRouterService:
             )
             return result
 
+        if not self.embedding_service:
+            logger.info("Embedding service is not available, skipping semantic search")
+            return result
+
         if request.tools:
             logger.info(
                 "Request contains tools/function declarations; bypassing semantic cache to ensure deterministic tool execution"
@@ -1447,6 +1451,12 @@ class LlmRouterService:
                 result["eligible_matches"] = eligible_matches
 
                 if eligible_matches:
+                    if not self.intent_classifier_service or not self.reranker_service:
+                        logger.info(
+                            "Intent classifier or reranker service is not available; skipping semantic reranking"
+                        )
+                        return result
+
                     t_intent_start = time.perf_counter()
                     intent_result = (
                         await self.intent_classifier_service.classify_intent(request)
@@ -1484,6 +1494,8 @@ class LlmRouterService:
                         self.entity_extractor_service.get_qdrant_entity_tags(
                             user_prompt
                         )
+                        if self.entity_extractor_service
+                        else []
                     )
 
                     t_rerank_start = time.perf_counter()
@@ -1717,8 +1729,10 @@ class LlmRouterService:
             logger.info("Embeddings ready for Qdrant cache storage")
 
             if intent is None:
-                intent_result = await self.intent_classifier_service.classify_intent(
-                    request
+                intent_result = (
+                    await self.intent_classifier_service.classify_intent(request)
+                    if self.intent_classifier_service
+                    else None
                 )
                 if intent_result:
                     intent = intent_result.intent
@@ -1743,12 +1757,16 @@ class LlmRouterService:
                         f"Intent classification unavailable for prompt {exact_hash}. Falling back to default intent {intent.value}."
                     )
 
-            entities, max_scope_enum = (
-                self.entity_extractor_service.get_tags_and_max_scope(
-                    user_prompt or prompt_text
+            if self.entity_extractor_service:
+                entities, max_scope_enum = (
+                    self.entity_extractor_service.get_tags_and_max_scope(
+                        user_prompt or prompt_text
+                    )
                 )
-            )
-            max_scope = max_scope_enum.value
+                max_scope = max_scope_enum.value
+            else:
+                entities = []
+                max_scope = CacheScope.GLOBAL.value
 
             actual_scope = CacheScope.GLOBAL.value
             if request.conversation_id:
@@ -1763,8 +1781,10 @@ class LlmRouterService:
             if SCOPE_HIERARCHY[actual_scope] > SCOPE_HIERARCHY[max_scope]:
                 actual_scope = max_scope
 
-            base_ttl = self.intent_classifier_service.calculate_ttl(
-                intent, time_sensitivity
+            base_ttl = (
+                self.intent_classifier_service.calculate_ttl(intent, time_sensitivity)
+                if self.intent_classifier_service
+                else config.DEFAULT_CACHE_TTL_SECONDS
             )
             cacheable = True
             ttl = base_ttl
@@ -2236,9 +2256,14 @@ class LlmRouterService:
             intent_value = cache_info.get("intent") or getattr(
                 semantic_result.get("intent"), "value", None
             )
-            entities, _max_scope = self.entity_extractor_service.get_tags_and_max_scope(
-                user_prompt or prompt_text
-            )
+            if self.entity_extractor_service:
+                entities, _max_scope = (
+                    self.entity_extractor_service.get_tags_and_max_scope(
+                        user_prompt or prompt_text
+                    )
+                )
+            else:
+                entities = []
             cached_text = self._response_text(cached_response)
             actual_text = self._response_text(response)
             would_have_hit = cached_response is not None
@@ -2465,7 +2490,7 @@ class LlmRouterService:
                 qdrant_ok = True
                 redis_ok = True
                 attempted = False
-                if point_id:
+                if point_id and self.llm_cache_service:
                     attempted = True
                     try:
                         qdrant_ok = bool(
@@ -2479,7 +2504,7 @@ class LlmRouterService:
                             "Cache audit failed to evict point %s from Qdrant",
                             point_id,
                         )
-                if exact_hash:
+                if exact_hash and self.redis_service:
                     attempted = True
                     try:
                         deleted = await self.redis_service.delete(exact_hash)
