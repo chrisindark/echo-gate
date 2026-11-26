@@ -279,6 +279,21 @@ vectors, so they stay valid across the swap (and expire on their own schedule).
 | `api/app/scripts/check_qdrant.py`           | Scrolls the first 5 points to inspect scope/tenant/user.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `api/app/scripts/wipe_qdrant.py`            | Drops the `embeddings_multivector` collection.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
+## Documentation checks
+
+Three stdlib-only scripts keep the docs honest. CI runs them in the `docs` job
+(no dependencies to install), and they work locally the same way:
+
+| Command | Fails when | Fix |
+| --- | --- | --- |
+| `python scripts/check_doc_capabilities.py` | a capability in `docs/capability-evidence.json` no longer points at a real README heading, symbol, or test file | update the registry or the thing it points at |
+| `python scripts/check_doc_links.py` | a relative link target is missing, or a `#anchor` matches no heading or `<a id>` | fix the link, the path, or the heading |
+| `python scripts/gen_env_docs.py --check` | the generated table in `docs/ENV_VARS.md` differs from what `api/app/` reads | run `python scripts/gen_env_docs.py` and commit the result |
+
+Anchor slugs follow GitHub's rules: lowercase, punctuation stripped, spaces to
+hyphens, `-1`-suffixed duplicates. `docs/ENV_VARS.md` is generated — never edit its
+table by hand — while the prose around it is hand-written.
+
 ## UI
 
 `web/` is a separate Next.js 16 app. Read `web/AGENTS.md` (and the installed Next.js
@@ -310,8 +325,9 @@ npm run build
   fields that affect response correctness (see the cache key in
   `_generate_cache_key` and the Qdrant filter in `evaluate_semantic_cache`), and
   ensure a cache miss or unavailable Redis/Qdrant still yields a provider response.
-- **New settings:** add to `api/app/core/config.py`, document it in
-  `docs/CONFIGURATION.md` and `api/app/.env.example`.
+- **New settings:** add to `api/app/core/config.py`; if an operator sets it, add it
+  to `api/app/.env.example`, then run `python scripts/gen_env_docs.py` so
+  `docs/ENV_VARS.md` stays current.
 
 ## Debugging tips
 

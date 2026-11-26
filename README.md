@@ -26,7 +26,7 @@ The root-level `ARCHITECTURE.md`, `API_REFERENCE.md`, `CONFIGURATION.md`, and
 | [docs/DATA_MODEL.md](docs/DATA_MODEL.md) | Postgres tables, RLS policies, Qdrant collection schema. |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Setup, commands, tests, migrations, conventions. |
 | [docs/limitations.md](docs/limitations.md) | Intentional boundaries and known gaps — read before proposing changes. |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Plan of record: what landed, what is open, in development order. |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Plan of record: the active queue and the open phases. |
 | [AGENTS.md](AGENTS.md) | Contract for coding agents working in this repo. |
 
 ## Capabilities

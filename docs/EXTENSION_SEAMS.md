@@ -2,7 +2,9 @@
 
 > **Status:** Implemented seams (2026-11-05). The OSS repo stays genuinely
 > self-hostable; cloud/enterprise features register behind these seams
-> without forking the core. See ROADMAP.md §Phase 4 for the strategy.
+> without forking the core. See
+> [archive/ROADMAP_HISTORY.md §Phase 4](archive/ROADMAP_HISTORY.md#phase-4--open-core-structure-and-commercialization)
+> for the strategy.
 
 ## What "seam" means here
 

@@ -13,7 +13,9 @@ This directory is the detailed reference for the Echo Gate LLM gateway. The root
 | [DATA_MODEL.md](DATA_MODEL.md) | Postgres tables, Row-Level Security policies, and the Qdrant cache collection schema. |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Local setup, test/build/lint commands, migrations, scripts, and contribution conventions. |
 | [limitations.md](limitations.md) | Intentional architectural boundaries, deferred capabilities, and known gaps — the anti-hallucination guardrail for agents. |
-| [ROADMAP.md](ROADMAP.md) | Single plan of record and active work queue: what is open now, features already landed, and the planned work (resilience, cache-quality loop, serving performance, commercialization) in development order. |
+| [ROADMAP.md](ROADMAP.md) | Single plan of record: the active queue, the open phases (5, 7, 8, 9), and model selection. |
+| [ENV_VARS.md](ENV_VARS.md) | Generated index of every environment variable the gateway reads, with type, default, and source module. |
+| [archive/ROADMAP_HISTORY.md](archive/ROADMAP_HISTORY.md) | Landed feature record and completed phases (0-4), kept for design rationale and defect history. |
 
 ## What Echo Gate is
 

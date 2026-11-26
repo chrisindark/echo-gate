@@ -1,13 +1,13 @@
 # Configuration
 
-`api/app/.env.example` is the annotated list of the variables an operator normally
-sets, with their shipped values. `api/app/core/config.py` is authoritative for
+`api/app/.env.example` is the annotated template an operator copies and edits.
+[`ENV_VARS.md`](ENV_VARS.md) is the generated index of every variable the code
+reads — including internal ones that are not templated in the example — with type,
+default, and source module. `api/app/core/config.py` remains authoritative for
 defaults, aliases (`INFERENCE_CLASSIFY_URL` → `INFERENCE_NLI_URL`), and resolution
-logic; a handful of internal variables (`LOG_LEVEL`, `LOG_FORMAT`, `COLORIZE_JSON`,
-`SERVICE_NAME`, `DEPLOYMENT_MODE`, and the `ECHO_GATE_*` CLI-script variables) are
-read there and are not templated in the example. This page covers what a key/value
-list cannot: how config loads, what `CACHE_MODE` means, how the inference platform
-and retention behave, and which variables matter operationally.
+logic. This page covers what a key/value list cannot: how config loads, what
+`CACHE_MODE` means, how the inference platform and retention behave, and which
+variables matter operationally.
 
 Copy the example and edit it:
 
@@ -59,10 +59,9 @@ like an LLM-only gateway.
 
 ## Operational knobs
 
-These are the variables worth knowing by name. Defaults and the rest of the set —
-including every prompt-optimization, shadow, audit, telemetry, and webhook knob —
-are annotated in `api/app/.env.example`; anything absent there is read in
-`api/app/core/config.py`.
+These are the variables worth knowing by name. For the complete set — including
+every prompt-optimization, shadow, audit, telemetry, and webhook knob — see the
+generated [`ENV_VARS.md`](ENV_VARS.md) or the annotated `api/app/.env.example`.
 
 ### Identity and storage
 
@@ -192,9 +191,15 @@ operational metadata only — never prompt or response text — and credential-s
 keys are stripped recursively. A cloud overlay replaces the sink with
 `app.core.events.set_event_sink()`; see `docs/EXTENSION_SEAMS.md`.
 
-## Not read by anything
+## Templated but not read by the app
 
-`MIGRATION_DATABASE_URL` is consumed by Alembic's `env.py` / `alembic.ini`, not by
-the application. If you add an env var, add it to `api/app/.env.example` in the same
-change; `scripts/check_doc_capabilities.py` guards documented claims but not the
-env list, so an unlisted variable is easier to lose than a broken one.
+`MIGRATION_DATABASE_URL` is consumed by Alembic's `env.py` / `alembic.ini`;
+`DIRECT_URL` is the plain-Postgres form used by tooling; and
+`INFERENCE_DOCKER_BASE_URL` / `OLLAMA_DOCKER_URL` are Compose interpolation keys for
+container-to-container URLs. Conversely, the `ECHO_GATE_*` variables in
+`api/app/scripts/` drive the load-test scripts rather than the gateway, so they are
+documented in [DEVELOPMENT.md](DEVELOPMENT.md) instead of the template.
+
+If you add an env var, add it to `api/app/core/config.py` and — when an operator sets
+it — to `api/app/.env.example`, then run `python scripts/gen_env_docs.py`; CI fails
+when `ENV_VARS.md` disagrees with the code.

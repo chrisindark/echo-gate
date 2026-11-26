@@ -23,6 +23,12 @@ changes' entry with a `[BREAKING]` marker.
 ### Changed
 - Cache/inference services are skipped entirely when `CACHE_MODE=disabled`
 - Docs consolidated to cut duplication: the active work queue moved into `docs/ROADMAP.md` (removing `PRIORITIES.md`), the API reference now indexes operations from the OpenAPI snapshot instead of restating schemas, `docs/CONFIGURATION.md` documents the resolution rules and points at the annotated `.env.example` instead of restating every default, and `README.md` is a quick-start instead of a second setup guide
+- Landed feature history and completed phases 0-4 moved to `docs/archive/ROADMAP_HISTORY.md`, leaving `docs/ROADMAP.md` as the open-work plan (~450 lines, down from ~1,080)
+- `docs/ENV_VARS.md` is now generated from the environment reads in `api/app/` by `scripts/gen_env_docs.py`, and CI fails when the table is stale
+- CI now runs `scripts/check_doc_links.py`, which fails on broken internal markdown links and heading anchors
+- Doc checks moved to their own stdlib-only `docs` CI job (no Poetry install), so docs-only PRs get feedback without waiting on the backend suite
+- `api/app/.env.example` now covers every operator-settable variable (logging, `MAX_COMPLETION_TOKENS_CAP`, the `INFERENCE_CLASSIFY_URL` alias, `DEPLOYMENT_MODE`); two dead embedding keys removed, since embeddings are served by `inference-platform/`
+- `docs/DEVELOPMENT.md` documents the three doc checks and how to fix each failure
 
 ## [v0.4.0] - 2026-11-18
 
