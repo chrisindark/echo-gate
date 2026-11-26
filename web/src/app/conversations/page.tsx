@@ -51,6 +51,7 @@ import {
   evaluateContextUsage,
   formatTokenCount,
 } from '@/lib/tokens';
+import { useStickToBottom } from '@/hooks/use-stick-to-bottom';
 import { useApiKey } from '@/context/api-key-context';
 import { useAuth } from '@/context/auth-context';
 import { API_ROOT, errorMessageFrom } from '@/lib/api';
@@ -229,9 +230,15 @@ export default function ChatPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  const {
+    containerRef: feedRef,
+    isNearBottom,
+    jumpToBottom,
+  } = useStickToBottom([messages, loading]);
+
+  const scrollToBottom = useCallback(() => {
+    jumpToBottom('smooth');
+  }, [jumpToBottom]);
 
   const activeModelContextWindow = activeModel
     ? modelMetadata[activeModel]?.context_window
@@ -261,7 +268,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, scrollToBottom]);
 
   const handleSchemaChange = (value: string) => {
     setSchemaContent(value);
@@ -308,55 +315,61 @@ export default function ChatPage() {
     [apiKey, accessToken]
   );
 
-  const loadHash = useCallback(async (hash: string) => {
-    setLoading(true);
-    const startTime = performance.now();
-    try {
-      const res = await fetch(
-        `${API_ROOT}/api/v1/gateway-requests/by-hash/${hash}`
-      );
-      const endTime = performance.now();
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(errorMessageFrom(data, `HTTP ${res.status}`));
-      }
-
-      const log = data.response || data.data;
-      if (log) {
-        let originalPrompt = log.query_text || '';
-        const parts = originalPrompt.split('|user: ');
-        if (parts.length > 1) {
-          originalPrompt = parts.slice(1).join('|user: ');
+  const loadHash = useCallback(
+    async (hash: string) => {
+      setLoading(true);
+      const startTime = performance.now();
+      try {
+        const res = await fetch(
+          `${API_ROOT}/api/v1/gateway-requests/by-hash/${hash}`,
+          {
+            headers: buildAuthHeaders(apiKey, accessToken),
+          }
+        );
+        const endTime = performance.now();
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(errorMessageFrom(data, `HTTP ${res.status}`));
         }
 
-        const userMsg: ChatTurnMessage = {
-          id: 'hash-user-' + hash,
-          role: 'user',
-          content: originalPrompt,
-        };
-        const assistantMsg: ChatTurnMessage = {
-          id: 'hash-asst-' + hash,
-          role: 'assistant',
-          content: log.response_text || '',
-          cacheStatus: 'DB RECOVERED',
-          cacheInfo: {
-            source: 'database',
-            intent: log.intent,
-            score: log.rerank_score,
-            exact_hash: log.exact_hash,
-          },
-          latency: Math.round(endTime - startTime),
-        };
+        const log = data.response || data.data;
+        if (log) {
+          let originalPrompt = log.query_text || '';
+          const parts = originalPrompt.split('|user: ');
+          if (parts.length > 1) {
+            originalPrompt = parts.slice(1).join('|user: ');
+          }
 
-        setMessages([userMsg, assistantMsg]);
-        setActiveConversationId(null);
+          const userMsg: ChatTurnMessage = {
+            id: 'hash-user-' + hash,
+            role: 'user',
+            content: originalPrompt,
+          };
+          const assistantMsg: ChatTurnMessage = {
+            id: 'hash-asst-' + hash,
+            role: 'assistant',
+            content: log.response_text || '',
+            cacheStatus: 'DB RECOVERED',
+            cacheInfo: {
+              source: 'database',
+              intent: log.intent,
+              score: log.rerank_score,
+              exact_hash: log.exact_hash,
+            },
+            latency: Math.round(endTime - startTime),
+          };
+
+          setMessages([userMsg, assistantMsg]);
+          setActiveConversationId(null);
+        }
+      } catch (err: unknown) {
+        console.error('Failed to load from DB:', err);
+      } finally {
+        setLoading(false);
       }
-    } catch (err: unknown) {
-      console.error('Failed to load from DB:', err);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    },
+    [apiKey, accessToken]
+  );
 
   // Load conversation list and check initial URL query params
   useEffect(() => {
@@ -897,10 +910,8 @@ export default function ChatPage() {
 
         {/* Message Feed */}
         <div
-          className={cn(
-            'flex-1 overflow-y-auto p-4 md:p-6 space-y-6',
-            showContextWarning ? 'pb-56' : 'pb-36'
-          )}
+          ref={feedRef}
+          className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 min-w-0"
         >
           {messages.length === 0 && !loading && (
             <motion.div
@@ -930,7 +941,7 @@ export default function ChatPage() {
                     animate={{ opacity: 1, y: 0 }}
                     className="flex justify-end"
                   >
-                    <div className="bg-primary text-primary-foreground px-5 py-3.5 rounded-2xl rounded-tr-sm max-w-[85%] text-base shadow-sm leading-relaxed whitespace-pre-wrap">
+                    <div className="bg-primary text-primary-foreground px-5 py-3.5 rounded-2xl rounded-tr-sm max-w-[85%] min-w-0 text-base shadow-sm leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
                       {msg.content}
                     </div>
                   </motion.div>
@@ -1169,7 +1180,7 @@ export default function ChatPage() {
                         </pre>
                       </div>
                     ) : (
-                      <div className="leading-relaxed whitespace-pre-wrap text-sm relative group/msg">
+                      <div className="leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-sm relative group/msg min-w-0">
                         {msg.content}
                         {msg.isStreaming && (
                           <motion.span
@@ -1206,12 +1217,12 @@ export default function ChatPage() {
           </div>
         </div>
 
-        {/* Floating Stop Generating Button */}
+        {/* Stop Generating Button */}
         {loading && stream && (
-          <div className="absolute bottom-28 left-0 right-0 flex justify-center z-20 pointer-events-none">
+          <div className="px-4 pt-2 flex justify-center">
             <button
               onClick={handleStopStreaming}
-              className="pointer-events-auto flex items-center gap-2 px-3 py-1.5 rounded-full bg-card border border-border shadow-md hover:bg-muted text-xs font-medium text-foreground transition-all cursor-pointer"
+              className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-card border border-border shadow-md hover:bg-muted text-xs font-medium text-foreground transition-all cursor-pointer"
             >
               <Square className="w-3 h-3 fill-destructive text-destructive" />
               <span>Stop Generating</span>
@@ -1219,8 +1230,21 @@ export default function ChatPage() {
           </div>
         )}
 
-        {/* Input Bar Floating at bottom */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-background via-background/95 to-transparent pt-8 z-10">
+        {/* Jump to latest */}
+        {!isNearBottom && (
+          <div className="px-4 pt-2 flex justify-center">
+            <button
+              type="button"
+              onClick={() => jumpToBottom('smooth')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary text-primary-foreground shadow-md text-xs font-medium transition-all cursor-pointer"
+            >
+              ↓ Jump to latest
+            </button>
+          </div>
+        )}
+
+        {/* Input Bar */}
+        <div className="p-4 bg-gradient-to-t from-background via-background/95 to-transparent pt-4">
           <div className="max-w-3xl mx-auto">
             {showContextWarning && contextUsage && (
               <div
