@@ -227,6 +227,8 @@ export default function ChatPage() {
   const [schemaError, setSchemaError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [rawViewMap, setRawViewMap] = useState<Record<string, boolean>>({});
+  const [elapsed, setElapsed] = useState(0);
+  const [lastLatency, setLastLatency] = useState<number | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -270,6 +272,13 @@ export default function ChatPage() {
   useEffect(() => {
     scrollToBottom();
   }, [messages, scrollToBottom]);
+
+  useEffect(() => {
+    if (!loading) return;
+    const start = Date.now();
+    const id = window.setInterval(() => setElapsed(Date.now() - start), 100);
+    return () => window.clearInterval(id);
+  }, [loading]);
 
   const handleSchemaChange = (value: string) => {
     setSchemaContent(value);
@@ -683,6 +692,7 @@ export default function ChatPage() {
         }
 
         const endTime = performance.now();
+        const finalLatency = Math.round(endTime - startTime);
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantMsgId
@@ -692,13 +702,14 @@ export default function ChatPage() {
                   reasoningContent: accumulatedReasoning,
                   cacheStatus: latestCacheStatus,
                   cacheInfo: latestCacheInfo,
-                  latency: Math.round(endTime - startTime),
+                  latency: finalLatency,
                   promptSavings: optSavings,
                   isStreaming: false,
                 }
               : m
           )
         );
+        setLastLatency(finalLatency);
       } else {
         // Non-streaming response
         const data = await res.json();
@@ -750,6 +761,7 @@ export default function ChatPage() {
               : m
           )
         );
+        setLastLatency(latencyMs);
       }
     } catch (err: unknown) {
       const errorMsg =
@@ -892,6 +904,31 @@ export default function ChatPage() {
               )}
             </div>
 
+            {(loading || lastLatency !== null) && (
+              <span
+                className={cn(
+                  'hidden sm:inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium',
+                  loading
+                    ? 'border-primary/30 bg-primary/10 text-primary'
+                    : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500'
+                )}
+                aria-live="polite"
+                aria-atomic="true"
+              >
+                {loading ? (
+                  <>
+                    <span className="h-2 w-2 animate-pulse rounded-full bg-primary" />
+                    Generating… {(elapsed / 1000).toFixed(1)}s
+                  </>
+                ) : (
+                  <>
+                    <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                    Complete · {lastLatency}ms
+                  </>
+                )}
+              </span>
+            )}
+
             <button
               type="button"
               onClick={() => setIsSettingsOpen(!isSettingsOpen)}
@@ -909,10 +946,25 @@ export default function ChatPage() {
           </div>
         </header>
 
+        {loading && (
+          <div className="h-0.5 w-full overflow-hidden bg-primary/15">
+            <motion.div
+              className="h-full w-2/5 bg-primary"
+              animate={{ x: ['-100%', '250%'] }}
+              transition={{
+                repeat: Infinity,
+                duration: 1.3,
+                ease: 'easeInOut',
+              }}
+            />
+          </div>
+        )}
+
         {/* Message Feed */}
         <div
           ref={feedRef}
           className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 min-w-0"
+          aria-busy={loading}
         >
           {messages.length === 0 && !loading && (
             <motion.div
@@ -1103,6 +1155,16 @@ export default function ChatPage() {
                             >
                               <div className="px-3 py-2.5 border-t border-violet-500/15 text-xs text-violet-200/90 whitespace-pre-wrap font-mono leading-relaxed bg-violet-950/10 max-h-56 overflow-y-auto">
                                 {msg.reasoningContent}
+                                {msg.isStreaming && (
+                                  <motion.span
+                                    animate={{ opacity: [1, 0, 1] }}
+                                    transition={{
+                                      repeat: Infinity,
+                                      duration: 0.8,
+                                    }}
+                                    className="inline-block w-1.5 h-3.5 ml-1 bg-violet-400 align-middle rounded-xs"
+                                  />
+                                )}
                               </div>
                             </motion.div>
                           )}
@@ -1178,6 +1240,13 @@ export default function ChatPage() {
                         </div>
                         <pre className="p-3 rounded-xl bg-muted/40 border border-border/60 font-mono text-xs overflow-x-auto text-emerald-300 whitespace-pre">
                           <code>{formatted}</code>
+                          {msg.isStreaming && (
+                            <motion.span
+                              animate={{ opacity: [1, 0, 1] }}
+                              transition={{ repeat: Infinity, duration: 0.8 }}
+                              className="inline-block w-1.5 h-3.5 ml-1 bg-emerald-300 align-middle rounded-xs"
+                            />
+                          )}
                         </pre>
                       </div>
                     ) : (
