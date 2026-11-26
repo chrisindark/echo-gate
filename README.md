@@ -18,16 +18,16 @@ wrong answer, while cutting latency and inference cost.
 The root-level `ARCHITECTURE.md`, `API_REFERENCE.md`, `CONFIGURATION.md`, and
 `ROADMAP.md` are symlinks into `docs/`.
 
-| Document | What it covers |
-| --- | --- |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Components, request lifecycle, cache pipeline, workers, tenant isolation. |
-| [docs/API_REFERENCE.md](docs/API_REFERENCE.md) | Endpoint index, auth, headers, error behavior. |
-| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | How configuration loads, the cache-mode contract, key knobs. |
-| [docs/DATA_MODEL.md](docs/DATA_MODEL.md) | Postgres tables, RLS policies, Qdrant collection schema. |
-| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Setup, commands, tests, migrations, conventions. |
-| [docs/limitations.md](docs/limitations.md) | Intentional boundaries and known gaps — read before proposing changes. |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Plan of record: what landed, what is open, in development order. |
-| [AGENTS.md](AGENTS.md) | Contract for coding agents working in this repo. |
+| Document                                       | What it covers                                                            |
+| ---------------------------------------------- | ------------------------------------------------------------------------- |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)   | Components, request lifecycle, cache pipeline, workers, tenant isolation. |
+| [docs/API_REFERENCE.md](docs/API_REFERENCE.md) | Endpoint index, auth, headers, error behavior.                            |
+| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | How configuration loads, the cache-mode contract, key knobs.              |
+| [docs/DATA_MODEL.md](docs/DATA_MODEL.md)       | Postgres tables, RLS policies, Qdrant collection schema.                  |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)     | Setup, commands, tests, migrations, conventions.                          |
+| [docs/limitations.md](docs/limitations.md)     | Intentional boundaries and known gaps — read before proposing changes.    |
+| [docs/ROADMAP.md](docs/ROADMAP.md)             | Plan of record: the active queue and the open phases.                     |
+| [AGENTS.md](AGENTS.md)                         | Contract for coding agents working in this repo.                          |
 
 ## Capabilities
 
@@ -140,7 +140,7 @@ pipeline, or `active` to serve from it. See
 Echo Gate is licensed under the [GNU Affero General Public License v3.0](LICENSE)
 or any later version.
 
-**Self-hosting safe harbor:** running *unmodified* Echo Gate privately inside your
+**Self-hosting safe harbor:** running _unmodified_ Echo Gate privately inside your
 organization requires nothing further. If you modify it and serve it to third
 parties over a network, AGPL section 13 requires you to offer those users your
 modified source, or obtain a commercial license from the maintainers.

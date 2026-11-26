@@ -94,7 +94,13 @@ def _attach_engine_events(target_engine) -> None:
 
 def reload_db_engine() -> None:
     """Recreate engine and rebind SessionLocal after config changes (e.g. after loading env files)."""
-    global SQLALCHEMY_DATABASE_URL, SQLALCHEMY_DATABASE_URL_READ, engine, read_engine, SessionLocal, SessionLocalRead
+    global \
+        SQLALCHEMY_DATABASE_URL, \
+        SQLALCHEMY_DATABASE_URL_READ, \
+        engine, \
+        read_engine, \
+        SessionLocal, \
+        SessionLocalRead
     SQLALCHEMY_DATABASE_URL = config.DATABASE_URL
     SQLALCHEMY_DATABASE_URL_READ = config.DATABASE_URL_READ
 

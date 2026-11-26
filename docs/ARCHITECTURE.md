@@ -658,4 +658,4 @@ These are real today; documented rather than silently changed.
 Former gaps (conversation router unmounted, README model drift, anonymous
 shared rate-limit bucket, `.env.example` key drift, scheduled-task mismatch,
 analytics charting — Recharts landed in `web/`) have been resolved; the
-record lives in `docs/ROADMAP.md`.
+record lives in [`docs/archive/ROADMAP_HISTORY.md`](archive/ROADMAP_HISTORY.md).

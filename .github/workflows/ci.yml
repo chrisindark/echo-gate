@@ -15,6 +15,25 @@ permissions:
   pull-requests: write
 
 jobs:
+  docs:
+    name: Docs (capabilities, links, generated env reference)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Stdlib-only scripts: no Poetry install, so a docs-only PR gets feedback
+      # in seconds instead of waiting behind the backend suite.
+      - name: Doc checks
+        run: |
+          python scripts/check_doc_capabilities.py
+          python scripts/check_doc_links.py
+          python scripts/gen_env_docs.py --check
+
   backend:
     name: Backend (ruff + pytest + coverage + OpenAPI snapshot)
     runs-on: ubuntu-latest
@@ -35,9 +54,6 @@ jobs:
 
       - name: Install dependencies
         run: poetry install --with dev --no-interaction
-
-      - name: Doc capability drift check
-        run: python scripts/check_doc_capabilities.py
 
       - name: Syntax / import check
         run: poetry run python -m compileall api/app
