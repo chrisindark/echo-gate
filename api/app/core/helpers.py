@@ -13,6 +13,17 @@ from app.core.config import config
 
 logger = logging.getLogger(__name__)
 
+
+def validate_max_tokens_cap(value: int | None) -> int | None:
+    """Reject ``max_tokens`` values that exceed ``config.MAX_COMPLETION_TOKENS_CAP``."""
+    if value is not None and value > config.MAX_COMPLETION_TOKENS_CAP:
+        raise ValueError(
+            f"max_tokens ({value}) exceeds the maximum allowed limit of "
+            f"{config.MAX_COMPLETION_TOKENS_CAP}"
+        )
+    return value
+
+
 _broker_status_cache: dict[str, tuple[bool, float]] = {}
 _CACHE_TTL_SECONDS = 5.0
 

@@ -9,8 +9,10 @@ from __future__ import annotations
 import json
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
+from app.core.config import DEFAULT_MAX_COMPLETION_TOKENS_CAP
+from app.core.helpers import validate_max_tokens_cap
 from app.modules.prompt_optimization.prompt_optimization_schema import (
     PromptOptimizationConfig,
 )
@@ -85,7 +87,15 @@ class AnthropicMessagesRequest(BaseModel):
 
     model: str
     messages: list[AnthropicMessage]
-    max_tokens: int = Field(default=1024, ge=1)
+    max_tokens: int = Field(default=1024, ge=1, le=DEFAULT_MAX_COMPLETION_TOKENS_CAP)
+
+    @field_validator("max_tokens")
+    @classmethod
+    def _validate_max_tokens(cls, value: int) -> int:
+        validated = validate_max_tokens_cap(value)
+        assert validated is not None
+        return validated
+
     system: str | list[dict[str, Any]] | None = None
     metadata: dict[str, Any] | None = None
     stop_sequences: list[str] | None = None
