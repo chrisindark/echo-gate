@@ -18,7 +18,12 @@ class RedisService:
             self.redis = None
             logger.info("REDIS_URL is empty; Redis client disabled (fail-open mode).")
             return
-        self.redis = aioredis.from_url(self.redis_url, decode_responses=True)
+        self.redis = aioredis.from_url(
+            self.redis_url,
+            decode_responses=True,
+            socket_connect_timeout=2,
+            socket_timeout=2,
+        )
         logger.info(f"Connecting to Redis at {self.redis_url}")
 
     async def ping(self):

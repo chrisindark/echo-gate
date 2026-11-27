@@ -264,7 +264,7 @@ class Config:
         # Database Connection Pool
         self.DB_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "20"))
         self.DB_MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "10"))
-        self.DB_POOL_TIMEOUT = int(os.getenv("DB_POOL_TIMEOUT", "30"))
+        self.DB_POOL_TIMEOUT = int(os.getenv("DB_POOL_TIMEOUT", "10"))
         self.DB_POOL_RECYCLE = int(os.getenv("DB_POOL_RECYCLE", "1800"))
         self.DB_POOL_PRE_PING = os.getenv("DB_POOL_PRE_PING", "true").lower() == "true"
         self.DB_HEALTH_PROBE_TIMEOUT_SECONDS = _bounded_float_env(

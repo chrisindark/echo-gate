@@ -23,6 +23,9 @@ DB_POOL_PRE_PING = config.DB_POOL_PRE_PING
 def _create_db_engine(url: str):
     if url.startswith("sqlite"):
         return create_engine(url, pool_pre_ping=DB_POOL_PRE_PING)
+    connect_args = {}
+    if not url.startswith("sqlite"):
+        connect_args = {"connect_timeout": 5}
     return create_engine(
         url,
         pool_size=DB_POOL_SIZE,
@@ -30,6 +33,7 @@ def _create_db_engine(url: str):
         pool_timeout=DB_POOL_TIMEOUT,
         pool_recycle=DB_POOL_RECYCLE,
         pool_pre_ping=DB_POOL_PRE_PING,
+        connect_args=connect_args,
     )
 
 

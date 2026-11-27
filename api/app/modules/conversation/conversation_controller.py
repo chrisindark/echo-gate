@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -207,12 +208,16 @@ async def chat_in_conversation(
     tenant_id = getattr(http_request.state, "tenant_id", None) or ANONYMOUS_TENANT
     svc = ConversationService(db)
 
-    conv = svc.get_conversation(conversation_id, user_id=user_id, tenant_id=tenant_id)
+    conv = await asyncio.to_thread(
+        svc.get_conversation, conversation_id, user_id=user_id, tenant_id=tenant_id
+    )
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     # Get conversation history from database
-    db_messages = svc.get_conversation_messages(conversation_id)
+    db_messages = await asyncio.to_thread(
+        svc.get_conversation_messages, conversation_id
+    )
     history_messages = [
         ChatMessage(role=m.role, content=m.content) for m in db_messages
     ]
@@ -243,7 +248,7 @@ async def chat_in_conversation(
     apply_request_directives(chat_req, http_request.headers)
     policy_svc = getattr(llmService, "tenant_policy_service", None)
     if isinstance(policy_svc, TenantPolicyService):
-        policy_svc.resolve_and_apply(chat_req)
+        await asyncio.to_thread(policy_svc.resolve_and_apply, chat_req)
     enforce_anonymous_provider_access(http_request, chat_req)
 
     # Header-level prompt optimization parsing fallback
@@ -284,7 +289,9 @@ async def chat_in_conversation(
     persisted_user_message = request.message
     if PiiScrubberService.should_scrub(chat_req):
         scrubber = getattr(llmService, "pii_scrubber", None) or PiiScrubberService()
-        persisted_user_message, _ = scrubber.scrub_text(request.message)
+        persisted_user_message, _ = await asyncio.to_thread(
+            scrubber.scrub_text, request.message
+        )
 
     budget_header = http_request.headers.get("X-Timeout-Budget-Ms")
     timeout_budget_ms: float | None = None
