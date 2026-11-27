@@ -5,12 +5,13 @@ import json
 import re
 import time
 import uuid
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, PrivateAttr, field_validator, model_validator
 
 from app.core.config import DEFAULT_MAX_COMPLETION_TOKENS_CAP
 from app.core.helpers import validate_max_tokens_cap
+from app.modules.guardrails.guardrails_schema import GuardrailsConfig
 from app.modules.llm.model_registry import model_registry
 from app.modules.prompt_optimization.prompt_optimization_schema import (
     PromptOptimizationConfig,
@@ -199,6 +200,11 @@ class ChatCompletionRequest(BaseModel):
     retries: int | None = Field(default=None, ge=0, le=10)
     stream_pacing: bool | None = None
     stream_pacing_delay_ms: float | None = Field(default=None, ge=0.0, le=1000.0)
+    disable_log: bool | None = None
+    redact_pii: bool | None = None
+    guardrails: GuardrailsConfig | bool | Literal["block", "inject", "off"] | None = (
+        None
+    )
     # OpenAI request-field parity (P4 item 4).
     seed: int | None = None
     logprobs: bool | None = None
@@ -293,11 +299,15 @@ class ChatCompletionRequest(BaseModel):
     def cache_bypassed(self) -> bool:
         """Whether serving-time cache reads and writes must be skipped.
 
+        Zero-retention mode (``disable_log``) always forces cache bypass so no
+        prompt or completion is read from or persisted to Redis or Qdrant.
         Non-text blocks have no text embedding, so they are excluded from the
         semantic cache unless a caller explicitly opts in with
         ``cache_enabled: true``. Explicit opt-in still uses only exact lookups
         keyed by a digest of the ordered blocks.
         """
+        if self.disable_log:
+            return True
         if self.cache_enabled is False:
             return True
         return self.has_non_text_content and self.cache_enabled is not True
@@ -897,3 +907,66 @@ def apply_request_directives(request: Any, headers: Any) -> None:
                 pass
     elif getattr(request, "stream_pacing", None) is False:
         request.stream_pacing_delay_ms = 0.0
+
+    disable_log_header = headers.get(EchoGateHeaders.DISABLE_LOG) or headers.get(
+        "X-EchoGate-Disable-Log"
+    )
+    if disable_log_header:
+        d_val = str(disable_log_header).strip().lower()
+        if d_val in ("true", "1", "on", "yes", "enabled"):
+            request.disable_log = True
+        elif (
+            d_val in ("false", "0", "off", "no", "disabled")
+            and getattr(request, "disable_log", None) is None
+        ):
+            request.disable_log = False
+
+    redact_pii_header = headers.get(EchoGateHeaders.REDACT_PII) or headers.get(
+        "X-EchoGate-Redact-PII"
+    )
+    if redact_pii_header:
+        r_val = str(redact_pii_header).strip().lower()
+        if r_val in ("true", "1", "on", "yes", "enabled"):
+            request.redact_pii = True
+        elif (
+            r_val in ("false", "0", "off", "no", "disabled")
+            and getattr(request, "redact_pii", None) is None
+        ):
+            request.redact_pii = False
+
+    guardrails_header = headers.get(EchoGateHeaders.GUARDRAILS) or headers.get(
+        "X-EchoGate-Guardrails"
+    )
+    if guardrails_header:
+        g_val = str(guardrails_header).strip().lower()
+        current_g = getattr(request, "guardrails", None)
+        if g_val in ("off", "false", "0", "no", "disabled") and current_g is None:
+            request.guardrails = "off"
+        elif g_val in ("block", "inject"):
+            if isinstance(current_g, GuardrailsConfig):
+                current_g.enabled = True
+                current_g.mode = g_val  # type: ignore[assignment]
+            else:
+                request.guardrails = g_val
+        elif g_val in ("true", "1", "on", "yes", "enabled") and current_g is None:
+            request.guardrails = True
+
+    guardrails_inst_header = headers.get(
+        EchoGateHeaders.GUARDRAILS_INSTRUCTION
+    ) or headers.get("X-EchoGate-Guardrails-Instruction")
+    if guardrails_inst_header:
+        cleaned_inst = str(guardrails_inst_header).strip()
+        if cleaned_inst:
+            current_g = getattr(request, "guardrails", None)
+            if isinstance(current_g, GuardrailsConfig):
+                if not current_g.instruction:
+                    current_g.instruction = cleaned_inst
+            elif current_g not in (False, "off"):
+                mode_override = (
+                    current_g if current_g in ("block", "inject") else "inject"
+                )
+                request.guardrails = GuardrailsConfig(
+                    enabled=True,
+                    mode=mode_override,  # type: ignore[arg-type]
+                    instruction=cleaned_inst,
+                )

@@ -33,6 +33,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStickToBottom } from '@/hooks/use-stick-to-bottom';
 import Link from 'next/link';
 import { MaxTokensField } from '@/components/max-tokens-field';
+import {
+  buildGuardrailsPayload,
+  type GuardrailUiMode,
+  PrivacyDirectivesField,
+} from '@/components/privacy-directives-field';
 import { MessageContent } from '@/components/chat/message-content';
 import { ChatComposer } from '@/components/chat/chat-composer';
 import { DEFAULT_MAX_TOKENS, clampMaxTokens } from '@/lib/tokens';
@@ -175,6 +180,11 @@ export default function Home() {
   const [isThinkingOpen, setIsThinkingOpen] = useState<boolean>(true);
   const [promptOptimization, setPromptOptimization] = useState<boolean>(true);
   const [promptSavings, setPromptSavings] = useState<string | null>(null);
+  const [disableLog, setDisableLog] = useState<boolean>(false);
+  const [redactPii, setRedactPii] = useState<boolean>(false);
+  const [guardrailsMode, setGuardrailsMode] = useState<GuardrailUiMode>('off');
+  const [guardrailsInstruction, setGuardrailsInstruction] =
+    useState<string>('');
 
   // Structured Output state
   const [responseFormatType, setResponseFormatType] = useState<
@@ -342,6 +352,10 @@ export default function Home() {
         return;
       }
 
+      const guardrailsPayload = buildGuardrailsPayload(
+        guardrailsMode,
+        guardrailsInstruction
+      );
       const bodyPayload: Record<string, unknown> = {
         ...(activeProvider && activeProvider !== AUTO_PROVIDER_ID
           ? { service_name: activeProvider }
@@ -354,6 +368,11 @@ export default function Home() {
         thinking: thinking,
         thinking_budget: thinking ? thinkingBudget : undefined,
         prompt_optimization: promptOptimization,
+        disable_log: disableLog,
+        redact_pii: redactPii,
+        ...(guardrailsPayload !== undefined
+          ? { guardrails: guardrailsPayload }
+          : {}),
       };
 
       if (responseFormatType === 'json_object') {
@@ -1355,6 +1374,18 @@ export default function Home() {
                       Prompt Token Optimization
                     </Text>
                   </Flex>
+
+                  <PrivacyDirectivesField
+                    disableLog={disableLog}
+                    onDisableLogChange={setDisableLog}
+                    redactPii={redactPii}
+                    onRedactPiiChange={setRedactPii}
+                    guardrailsMode={guardrailsMode}
+                    onGuardrailsModeChange={setGuardrailsMode}
+                    guardrailsInstruction={guardrailsInstruction}
+                    onGuardrailsInstructionChange={setGuardrailsInstruction}
+                    idPrefix="playground"
+                  />
                 </div>
               </div>
 

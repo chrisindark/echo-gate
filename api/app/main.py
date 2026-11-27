@@ -85,6 +85,12 @@ try:
 except Exception:
     shadow_cache_router = None
 try:
+    tenant_policy_router = importlib.import_module(
+        "app.modules.tenant_policy.tenant_policy_controller"
+    ).api_v1_router
+except Exception:
+    tenant_policy_router = None
+try:
     verifier_router = importlib.import_module(
         "app.modules.verifier.verifier_controller"
     ).api_v1_router
@@ -135,6 +141,10 @@ app = FastAPI(
         {
             "name": "LLM Quota (Admin)",
             "description": "Cross-tenant quota rule management (X-Admin-Key).",
+        },
+        {
+            "name": "Tenant Privacy Policy (Admin)",
+            "description": "Admin-managed per-tenant semantic cache, zero-retention, and PII restrictions (X-Admin-Key).",
         },
         {"name": "API Keys", "description": "Tenant API key management."},
         {
@@ -211,6 +221,7 @@ _include("shadow", shadow_cache_router)
 _include("api_keys", api_keys_router)
 _include("api_keys", user_api_v1_router)
 _include("quota", llm_quota_router)
+_include("tenant_policies", tenant_policy_router)
 _include("cache_admin", cache_admin_router)
 
 # Extension seam: cloud-only surfaces (e.g. /api/v1/billing/*) register here,

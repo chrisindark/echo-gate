@@ -20,6 +20,7 @@ from app.modules.chat.chat_schema import (
     SSE_DONE_EVENT,
     ChatCompletionRequest,
     ChatMessage,
+    apply_request_directives,
     format_sse_event,
 )
 from app.modules.conversation.conversation_schema import (
@@ -32,9 +33,11 @@ from app.modules.conversation.conversation_schema import (
 )
 from app.modules.conversation.conversation_service import ConversationService
 from app.modules.llm.llm_router_service import LlmRouterService
+from app.modules.pii_scrubber.pii_scrubber_service import PiiScrubberService
 from app.modules.prompt_optimization.prompt_optimization_schema import (
     PromptOptimizationConfig,
 )
+from app.modules.tenant_policy.tenant_policy_service import TenantPolicyService
 
 logger = logging.getLogger(__name__)
 
@@ -228,12 +231,19 @@ async def chat_in_conversation(
         thinking_budget=request.thinking_budget,
         response_format=request.response_format,
         prompt_optimization=request.prompt_optimization,
+        disable_log=request.disable_log,
+        redact_pii=request.redact_pii,
+        guardrails=request.guardrails,
         user=user_id,
         conversation_id=conversation_id,
     )
     chat_req.tenant_id = tenant_id
     chat_req.user_id = getattr(http_request.state, "user_id", None)
     chat_req.session_id = http_request.headers.get(EchoGateHeaders.SESSION_ID)
+    apply_request_directives(chat_req, http_request.headers)
+    policy_svc = getattr(llmService, "tenant_policy_service", None)
+    if isinstance(policy_svc, TenantPolicyService):
+        policy_svc.resolve_and_apply(chat_req)
     enforce_anonymous_provider_access(http_request, chat_req)
 
     # Header-level prompt optimization parsing fallback
@@ -271,6 +281,10 @@ async def chat_in_conversation(
             )
 
     api_key = getattr(http_request.state, "api_key", None)
+    persisted_user_message = request.message
+    if PiiScrubberService.should_scrub(chat_req):
+        scrubber = getattr(llmService, "pii_scrubber", None) or PiiScrubberService()
+        persisted_user_message, _ = scrubber.scrub_text(request.message)
 
     budget_header = http_request.headers.get("X-Timeout-Budget-Ms")
     timeout_budget_ms: float | None = None
@@ -316,12 +330,17 @@ async def chat_in_conversation(
                 yield SSE_DONE_EVENT
 
                 full_reply = "".join(accumulated_content)
-                if full_reply:
+                if getattr(chat_req, "disable_log", False):
+                    logger.info(
+                        "Zero-retention mode active for conversation %s; skipping turn persistence.",
+                        conversation_id,
+                    )
+                elif full_reply:
                     _persist_conversation_turn(
                         conversation_id=conversation_id,
                         user_id=user_id,
                         tenant_id=tenant_id,
-                        user_content=request.message,
+                        user_content=persisted_user_message,
                         assistant_content=full_reply,
                         fallback_db=db,
                     )
@@ -360,6 +379,10 @@ async def chat_in_conversation(
         }
         if hasattr(quota_status, "to_headers"):
             stream_headers.update(quota_status.to_headers())
+        if chat_req.cache_bypassed:
+            stream_headers[EchoGateHeaders.CACHE] = "BYPASS"
+        if chat_req.disable_log:
+            stream_headers[EchoGateHeaders.DISABLE_LOG] = "true"
 
         first_opt = getattr(first_chunk, "_prompt_optimization_result", None)
         if first_opt and first_opt.applied:
@@ -367,6 +390,14 @@ async def chat_in_conversation(
             stream_headers[EchoGateHeaders.PROMPT_SAVINGS] = (
                 f"tokens={first_opt.tokens_saved},chars={first_opt.chars_saved}"
             )
+        first_pii = getattr(first_chunk, "_pii_scrubbing_result", None)
+        if first_pii and first_pii.applied:
+            stream_headers[EchoGateHeaders.PII_REDACTED] = first_pii.to_header_value()
+        first_guard = getattr(first_chunk, "_guardrail_result", None)
+        if first_guard and first_guard.applied:
+            guard_header = first_guard.to_header_value()
+            if guard_header:
+                stream_headers[EchoGateHeaders.GUARDRAIL_STATUS] = guard_header
 
         return StreamingResponse(
             sse_event_generator(),
@@ -390,21 +421,38 @@ async def chat_in_conversation(
         http_response.headers[EchoGateHeaders.PROMPT_SAVINGS] = (
             f"tokens={opt_res.tokens_saved},chars={opt_res.chars_saved}"
         )
+    pii_res = getattr(llm_response, "_pii_scrubbing_result", None)
+    if pii_res and pii_res.applied:
+        http_response.headers[EchoGateHeaders.PII_REDACTED] = pii_res.to_header_value()
+    guard_res = getattr(llm_response, "_guardrail_result", None)
+    if guard_res and guard_res.applied:
+        guard_header = guard_res.to_header_value()
+        if guard_header:
+            http_response.headers[EchoGateHeaders.GUARDRAIL_STATUS] = guard_header
     cache_info = getattr(llm_response, "cache_info", None) or {}
-    if cache_info.get("cache_hit"):
+    if chat_req.cache_bypassed:
+        http_response.headers[EchoGateHeaders.CACHE] = "BYPASS"
+    elif cache_info.get("cache_hit"):
         http_response.headers[EchoGateHeaders.CACHE] = "HIT"
     else:
         http_response.headers[EchoGateHeaders.CACHE] = "MISS"
+    if chat_req.disable_log:
+        http_response.headers[EchoGateHeaders.DISABLE_LOG] = "true"
 
     # Guard content=None: extract assistant content and persist atomic turn
     assistant_content = None
     if llm_response.choices and len(llm_response.choices) > 0:
         assistant_content = llm_response.choices[0].message.content
 
-    if assistant_content is not None:
+    if getattr(chat_req, "disable_log", False):
+        logger.info(
+            "Zero-retention mode active for conversation %s; skipping turn persistence.",
+            conversation_id,
+        )
+    elif assistant_content is not None:
         svc.record_turn(
             conversation=conv,
-            user_content=request.message,
+            user_content=persisted_user_message,
             assistant_content=assistant_content,
             tenant_id=tenant_id,
             user_id=user_id,

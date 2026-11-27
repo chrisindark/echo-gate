@@ -171,6 +171,39 @@
             ],
             "title": "Conversation Id"
           },
+          "disable_log": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disable Log"
+          },
+          "guardrails": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GuardrailsConfig"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "enum": [
+                  "block",
+                  "inject",
+                  "off"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Guardrails"
+          },
           "max_tokens": {
             "default": 1024,
             "maximum": 2000000.0,
@@ -214,6 +247,17 @@
               }
             ],
             "title": "Prompt Optimization"
+          },
+          "redact_pii": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Redact Pii"
           },
           "retries": {
             "anyOf": [
@@ -1806,6 +1850,102 @@
         "title": "BaseAPIResponse[ShadowCacheSummaryResponse]",
         "type": "object"
       },
+      "BaseAPIResponse_TenantPrivacyPolicyListResponse_": {
+        "properties": {
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "response": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TenantPrivacyPolicyListResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status_code": {
+            "default": 200,
+            "title": "Status Code",
+            "type": "integer"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "BaseAPIResponse[TenantPrivacyPolicyListResponse]",
+        "type": "object"
+      },
+      "BaseAPIResponse_TenantPrivacyPolicyResponse_": {
+        "properties": {
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "response": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TenantPrivacyPolicyResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status_code": {
+            "default": 200,
+            "title": "Status Code",
+            "type": "integer"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "BaseAPIResponse[TenantPrivacyPolicyResponse]",
+        "type": "object"
+      },
       "BaseAPIResponse_UserProfileResponse_": {
         "properties": {
           "error_code": {
@@ -1950,6 +2090,58 @@
           }
         },
         "title": "BaseAPIResponse[dict]",
+        "type": "object"
+      },
+      "BaseAPIResponse_dict_str__bool__": {
+        "properties": {
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "response": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Response"
+          },
+          "status_code": {
+            "default": 200,
+            "title": "Status Code",
+            "type": "integer"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "BaseAPIResponse[dict[str, bool]]",
         "type": "object"
       },
       "BaseAPIResponse_list_ApiKeyResponse__": {
@@ -2996,6 +3188,17 @@
             ],
             "title": "Conversation Id"
           },
+          "disable_log": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disable Log"
+          },
           "extra_body": {
             "anyOf": [
               {
@@ -3019,6 +3222,28 @@
             ],
             "default": 0.0,
             "title": "Frequency Penalty"
+          },
+          "guardrails": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GuardrailsConfig"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "enum": [
+                  "block",
+                  "inject",
+                  "off"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Guardrails"
           },
           "logit_bias": {
             "anyOf": [
@@ -3140,6 +3365,17 @@
               }
             ],
             "title": "Reasoning Effort"
+          },
+          "redact_pii": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Redact Pii"
           },
           "response_format": {
             "anyOf": [
@@ -3369,6 +3605,39 @@
       },
       "ChatCompletionRequestWithConversation": {
         "properties": {
+          "disable_log": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disable Log"
+          },
+          "guardrails": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GuardrailsConfig"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "enum": [
+                  "block",
+                  "inject",
+                  "off"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Guardrails"
+          },
           "max_tokens": {
             "anyOf": [
               {
@@ -3403,6 +3672,17 @@
               }
             ],
             "title": "Prompt Optimization"
+          },
+          "redact_pii": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Redact Pii"
           },
           "response_format": {
             "anyOf": [
@@ -4683,6 +4963,135 @@
           "limit"
         ],
         "title": "GatewayRequestLogsPaginatedResponse",
+        "type": "object"
+      },
+      "GuardrailRule": {
+        "description": "Single policy rule evaluated at Stage 0.",
+        "properties": {
+          "action": {
+            "anyOf": [
+              {
+                "enum": [
+                  "block",
+                  "inject"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action"
+          },
+          "id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "instruction": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instruction"
+          },
+          "keywords": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Keywords",
+            "type": "array"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "patterns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Patterns",
+            "type": "array"
+          },
+          "severity": {
+            "default": "medium",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "critical"
+            ],
+            "title": "Severity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "GuardrailRule",
+        "type": "object"
+      },
+      "GuardrailsConfig": {
+        "description": "Per-request guardrails override.",
+        "properties": {
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "instruction": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instruction"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "off",
+                  "block",
+                  "inject"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/GuardrailRule"
+            },
+            "title": "Rules",
+            "type": "array"
+          },
+          "use_builtin_rules": {
+            "default": true,
+            "title": "Use Builtin Rules",
+            "type": "boolean"
+          }
+        },
+        "title": "GuardrailsConfig",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -6660,7 +7069,8 @@
           "REDIS_EXACT",
           "QDRANT_EXACT",
           "QDRANT_SEMANTIC",
-          "QDRANT_FAST"
+          "QDRANT_FAST",
+          "GUARDRAIL_BLOCKED"
         ],
         "title": "RoutingDecision",
         "type": "string"
@@ -7217,6 +7627,189 @@
           "min_equivalence_rate"
         ],
         "title": "ShadowReadiness",
+        "type": "object"
+      },
+      "TenantPrivacyPolicyListResponse": {
+        "description": "Paginated list of admin-configured tenant privacy policies.",
+        "properties": {
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "policies": {
+            "items": {
+              "$ref": "#/components/schemas/TenantPrivacyPolicyResponse"
+            },
+            "title": "Policies",
+            "type": "array"
+          },
+          "skip": {
+            "title": "Skip",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "policies",
+          "total",
+          "skip",
+          "limit"
+        ],
+        "title": "TenantPrivacyPolicyListResponse",
+        "type": "object"
+      },
+      "TenantPrivacyPolicyResponse": {
+        "description": "Serialized per-tenant privacy & cache policy.",
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "guardrails_mode": {
+            "enum": [
+              "inherit",
+              "off",
+              "inject",
+              "block"
+            ],
+            "title": "Guardrails Mode",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "pii_scrubbing_mode": {
+            "enum": [
+              "inherit",
+              "enforced",
+              "disabled"
+            ],
+            "title": "Pii Scrubbing Mode",
+            "type": "string"
+          },
+          "semantic_cache_enabled": {
+            "title": "Semantic Cache Enabled",
+            "type": "boolean"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "zero_retention": {
+            "title": "Zero Retention",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "semantic_cache_enabled",
+          "zero_retention",
+          "pii_scrubbing_mode",
+          "guardrails_mode",
+          "is_active"
+        ],
+        "title": "TenantPrivacyPolicyResponse",
+        "type": "object"
+      },
+      "TenantPrivacyPolicyUpsert": {
+        "description": "Admin payload to create or update a tenant's privacy & cache restriction.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional operator notes (e.g. compliance profile name).",
+            "title": "Description"
+          },
+          "guardrails_mode": {
+            "default": "inherit",
+            "description": "Controls Stage 0 guardrails for the tenant: 'block', 'inject', 'off', or 'inherit'.",
+            "enum": [
+              "inherit",
+              "off",
+              "inject",
+              "block"
+            ],
+            "title": "Guardrails Mode",
+            "type": "string"
+          },
+          "is_active": {
+            "default": true,
+            "description": "Whether this policy restriction is currently enforced.",
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "pii_scrubbing_mode": {
+            "default": "inherit",
+            "description": "Controls Stage 0 PII scrubbing: 'enforced' mandates redaction, 'disabled' disables scrubbing for latency/accuracy, 'inherit' defers to global defaults and per-request headers.",
+            "enum": [
+              "inherit",
+              "enforced",
+              "disabled"
+            ],
+            "title": "Pii Scrubbing Mode",
+            "type": "string"
+          },
+          "semantic_cache_enabled": {
+            "default": true,
+            "description": "When false, completely disables semantic matching and exact caching (Redis and Qdrant) for every request in this tenant.",
+            "title": "Semantic Cache Enabled",
+            "type": "boolean"
+          },
+          "zero_retention": {
+            "default": false,
+            "description": "When true, enforces Zero-Retention Mode across the tenant: skips Postgres logging and cache reads/writes while keeping quota checks active.",
+            "title": "Zero Retention",
+            "type": "boolean"
+          }
+        },
+        "title": "TenantPrivacyPolicyUpsert",
         "type": "object"
       },
       "TimeSeriesDataPoint": {
@@ -8700,6 +9293,371 @@
         "summary": "Update Quota Rule",
         "tags": [
           "LLM Quota (Admin)"
+        ]
+      }
+    },
+    "/api/v1/admin/tenant-policies/": {
+      "get": {
+        "description": "List configured per-tenant privacy and cache policies.",
+        "operationId": "list_tenant_policies_api_v1_admin_tenant_policies__get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "skip",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Skip",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Filter by tenant",
+            "in": "query",
+            "name": "tenant_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by tenant",
+              "title": "Tenant Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "is_active",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Is Active"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-admin-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BaseAPIResponse_TenantPrivacyPolicyListResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "AdminApiKeyAuth": []
+          }
+        ],
+        "summary": "List Tenant Policies",
+        "tags": [
+          "Tenant Privacy Policy (Admin)"
+        ]
+      }
+    },
+    "/api/v1/admin/tenant-policies/tenants": {
+      "get": {
+        "description": "List distinct tenant IDs known to the gateway for admin selection.",
+        "operationId": "list_policy_tenants_api_v1_admin_tenant_policies_tenants_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-admin-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BaseAPIResponse_list_str__"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "AdminApiKeyAuth": []
+          }
+        ],
+        "summary": "List Policy Tenants",
+        "tags": [
+          "Tenant Privacy Policy (Admin)"
+        ]
+      }
+    },
+    "/api/v1/admin/tenant-policies/{tenant_id}": {
+      "delete": {
+        "description": "Delete ``tenant_id``'s custom restriction, reverting it to gateway defaults.",
+        "operationId": "delete_tenant_policy_api_v1_admin_tenant_policies__tenant_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-admin-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BaseAPIResponse_dict_str__bool__"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "AdminApiKeyAuth": []
+          }
+        ],
+        "summary": "Delete Tenant Policy",
+        "tags": [
+          "Tenant Privacy Policy (Admin)"
+        ]
+      },
+      "get": {
+        "description": "Fetch the privacy & cache restriction configured for ``tenant_id``.",
+        "operationId": "get_tenant_policy_api_v1_admin_tenant_policies__tenant_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-admin-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BaseAPIResponse_TenantPrivacyPolicyResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "AdminApiKeyAuth": []
+          }
+        ],
+        "summary": "Get Tenant Policy",
+        "tags": [
+          "Tenant Privacy Policy (Admin)"
+        ]
+      },
+      "put": {
+        "description": "Create or update the privacy & cache restriction for ``tenant_id``.",
+        "operationId": "upsert_tenant_policy_api_v1_admin_tenant_policies__tenant_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-admin-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantPrivacyPolicyUpsert"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BaseAPIResponse_TenantPrivacyPolicyResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "AdminApiKeyAuth": []
+          }
+        ],
+        "summary": "Upsert Tenant Policy",
+        "tags": [
+          "Tenant Privacy Policy (Admin)"
         ]
       }
     },
@@ -12397,6 +13355,10 @@
     {
       "description": "Cross-tenant quota rule management (X-Admin-Key).",
       "name": "LLM Quota (Admin)"
+    },
+    {
+      "description": "Admin-managed per-tenant semantic cache, zero-retention, and PII restrictions (X-Admin-Key).",
+      "name": "Tenant Privacy Policy (Admin)"
     },
     {
       "description": "Tenant API key management.",
