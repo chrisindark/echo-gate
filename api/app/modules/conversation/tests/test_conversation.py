@@ -629,3 +629,47 @@ def test_chat_in_conversation_streaming():
             assert db_msgs[0].content == "Stream this question"
             assert db_msgs[1].role == "assistant"
             assert db_msgs[1].content == "Assistant reply"
+
+
+def test_chat_in_conversation_streaming_releases_db_transaction_before_stream():
+    """Streaming chat_in_conversation ends the read transaction before calling the LLM stream."""
+    app, _, _, SessionLocal = _create_test_app()
+    rollback_events: list[bool] = []
+
+    def tracking_override_get_db():
+        db = SessionLocal()
+        orig_rollback = db.rollback
+
+        def wrapped_rollback():
+            rollback_events.append(True)
+            return orig_rollback()
+
+        db.rollback = wrapped_rollback  # type: ignore[method-assign]
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = tracking_override_get_db
+
+    with TestClient(app) as client:
+        headers = {"X-Session-ID": "sess-release-tx"}
+        create_res = client.post(
+            "/api/v1/conversations", json={"title": "TX Release"}, headers=headers
+        )
+        conv_id = create_res.json()["response"]["id"]
+        rollback_events.clear()
+
+        chat_res = client.post(
+            f"/api/v1/conversations/{conv_id}/chat",
+            json={
+                "model": "qwen3:8b",
+                "message": "what is vercel",
+                "stream": True,
+                "prompt_optimization": True,
+            },
+            headers=headers,
+        )
+        assert chat_res.status_code == 200
+        assert "data: [DONE]" in chat_res.text
+        assert len(rollback_events) >= 1

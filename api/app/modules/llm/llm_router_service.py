@@ -699,7 +699,20 @@ class LlmRouterService:
                     content_emitted = False
 
                     try:
-                        first_chunk = await candidate_iter.__anext__()
+                        first_chunk_timeout = config.LLM_PROVIDER_TIMEOUT_SECONDS
+                        if timeout_budget_ms is not None:
+                            elapsed_s = time.monotonic() - t_budget_start
+                            remaining_s = (timeout_budget_ms / 1000.0) - elapsed_s
+                            first_chunk_timeout = min(
+                                first_chunk_timeout, max(0.1, remaining_s)
+                            )
+                        if first_chunk_timeout and first_chunk_timeout > 0:
+                            first_chunk = await asyncio.wait_for(
+                                candidate_iter.__anext__(),
+                                timeout=first_chunk_timeout,
+                            )
+                        else:
+                            first_chunk = await candidate_iter.__anext__()
                     except StopAsyncIteration:
                         breaker.record_success()
                         return
@@ -3007,8 +3020,8 @@ class LlmRouterService:
                 self.tenant_policy_service.resolve_and_apply, request
             )
         request, pii_result = self.pii_scrubber.scrub_request(request)
-        request, guardrail_result = await asyncio.to_thread(
-            self._run_stage_zero_guardrails, request, api_key=api_key
+        request, guardrail_result = self._run_stage_zero_guardrails(
+            request, api_key=api_key
         )
         request, opt_result = await self.prompt_optimizer.optimize_async(request)
         service_name = request.service_name or config.DEFAULT_LLM_SERVICE
@@ -3386,8 +3399,8 @@ class LlmRouterService:
                 self.tenant_policy_service.resolve_and_apply, request
             )
         request, pii_result = self.pii_scrubber.scrub_request(request)
-        request, guardrail_result = await asyncio.to_thread(
-            self._run_stage_zero_guardrails, request, api_key=api_key
+        request, guardrail_result = self._run_stage_zero_guardrails(
+            request, api_key=api_key
         )
         request, opt_result = await self.prompt_optimizer.optimize_async(request)
         if config.CACHE_MODE == "shadow" or request.cache_bypassed:
@@ -3491,8 +3504,8 @@ class LlmRouterService:
                 self.tenant_policy_service.resolve_and_apply, request
             )
         request, pii_result = self.pii_scrubber.scrub_request(request)
-        request, guardrail_result = await asyncio.to_thread(
-            self._run_stage_zero_guardrails, request, api_key=api_key
+        request, guardrail_result = self._run_stage_zero_guardrails(
+            request, api_key=api_key
         )
         request, opt_result = await self.prompt_optimizer.optimize_async(request)
         service_name = request.service_name or config.DEFAULT_LLM_SERVICE

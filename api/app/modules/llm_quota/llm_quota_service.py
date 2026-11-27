@@ -85,7 +85,7 @@ class LlmQuotaService:
             with SessionLocal() as s:
                 yield s
 
-    async def get_applicable_limits(
+    def _query_applicable_limits(
         self,
         provider: str | None = None,
         model: str | None = None,
@@ -136,6 +136,21 @@ class LlmQuotaService:
                     max_tpm = int(rule_max_tpm)
 
             return max_rpm, max_tpm
+
+    async def get_applicable_limits(
+        self,
+        provider: str | None = None,
+        model: str | None = None,
+        user: str | None = None,
+        tenant_id: str | None = None,
+    ) -> tuple[int | None, int | None]:
+        return await asyncio.to_thread(
+            self._query_applicable_limits,
+            provider,
+            model,
+            user,
+            tenant_id,
+        )
 
     async def check_quota(
         self,

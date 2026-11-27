@@ -945,6 +945,49 @@ class TestRouterCachePipeline(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(dense)
         self.assertIsNone(sparse)
 
+    async def test_stream_first_chunk_timeout_fails_over_or_returns_504(self):
+        import asyncio
+
+        from fastapi import HTTPException
+
+        from app.core.circuit_breaker import circuit_breaker_registry
+
+        circuit_breaker_registry.reset_all()
+        req = ChatCompletionRequest(
+            service_name="openai",
+            model="gpt-4o-mini",
+            messages=[ChatMessage(role="user", content="hang test")],
+        )
+
+        async def stalled_stream(*args, **kwargs):
+            await asyncio.sleep(5.0)
+            yield None
+
+        mock_breaker = MagicMock()
+        mock_breaker.can_execute.return_value = True
+        mock_breaker.remaining_recovery_time.return_value = 0.0
+
+        with (
+            patch(
+                "app.core.circuit_breaker.circuit_breaker_registry.get_breaker",
+                return_value=mock_breaker,
+            ),
+            patch.object(
+                self.router.llm_provider_service,
+                "generate_stream",
+                return_value=stalled_stream(),
+            ),
+            patch.object(config, "LLM_PROVIDER_TIMEOUT_SECONDS", 0.05),
+            patch.object(config, "USE_FALLBACK_LLM", "false"),
+        ):
+            with self.assertRaises(HTTPException) as ctx:
+                async for _ in self.router._stream_from_provider_with_fallback(
+                    request=req,
+                    service_name="openai",
+                ):
+                    pass
+        self.assertEqual(ctx.exception.status_code, 504)
+
 
 if __name__ == "__main__":
     unittest.main()
