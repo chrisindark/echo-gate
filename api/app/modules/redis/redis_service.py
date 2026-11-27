@@ -27,7 +27,7 @@ class RedisService:
         try:
             if await self.redis.ping():
                 logger.info("Redis connection is successful")
-        except aioredis.ConnectionError as e:
+        except Exception as e:
             logger.error(f"Error in Redis connection: {e}")
 
     @log_latency()
