@@ -11,6 +11,7 @@ class RoutingDecision(str, Enum):
     QDRANT_EXACT = "QDRANT_EXACT"
     QDRANT_SEMANTIC = "QDRANT_SEMANTIC"
     QDRANT_FAST = "QDRANT_FAST"
+    GUARDRAIL_BLOCKED = "GUARDRAIL_BLOCKED"
 
 
 class EvaluationStatus(str, Enum):

@@ -1,9 +1,7 @@
 import os
 import sys
 from logging.config import fileConfig
-from pathlib import Path
 
-from dotenv import load_dotenv
 from sqlalchemy import engine_from_config, pool
 
 from alembic import context
@@ -14,6 +12,7 @@ from app.modules.conversation.conversation_model import Conversation, Message
 from app.modules.gateway_requests.gateway_requests_model import GatewayRequestLog
 from app.modules.llm_quota.llm_quota_model import LlmQuotaRule
 from app.modules.llm_usage.llm_usage_model import LlmUsageLog
+from app.modules.tenant_policy.tenant_policy_model import TenantPrivacyPolicy
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -33,7 +32,7 @@ sys.path.insert(0, ROOT_DIR)
 sys.path.insert(0, os.path.join(ROOT_DIR, "api"))
 
 
-from app.core.env import load_app_env
+from app.core.env import load_app_env  # noqa: E402
 
 load_app_env()
 
@@ -50,6 +49,7 @@ models = [
     Message,
     ApiKey,
     AdminApiKey,
+    TenantPrivacyPolicy,
 ]
 config.set_main_option("sqlalchemy.url", MIGRATION_DATABASE_URL)
 target_metadata = Base.metadata

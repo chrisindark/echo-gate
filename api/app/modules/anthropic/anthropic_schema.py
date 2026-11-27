@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.core.config import DEFAULT_MAX_COMPLETION_TOKENS_CAP
 from app.core.helpers import validate_max_tokens_cap
+from app.modules.guardrails.guardrails_schema import GuardrailsConfig
 from app.modules.prompt_optimization.prompt_optimization_schema import (
     PromptOptimizationConfig,
 )
@@ -113,6 +114,11 @@ class AnthropicMessagesRequest(BaseModel):
     retries: int | None = Field(default=None, ge=0, le=10)
     stream_pacing: bool | None = None
     stream_pacing_delay_ms: float | None = Field(default=None, ge=0.0, le=1000.0)
+    disable_log: bool | None = None
+    redact_pii: bool | None = None
+    guardrails: GuardrailsConfig | bool | Literal["block", "inject", "off"] | None = (
+        None
+    )
     service_name: str | None = None
     tenant_id: str | None = None
     user_id: str | None = None

@@ -110,6 +110,8 @@ Retries apply only to timeouts/connection errors and HTTP 408/429/500/502/503/50
 | `BULKHEAD_ACQUIRE_TIMEOUT_SECONDS`         | `0.0`     | How long to wait before shedding.                |
 | `STREAM_MAX_CONTENT_BYTES`                 | `2097152` | Guardrail on the streaming accumulator.          |
 | `MAX_COMPLETION_TOKENS_CAP`                | `2000000` | Hard ceiling on caller-supplied `max_tokens`.    |
+| `PII_SCRUBBING_ENABLED`                    | `false`   | Global default for Stage 0 pre-routing PII scrubbing (`redact_pii`). |
+| `PII_SCRUBBING_ENTITIES`                   | `email,phone,credit_card,ssn,iban` | Entity types masked prior to cache/routing/logging. |
 
 ### Inference platform
 
@@ -154,6 +156,17 @@ to start.
 | `INTENT_TTL_SECONDS`                  | per intent | JSON map of intent → TTL seconds.                                          |
 
 `time_sensitivity >= 0.9` or intent `finance_market` is never cached.
+
+### Zero-retention, PII scrubbing, and guardrails
+
+| Variable                         | Default                                         | Why it matters                                                                             |
+| -------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `PII_SCRUBBING_ENABLED`          | `false`                                         | Mask email, phone, Luhn-valid credit cards, SSN, and IBAN before caching or dispatch.      |
+| `PII_SCRUBBING_ENTITIES`         | `email,phone,credit_card,ssn,iban`              | Comma-separated built-in entity detectors active when PII scrubbing is enabled.            |
+| `GUARDRAILS_ENABLED`             | `false`                                         | Enable Stage 0 policy guardrails globally (`off`, `inject`, or `block` via `guardrails`).  |
+| `GUARDRAILS_MODE`                | `inject`                                        | `block` aborts violations with HTTP 403 (`guardrail_blocked`); `inject` soft-steers.       |
+| `GUARDRAILS_RULES_JSON`          | unset                                           | Optional JSON array of custom `{id, action, patterns, keywords, instruction, message, severity}` rules. |
+| `GUARDRAILS_DEFAULT_INSTRUCTION` | `Follow safety and confidentiality policies...` | Fallback system-prompt instruction used when `inject` runs without a rule-specific policy. |
 
 Value-aware retention (`api/app/modules/qdrant/retention_policy.py`) stretches
 TTLs by `(1 + log10(1 + cost * 100)) * (1 + latency_ms / 1000)` up to

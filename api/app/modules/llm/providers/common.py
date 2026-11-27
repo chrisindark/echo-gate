@@ -130,6 +130,9 @@ def prepare_openai_compatible_payload(
         "retries",
         "stream_pacing",
         "stream_pacing_delay_ms",
+        "disable_log",
+        "redact_pii",
+        "guardrails",
     ]:
         payload_data.pop(key, None)
 

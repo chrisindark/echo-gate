@@ -55,6 +55,8 @@ KNOWN_SCOPES: frozenset[str] = frozenset(
         "quota:write",
         "keys:read",
         "keys:write",
+        "policy:read",
+        "policy:write",
     }
 )
 

@@ -124,13 +124,20 @@ except Exception:  # pragma: no cover - lightweight deployments
     EntityExtractorService = None
     IntentClassifierService = None
     IntentEnum = None
+from app.modules.guardrails.guardrails_schema import GuardrailEvaluationResult
+from app.modules.guardrails.guardrails_service import (
+    GuardrailBlockedError,
+    GuardrailsService,
+)
 from app.modules.llm.cache_confidence import CacheConfidenceEvaluator
 from app.modules.llm.llm_provider_service import LlmProviderService
 from app.modules.llm.model_registry import ModelTarget, model_registry
 from app.modules.llm_quota.llm_quota_service import LlmQuotaService
 from app.modules.llm_usage.llm_usage_schema import LlmUsageLogCreate
 from app.modules.llm_usage.llm_usage_service import LlmUsageService
+from app.modules.pii_scrubber.pii_scrubber_service import PiiScrubberService
 from app.modules.prompt_optimization.prompt_optimizer import PromptOptimizer
+from app.modules.tenant_policy.tenant_policy_service import TenantPolicyService
 
 try:
     from app.modules.qdrant.llm_cache_collection_service import (
@@ -224,6 +231,9 @@ class LlmRouterService:
         judge_service: JudgeService | None = None,
         cache_audit_service: CacheAuditService | None = None,
         prompt_optimizer: PromptOptimizer | None = None,
+        pii_scrubber: PiiScrubberService | None = None,
+        guardrails_service: GuardrailsService | None = None,
+        tenant_policy_service: TenantPolicyService | None = None,
     ) -> None:
         self.llm_provider_service = llm_provider_service
         self.embedding_service = embedding_service
@@ -239,6 +249,9 @@ class LlmRouterService:
         self.judge_service = judge_service
         self.cache_audit_service = cache_audit_service
         self.prompt_optimizer = prompt_optimizer or PromptOptimizer()
+        self.pii_scrubber = pii_scrubber or PiiScrubberService()
+        self.guardrails_service = guardrails_service or GuardrailsService()
+        self.tenant_policy_service = tenant_policy_service
         self._background_tasks: set[asyncio.Task[Any]] = set()
         self._embedding_cache: OrderedDict[
             str, tuple[list[float] | None, dict[str, list] | None]
@@ -2093,6 +2106,8 @@ class LlmRouterService:
         the serving path ignore the result; the admin warmup endpoint counts it.
         """
         try:
+            if getattr(request, "disable_log", False):
+                return False
             point_id = None
             ttl = None
             use_qdrant_exact_matching = (
@@ -2138,9 +2153,13 @@ class LlmRouterService:
             return False
 
     def _should_run_shadow_evaluation(
-        self, response: ChatCompletionResponse | None
+        self,
+        response: ChatCompletionResponse | None,
+        request: ChatCompletionRequest | None = None,
     ) -> bool:
         """Whether this request should be replayed through the cache pipeline."""
+        if request is not None and getattr(request, "disable_log", False):
+            return False
         if config.CACHE_MODE != "shadow" or not self.shadow_cache_service:
             return False
         if response is None or not response.choices or is_mock_response(response):
@@ -2193,7 +2212,7 @@ class LlmRouterService:
         failure is swallowed — this task observes traffic and must never affect
         it.
         """
-        if not self.shadow_cache_service:
+        if getattr(request, "disable_log", False) or not self.shadow_cache_service:
             return
 
         try:
@@ -2352,13 +2371,19 @@ class LlmRouterService:
         except Exception:
             logger.exception("Shadow cache evaluation failed for %s", exact_hash)
 
-    def _should_run_cache_audit(self, response: ChatCompletionResponse | None) -> bool:
+    def _should_run_cache_audit(
+        self,
+        response: ChatCompletionResponse | None,
+        request: ChatCompletionRequest | None = None,
+    ) -> bool:
         """Whether a served semantic-cache hit should be asynchronously audited.
 
         Applies only in CACHE_MODE=active when a response was served as a cache hit
         from either qdrant_semantic_path or qdrant_fast_path. A low sample rate
         (p ≈ 0.02) provides an unbiased ground truth comparison out of band.
         """
+        if request is not None and getattr(request, "disable_log", False):
+            return False
         if not config.CACHE_AUDIT_ENABLED or config.CACHE_MODE != "active":
             return False
         if not self.cache_audit_service:
@@ -2393,7 +2418,7 @@ class LlmRouterService:
             and Redis key to purge the stale or false-positive entry.
         (4) Persists the audit comparison to the cache_evaluations table.
         """
-        if not self.cache_audit_service:
+        if getattr(request, "disable_log", False) or not self.cache_audit_service:
             return
 
         try:
@@ -2592,6 +2617,36 @@ class LlmRouterService:
         error_message: str | None = None,
     ) -> None:
         try:
+            total_tokens = (
+                response.usage.total_tokens
+                if response and response.usage and response.usage.total_tokens
+                else 0
+            )
+            effective_model = model or (
+                response.model if response and response.model else request.model
+            )
+
+            # Zero-Retention Mode: keep TPM quota accounting while skipping all
+            # PostgreSQL usage persistence and operational cache-miss events.
+            if getattr(request, "disable_log", False):
+                if (
+                    self.llm_quota_service
+                    and api_key
+                    and total_tokens > 0
+                    and is_success
+                ):
+                    try:
+                        await self.llm_quota_service.record_tokens(
+                            api_key=api_key,
+                            total_tokens=total_tokens,
+                            provider=service_name,
+                            model=effective_model,
+                            user_id=request.user_id,
+                        )
+                    except Exception:
+                        logger.exception("Failed to record TPM usage")
+                return
+
             end_time = time.perf_counter()
             latency_ms = int((end_time - start_time) * 1000)
             is_cache_hit = (
@@ -2633,11 +2688,6 @@ class LlmRouterService:
                 if response and response.usage and response.usage.completion_tokens
                 else 0
             )
-            total_tokens = (
-                response.usage.total_tokens
-                if response and response.usage and response.usage.total_tokens
-                else 0
-            )
 
             # Gateway (semantic) cache accounting stays on the original
             # columns; provider-native prompt cache is tracked separately so
@@ -2662,10 +2712,6 @@ class LlmRouterService:
                 finish_reason = response.choices[0].finish_reason
             elif not is_success:
                 finish_reason = "error"
-
-            effective_model = model or (
-                response.model if response and response.model else request.model
-            )
 
             log_data = LlmUsageLogCreate(
                 service_name=service_name,
@@ -2763,7 +2809,7 @@ class LlmRouterService:
         The id is returned so the shadow evaluator can link its row to the trace
         of the request it observed; callers that do not need it may ignore it.
         """
-        if not self.gateway_requests_service:
+        if getattr(request, "disable_log", False) or not self.gateway_requests_service:
             return None
 
         try:
@@ -2880,6 +2926,55 @@ class LlmRouterService:
             return None
 
     @log_latency()
+    def _run_stage_zero_guardrails(
+        self,
+        request: ChatCompletionRequest,
+        api_key: str | None = None,
+    ) -> tuple[ChatCompletionRequest, GuardrailEvaluationResult]:
+        """Evaluate Stage 0 guardrails, logging and aborting on hard-block matches."""
+        updated_request, result = self.guardrails_service.evaluate_and_apply(request)
+        if result.blocked:
+            reason = result.block_reason or "Request blocked by guardrail policy."
+            rule_id = ",".join(result.matched_rule_ids) or "policy"
+            if not getattr(updated_request, "disable_log", False):
+                now = time.perf_counter()
+                service_name = (
+                    updated_request.service_name or config.DEFAULT_LLM_SERVICE
+                )
+                exact_hash = self._generate_cache_key(updated_request)
+                self._create_background_task(
+                    self._log_usage(
+                        request=updated_request,
+                        response=None,
+                        service_name=service_name,
+                        start_time=now,
+                        exact_hash=exact_hash,
+                        api_key=api_key,
+                        model=updated_request.model,
+                        is_success=False,
+                        status_code=403,
+                        error_message=reason,
+                    )
+                )
+                self._create_background_task(
+                    self._log_gateway_request(
+                        request=updated_request,
+                        response=None,
+                        service_name=service_name,
+                        start_time=now,
+                        exact_hash=exact_hash,
+                        model=updated_request.model,
+                        error_message=reason,
+                        routing_decision=RoutingDecision.GUARDRAIL_BLOCKED,
+                    )
+                )
+            raise GuardrailBlockedError(
+                message=reason,
+                rule_id=rule_id,
+                severity=result.severity or "medium",
+            )
+        return updated_request, result
+
     async def generate_completion(
         self,
         request: ChatCompletionRequest,
@@ -2892,6 +2987,12 @@ class LlmRouterService:
         read anywhere below (Redis, Qdrant exact, semantic search) is reported on
         the response instead of only in the logs.
         """
+        if self.tenant_policy_service is not None:
+            self.tenant_policy_service.resolve_and_apply(request)
+        request, pii_result = self.pii_scrubber.scrub_request(request)
+        request, guardrail_result = self._run_stage_zero_guardrails(
+            request, api_key=api_key
+        )
         request, opt_result = await self.prompt_optimizer.optimize_async(request)
         service_name = request.service_name or config.DEFAULT_LLM_SERVICE
         span_attrs = {
@@ -2910,6 +3011,10 @@ class LlmRouterService:
                 response = await self._generate_completion_impl(
                     request, api_key, timeout_budget_ms
                 )
+                if pii_result.applied:
+                    response._pii_scrubbing_result = pii_result
+                if guardrail_result.applied:
+                    response._guardrail_result = guardrail_result
                 if opt_result.applied:
                     response._prompt_optimization_result = opt_result
                 served_from_cache = bool((response.cache_info or {}).get("matched"))
@@ -3156,18 +3261,24 @@ class LlmRouterService:
                         model=actual_model,
                     )
                 )
-                gateway_log_task = self._create_background_task(
-                    self._log_gateway_request(
-                        request=request,
-                        response=response,
-                        service_name=actual_service,
-                        start_time=start_time,
-                        exact_hash=exact_hash,
-                        model=actual_model,
-                        latency_breakdown=breakdown,
+                gateway_log_task = (
+                    None
+                    if getattr(request, "disable_log", False)
+                    else self._create_background_task(
+                        self._log_gateway_request(
+                            request=request,
+                            response=response,
+                            service_name=actual_service,
+                            start_time=start_time,
+                            exact_hash=exact_hash,
+                            model=actual_model,
+                            latency_breakdown=breakdown,
+                        )
                     )
                 )
-                if shadow_mode and self._should_run_shadow_evaluation(response):
+                if shadow_mode and self._should_run_shadow_evaluation(
+                    response, request=request
+                ):
                     self._create_background_task(
                         self._background_shadow_evaluate(
                             request=request,
@@ -3178,7 +3289,9 @@ class LlmRouterService:
                             gateway_log_task=gateway_log_task,
                         )
                     )
-                elif not shadow_mode and self._should_run_cache_audit(response):
+                elif not shadow_mode and self._should_run_cache_audit(
+                    response, request=request
+                ):
                     self._create_background_task(
                         self._background_cache_audit(
                             request=request,
@@ -3215,26 +3328,27 @@ class LlmRouterService:
                         error_message=error_detail,
                     )
                 )
-                self._create_background_task(
-                    self._log_gateway_request(
-                        request=request,
-                        response=None,
-                        service_name=actual_service,
-                        start_time=start_time,
-                        exact_hash=exact_hash,
-                        model=actual_model,
-                        latency_breakdown=breakdown,
-                        error_message=error_detail,
-                        routing_decision=RoutingDecision.LLM,
-                        intent=intent.value
-                        if (intent and hasattr(intent, "value"))
-                        else None,
-                        core_operation=core_operation,
-                        core_subject=core_subject,
-                        subject_modifier=subject_modifier,
-                        action_modifier=action_modifier,
+                if not getattr(request, "disable_log", False):
+                    self._create_background_task(
+                        self._log_gateway_request(
+                            request=request,
+                            response=None,
+                            service_name=actual_service,
+                            start_time=start_time,
+                            exact_hash=exact_hash,
+                            model=actual_model,
+                            latency_breakdown=breakdown,
+                            error_message=error_detail,
+                            routing_decision=RoutingDecision.LLM,
+                            intent=intent.value
+                            if (intent and hasattr(intent, "value"))
+                            else None,
+                            core_operation=core_operation,
+                            core_subject=core_subject,
+                            subject_modifier=subject_modifier,
+                            action_modifier=action_modifier,
+                        )
                     )
-                )
 
     async def get_instant_cache_hit(
         self,
@@ -3250,6 +3364,12 @@ class LlmRouterService:
         hit counting, auditing, and usage/trace logging mirror the serving path,
         because this *is* the serving path for these requests.
         """
+        if self.tenant_policy_service is not None:
+            self.tenant_policy_service.resolve_and_apply(request)
+        request, pii_result = self.pii_scrubber.scrub_request(request)
+        request, guardrail_result = self._run_stage_zero_guardrails(
+            request, api_key=api_key
+        )
         request, opt_result = await self.prompt_optimizer.optimize_async(request)
         if config.CACHE_MODE == "shadow" or request.cache_bypassed:
             # Shadow mode or a bypassed cache never reads the cache, so there is nothing to serve.
@@ -3322,6 +3442,10 @@ class LlmRouterService:
                     api_key=api_key,
                 )
             )
+        if pii_result.applied:
+            response._pii_scrubbing_result = pii_result
+        if guardrail_result.applied:
+            response._guardrail_result = guardrail_result
         if opt_result.applied:
             response._prompt_optimization_result = opt_result
         return response
@@ -3343,6 +3467,12 @@ class LlmRouterService:
         `X-Cache-Prefer: instant` miss already ran the lookup pipeline, so the
         stream does not pay for it a second time.
         """
+        if self.tenant_policy_service is not None:
+            self.tenant_policy_service.resolve_and_apply(request)
+        request, pii_result = self.pii_scrubber.scrub_request(request)
+        request, guardrail_result = self._run_stage_zero_guardrails(
+            request, api_key=api_key
+        )
         request, opt_result = await self.prompt_optimizer.optimize_async(request)
         service_name = request.service_name or config.DEFAULT_LLM_SERVICE
         span_attrs = {
@@ -3361,6 +3491,10 @@ class LlmRouterService:
                 ):
                     if first:
                         first = False
+                        if pii_result.applied:
+                            chunk._pii_scrubbing_result = pii_result
+                        if guardrail_result.applied:
+                            chunk._guardrail_result = guardrail_result
                         if opt_result.applied:
                             chunk._prompt_optimization_result = opt_result
                         provider_state = getattr(chunk, "_degradation_state", None)
@@ -3637,18 +3771,24 @@ class LlmRouterService:
                         model=actual_model,
                     )
                 )
-                gateway_log_task = self._create_background_task(
-                    self._log_gateway_request(
-                        request=request,
-                        response=response,
-                        service_name=actual_service,
-                        start_time=start_time,
-                        exact_hash=exact_hash,
-                        model=actual_model,
-                        latency_breakdown=breakdown,
+                gateway_log_task = (
+                    None
+                    if getattr(request, "disable_log", False)
+                    else self._create_background_task(
+                        self._log_gateway_request(
+                            request=request,
+                            response=response,
+                            service_name=actual_service,
+                            start_time=start_time,
+                            exact_hash=exact_hash,
+                            model=actual_model,
+                            latency_breakdown=breakdown,
+                        )
                     )
                 )
-                if shadow_mode and self._should_run_shadow_evaluation(response):
+                if shadow_mode and self._should_run_shadow_evaluation(
+                    response, request=request
+                ):
                     self._create_background_task(
                         self._background_shadow_evaluate(
                             request=request,
@@ -3659,7 +3799,9 @@ class LlmRouterService:
                             gateway_log_task=gateway_log_task,
                         )
                     )
-                elif not shadow_mode and self._should_run_cache_audit(response):
+                elif not shadow_mode and self._should_run_cache_audit(
+                    response, request=request
+                ):
                     self._create_background_task(
                         self._background_cache_audit(
                             request=request,
@@ -3696,23 +3838,24 @@ class LlmRouterService:
                         error_message=error_detail,
                     )
                 )
-                self._create_background_task(
-                    self._log_gateway_request(
-                        request=request,
-                        response=None,
-                        service_name=actual_service,
-                        start_time=start_time,
-                        exact_hash=exact_hash,
-                        model=actual_model,
-                        latency_breakdown=breakdown,
-                        error_message=error_detail,
-                        routing_decision=RoutingDecision.LLM,
-                        intent=intent.value
-                        if (intent and hasattr(intent, "value"))
-                        else None,
-                        core_operation=core_operation,
-                        core_subject=core_subject,
-                        subject_modifier=subject_modifier,
-                        action_modifier=action_modifier,
+                if not getattr(request, "disable_log", False):
+                    self._create_background_task(
+                        self._log_gateway_request(
+                            request=request,
+                            response=None,
+                            service_name=actual_service,
+                            start_time=start_time,
+                            exact_hash=exact_hash,
+                            model=actual_model,
+                            latency_breakdown=breakdown,
+                            error_message=error_detail,
+                            routing_decision=RoutingDecision.LLM,
+                            intent=intent.value
+                            if (intent and hasattr(intent, "value"))
+                            else None,
+                            core_operation=core_operation,
+                            core_subject=core_subject,
+                            subject_modifier=subject_modifier,
+                            action_modifier=action_modifier,
+                        )
                     )
-                )

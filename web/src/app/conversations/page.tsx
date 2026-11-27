@@ -45,6 +45,11 @@ import { MessageContent } from '@/components/chat/message-content';
 import { ChatComposer } from '@/components/chat/chat-composer';
 import { MaxTokensField } from '@/components/max-tokens-field';
 import {
+  buildGuardrailsPayload,
+  type GuardrailUiMode,
+  PrivacyDirectivesField,
+} from '@/components/privacy-directives-field';
+import {
   DEFAULT_MAX_TOKENS,
   clampMaxTokens,
   estimateMessageTokens,
@@ -213,6 +218,11 @@ export default function ChatPage() {
   const [thinking, setThinking] = useState<boolean>(false);
   const [thinkingBudget, setThinkingBudget] = useState<number>(2048);
   const [promptOptimization, setPromptOptimization] = useState<boolean>(true);
+  const [disableLog, setDisableLog] = useState<boolean>(false);
+  const [redactPii, setRedactPii] = useState<boolean>(false);
+  const [guardrailsMode, setGuardrailsMode] = useState<GuardrailUiMode>('off');
+  const [guardrailsInstruction, setGuardrailsInstruction] =
+    useState<string>('');
 
   // Structured Output state
   const [responseFormatType, setResponseFormatType] = useState<
@@ -504,6 +514,10 @@ export default function ChatPage() {
         ...buildAuthHeaders(apiKey, accessToken),
       };
 
+      const guardrailsPayload = buildGuardrailsPayload(
+        guardrailsMode,
+        guardrailsInstruction
+      );
       const bodyPayload: Record<string, unknown> = {
         ...(activeProvider && activeProvider !== AUTO_PROVIDER_ID
           ? { service_name: activeProvider }
@@ -516,6 +530,11 @@ export default function ChatPage() {
         thinking: thinking,
         thinking_budget: thinking ? thinkingBudget : undefined,
         prompt_optimization: promptOptimization,
+        disable_log: disableLog,
+        redact_pii: redactPii,
+        ...(guardrailsPayload !== undefined
+          ? { guardrails: guardrailsPayload }
+          : {}),
       };
 
       if (responseFormatType === 'json_object') {
@@ -1601,6 +1620,18 @@ export default function ChatPage() {
                       Prompt Token Optimization
                     </Text>
                   </Flex>
+
+                  <PrivacyDirectivesField
+                    disableLog={disableLog}
+                    onDisableLogChange={setDisableLog}
+                    redactPii={redactPii}
+                    onRedactPiiChange={setRedactPii}
+                    guardrailsMode={guardrailsMode}
+                    onGuardrailsModeChange={setGuardrailsMode}
+                    guardrailsInstruction={guardrailsInstruction}
+                    onGuardrailsInstructionChange={setGuardrailsInstruction}
+                    idPrefix="conv"
+                  />
 
                   <Flex align="center" gap="2" pt="1">
                     <Checkbox

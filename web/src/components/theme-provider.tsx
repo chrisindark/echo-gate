@@ -1,9 +1,18 @@
 'use client';
 
 import { Theme } from '@radix-ui/themes';
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useSyncExternalStore,
+} from 'react';
 
 export type ThemeMode = 'light' | 'dark';
+
+const STORAGE_KEY = 'echo_gate_theme';
+const listeners = new Set<() => void>();
 
 interface ThemeContextValue {
   theme: ThemeMode;
@@ -21,30 +30,50 @@ export function useTheme(): ThemeContextValue {
   return context;
 }
 
+function subscribe(onChange: () => void) {
+  listeners.add(onChange);
+  window.addEventListener('storage', onChange);
+  return () => {
+    listeners.delete(onChange);
+    window.removeEventListener('storage', onChange);
+  };
+}
+
+function getSnapshot(): ThemeMode {
+  try {
+    return localStorage.getItem(STORAGE_KEY) === 'light' ? 'light' : 'dark';
+  } catch {
+    return 'dark';
+  }
+}
+
+// Hydration must render the same value the server did; React re-reads the
+// client snapshot after hydration. layout.tsx applies the stored preference to
+// <html> before paint.
+function getServerSnapshot(): ThemeMode {
+  return 'dark';
+}
+
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<ThemeMode>(() => {
-    if (typeof window === 'undefined') return 'dark';
-    try {
-      const stored = localStorage.getItem('echo_gate_theme');
-      return stored === 'light' ? 'light' : 'dark';
-    } catch {
-      return 'dark';
-    }
-  });
+  const theme = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
   useEffect(() => {
-    const root = document.documentElement;
-    root.classList.toggle('dark', theme === 'dark');
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+  }, [theme]);
+
+  const setTheme = useCallback((next: ThemeMode) => {
     try {
-      localStorage.setItem('echo_gate_theme', theme);
+      localStorage.setItem(STORAGE_KEY, next);
     } catch {
       // ignore
     }
-  }, [theme]);
+    listeners.forEach((listener) => listener());
+  }, []);
 
-  const setTheme = (next: ThemeMode) => setThemeState(next);
-  const toggleTheme = () =>
-    setThemeState((prev) => (prev === 'dark' ? 'light' : 'dark'));
+  const toggleTheme = useCallback(
+    () => setTheme(theme === 'dark' ? 'light' : 'dark'),
+    [theme, setTheme]
+  );
 
   return (
     <Theme

@@ -7,6 +7,7 @@ from app.modules.cache_audit.cache_audit_service import CacheAuditService
 from app.modules.cache_audit.calibration_service import IntentCalibrationService
 from app.modules.embedding.embedding_service import EmbeddingService
 from app.modules.gateway_requests.gateway_requests_service import GatewayRequestsService
+from app.modules.guardrails.guardrails_service import GuardrailsService
 from app.modules.inference.inference_client import InferenceClient
 from app.modules.intent_classifier.entity_extractor_service import (
     EntityExtractorService,
@@ -19,12 +20,14 @@ from app.modules.llm.llm_router_service import LlmRouterService
 from app.modules.llm_quota.llm_quota_rule_service import LlmQuotaRuleService
 from app.modules.llm_quota.llm_quota_service import LlmQuotaService
 from app.modules.llm_usage.llm_usage_service import LlmUsageService
+from app.modules.pii_scrubber.pii_scrubber_service import PiiScrubberService
 from app.modules.prompt_optimization.prompt_optimizer import PromptOptimizer
 from app.modules.qdrant.llm_cache_collection_service import LlmCacheCollectionService
 from app.modules.qdrant.qdrant_client_service import QdrantClientService
 from app.modules.redis.redis_service import RedisService
 from app.modules.reranking.reranker_service import RerankerService
 from app.modules.shadow_cache.shadow_cache_service import ShadowCacheService
+from app.modules.tenant_policy.tenant_policy_service import TenantPolicyService
 from app.modules.verifier.cross_encoder_service import CrossEncoderService
 from app.modules.verifier.instruction_service import InstructionVerifier
 from app.modules.verifier.judge_service import JudgeService
@@ -54,6 +57,9 @@ class DependencyContainer:
     _intent_calibration_service: IntentCalibrationService | None = None
     _inference_client: InferenceClient | None = None
     _prompt_optimizer: PromptOptimizer | None = None
+    _pii_scrubber: PiiScrubberService | None = None
+    _guardrails_service: GuardrailsService | None = None
+    _tenant_policy_service: TenantPolicyService | None = None
 
     @classmethod
     async def initialize(cls) -> None:
@@ -263,6 +269,9 @@ class DependencyContainer:
                     cls.get_cache_audit_service() if cache_audit else None
                 ),
                 prompt_optimizer=cls.get_prompt_optimizer(),
+                pii_scrubber=cls.get_pii_scrubber(),
+                guardrails_service=cls.get_guardrails_service(),
+                tenant_policy_service=cls.get_tenant_policy_service(),
             )
         return cls._llm_router_service
 
@@ -364,6 +373,27 @@ class DependencyContainer:
             cls._prompt_optimizer = PromptOptimizer()
         return cls._prompt_optimizer
 
+    @classmethod
+    def get_pii_scrubber(cls) -> PiiScrubberService:
+        if cls._pii_scrubber is None:
+            cls._pii_scrubber = PiiScrubberService()
+        return cls._pii_scrubber
+
+    @classmethod
+    def get_guardrails_service(cls) -> GuardrailsService:
+        if cls._guardrails_service is None:
+            cls._guardrails_service = GuardrailsService()
+        return cls._guardrails_service
+
+    @classmethod
+    def get_tenant_policy_service(cls) -> TenantPolicyService:
+        if cls._tenant_policy_service is None:
+            cls._tenant_policy_service = TenantPolicyService(
+                session_factory=SessionLocal,
+                session_factory_read=SessionLocalRead,
+            )
+        return cls._tenant_policy_service
+
 
 # FastAPI Depends compatible functions
 def get_embedding_service() -> EmbeddingService:
@@ -442,5 +472,9 @@ def get_prompt_optimizer() -> PromptOptimizer:
     return DependencyContainer.get_prompt_optimizer()
 
 
+def get_tenant_policy_service() -> TenantPolicyService:
+    return DependencyContainer.get_tenant_policy_service()
+
+
 # Re-exported for FastAPI Depends wiring in controllers.
-__all__ = ["get_api_key_service", "get_prompt_optimizer"]
+__all__ = ["get_api_key_service", "get_prompt_optimizer", "get_tenant_policy_service"]

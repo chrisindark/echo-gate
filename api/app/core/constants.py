@@ -64,6 +64,12 @@ class EchoGateHeaders:
     PROMPT_OPTIMIZATION = "X-EchoGate-Prompt-Optimization"
     PROMPT_SAVINGS = "X-EchoGate-Prompt-Savings"
     PROMPT_OPTIMIZATION_CCR_TURNS = "X-EchoGate-Prompt-Optimization-CCR-Turns"
+    DISABLE_LOG = "X-EchoGate-Disable-Log"
+    REDACT_PII = "X-EchoGate-Redact-PII"
+    PII_REDACTED = "X-EchoGate-PII-Redacted"
+    GUARDRAILS = "X-EchoGate-Guardrails"
+    GUARDRAILS_INSTRUCTION = "X-EchoGate-Guardrails-Instruction"
+    GUARDRAIL_STATUS = "X-EchoGate-Guardrail-Status"
 
     EXPOSED_CORS_HEADERS = (
         CACHE,
@@ -89,6 +95,12 @@ class EchoGateHeaders:
         CACHE_TTL,
         RETRIES,
         STREAM_PACING,
+        DISABLE_LOG,
+        REDACT_PII,
+        PII_REDACTED,
+        GUARDRAILS,
+        GUARDRAILS_INSTRUCTION,
+        GUARDRAIL_STATUS,
     )
 
 

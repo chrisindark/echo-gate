@@ -262,14 +262,14 @@ Expanding Echo Gate's gateway surface, prompt efficiency, and safety guardrails,
   - **Contract Integrity**:
     - Snapshot contract tests updated and verified in `tests/contract/test_openapi_snapshot.py`. Mounted at `/api/v1/messages` and alias `/v1/messages`.
 
-- [ ] **3. Zero-Retention Mode & In-Flight PII Redaction**
+- [x] **3. Zero-Retention Mode & In-Flight PII Redaction** _(2026-11-26)_
   - **Zero-Retention Mode (`disable_log`)**:
-    - Allow callers to pass `disable_log: true` or `X-EchoGate-Disable-Log: true` to bypass recording into PostgreSQL (`gateway_requests_log`, `llm_usage_log`) and cache stores (Redis / Qdrant) for HIPAA/GDPR zero-trace compliance.
-  - **Pre-Routing PII Scrubber**:
+    - Allow callers to pass `disable_log: true` or `X-EchoGate-Disable-Log: true` to bypass recording into PostgreSQL (`gateway_requests_log`, `llm_usage_log`, conversation history) and cache stores (Redis / Qdrant) for HIPAA/GDPR zero-trace compliance.
+  - **Pre-Routing PII Scrubber (`redact_pii`)**:
     - Detect and mask sensitive entity types (Email, Phone, Credit Card with Luhn validation, SSN, IBAN) _prior_ to cache key generation or provider transmission.
     - Guarantees sensitive customer data is never indexed into Qdrant vector store, Redis cache keys, or external provider logs.
-  - **Soft-Steering Guardrails**:
-    - Hard-blocking mode: evaluate inputs against policy rules and abort request with structured audit logs.
+  - **Soft-Steering Guardrails (`guardrails`)**:
+    - Hard-blocking mode (`block`): evaluate inputs against policy rules, emit structured audit logs (`RoutingDecision.GUARDRAIL_BLOCKED`), and abort with HTTP 403 (`error_code: "guardrail_blocked"`) before cache lookup or upstream dispatch.
     - Soft-steering mode (`inject`): append policy instructions directly to the system prompt, directing the downstream LLM to self-enforce behavior without failing the call.
 
 - [x] **4. Per-Request Gateway Directives (`cache_enabled`, `cache_ttl`, `retries`)** _(2026-11-07)_

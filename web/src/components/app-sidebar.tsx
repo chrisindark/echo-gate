@@ -20,6 +20,7 @@ import {
   PanelLeftOpen,
   Search,
   Settings,
+  ShieldCheck,
   Sparkles,
   Sun,
   Moon,
@@ -29,16 +30,21 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 
 const SIDEBAR_COLLAPSED_KEY = 'echo_gate_sidebar_collapsed';
 
 export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { apiKey } = useApiKey();
+  const { apiKey, adminKey } = useApiKey();
   const { user, tenantId, signOut } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const isClient = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
 
   // Desktop collapse state (w-64 vs w-16 icon rail)
   const [isCollapsed, setIsCollapsed] = useState(() => {
@@ -111,6 +117,15 @@ export function AppSidebar() {
     { name: 'Quota', path: '/quota', icon: GaugeCircle },
     { name: 'Cache Admin', path: '/admin/cache', icon: Database },
     { name: 'Cache Explorer', path: '/admin/explorer', icon: Search },
+    ...(isClient && adminKey
+      ? [
+          {
+            name: 'Tenant Policies',
+            path: '/admin/policies',
+            icon: ShieldCheck,
+          },
+        ]
+      : []),
     { name: 'Settings', path: '/settings', icon: Settings },
   ];
 

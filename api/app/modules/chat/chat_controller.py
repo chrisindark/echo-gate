@@ -30,6 +30,7 @@ from app.modules.llm.llm_router_service import LlmRouterService
 from app.modules.prompt_optimization.prompt_optimization_schema import (
     PromptOptimizationConfig,
 )
+from app.modules.tenant_policy.tenant_policy_service import TenantPolicyService
 
 
 class CacheSavePayload(BaseModel):
@@ -90,6 +91,9 @@ async def create_chat_completion(
         EchoGateHeaders.CONVERSATION_ID
     )
     apply_request_directives(request, http_request.headers)
+    policy_svc = getattr(llmRouterService, "tenant_policy_service", None)
+    if isinstance(policy_svc, TenantPolicyService):
+        policy_svc.resolve_and_apply(request)
     enforce_anonymous_provider_access(http_request, request)
 
     api_key = getattr(http_request.state, "api_key", None)
@@ -168,6 +172,18 @@ async def create_chat_completion(
                     http_response.headers[EchoGateHeaders.PROMPT_SAVINGS] = (
                         f"tokens={instant_opt.tokens_saved},chars={instant_opt.chars_saved}"
                     )
+                instant_pii = getattr(instant_response, "_pii_scrubbing_result", None)
+                if instant_pii and instant_pii.applied:
+                    http_response.headers[EchoGateHeaders.PII_REDACTED] = (
+                        instant_pii.to_header_value()
+                    )
+                instant_guard = getattr(instant_response, "_guardrail_result", None)
+                if instant_guard and instant_guard.applied:
+                    guard_header = instant_guard.to_header_value()
+                    if guard_header:
+                        http_response.headers[EchoGateHeaders.GUARDRAIL_STATUS] = (
+                            guard_header
+                        )
                 return instant_response
             skip_cache_lookup = True
 
@@ -245,6 +261,8 @@ async def create_chat_completion(
         # X-RateLimit-* headers have to be re-applied here.
         if hasattr(quota_status, "to_headers"):
             stream_headers.update(quota_status.to_headers())
+        if request.disable_log:
+            stream_headers[EchoGateHeaders.DISABLE_LOG] = "true"
 
         first_opt = getattr(first_chunk, "_prompt_optimization_result", None)
         if first_opt and first_opt.applied:
@@ -252,6 +270,14 @@ async def create_chat_completion(
             stream_headers[EchoGateHeaders.PROMPT_SAVINGS] = (
                 f"tokens={first_opt.tokens_saved},chars={first_opt.chars_saved}"
             )
+        first_pii = getattr(first_chunk, "_pii_scrubbing_result", None)
+        if first_pii and first_pii.applied:
+            stream_headers[EchoGateHeaders.PII_REDACTED] = first_pii.to_header_value()
+        first_guard = getattr(first_chunk, "_guardrail_result", None)
+        if first_guard and first_guard.applied:
+            guard_header = first_guard.to_header_value()
+            if guard_header:
+                stream_headers[EchoGateHeaders.GUARDRAIL_STATUS] = guard_header
 
         return StreamingResponse(
             sse_event_generator(),
@@ -275,6 +301,14 @@ async def create_chat_completion(
         http_response.headers[EchoGateHeaders.PROMPT_SAVINGS] = (
             f"tokens={opt_res.tokens_saved},chars={opt_res.chars_saved}"
         )
+    pii_res = getattr(llm_response, "_pii_scrubbing_result", None)
+    if pii_res and pii_res.applied:
+        http_response.headers[EchoGateHeaders.PII_REDACTED] = pii_res.to_header_value()
+    guard_res = getattr(llm_response, "_guardrail_result", None)
+    if guard_res and guard_res.applied:
+        guard_header = guard_res.to_header_value()
+        if guard_header:
+            http_response.headers[EchoGateHeaders.GUARDRAIL_STATUS] = guard_header
     cache_info = getattr(llm_response, "cache_info", None) or {}
     if request.cache_bypassed:
         http_response.headers[EchoGateHeaders.CACHE] = "BYPASS"
@@ -282,6 +316,8 @@ async def create_chat_completion(
         http_response.headers[EchoGateHeaders.CACHE] = "HIT"
     else:
         http_response.headers[EchoGateHeaders.CACHE] = "MISS"
+    if request.disable_log:
+        http_response.headers[EchoGateHeaders.DISABLE_LOG] = "true"
 
     return llm_response
 
