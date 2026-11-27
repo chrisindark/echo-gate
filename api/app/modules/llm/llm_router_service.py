@@ -3003,10 +3003,12 @@ class LlmRouterService:
         the response instead of only in the logs.
         """
         if self.tenant_policy_service is not None:
-            self.tenant_policy_service.resolve_and_apply(request)
+            await asyncio.to_thread(
+                self.tenant_policy_service.resolve_and_apply, request
+            )
         request, pii_result = self.pii_scrubber.scrub_request(request)
-        request, guardrail_result = self._run_stage_zero_guardrails(
-            request, api_key=api_key
+        request, guardrail_result = await asyncio.to_thread(
+            self._run_stage_zero_guardrails, request, api_key=api_key
         )
         request, opt_result = await self.prompt_optimizer.optimize_async(request)
         service_name = request.service_name or config.DEFAULT_LLM_SERVICE
@@ -3380,10 +3382,12 @@ class LlmRouterService:
         because this *is* the serving path for these requests.
         """
         if self.tenant_policy_service is not None:
-            self.tenant_policy_service.resolve_and_apply(request)
+            await asyncio.to_thread(
+                self.tenant_policy_service.resolve_and_apply, request
+            )
         request, pii_result = self.pii_scrubber.scrub_request(request)
-        request, guardrail_result = self._run_stage_zero_guardrails(
-            request, api_key=api_key
+        request, guardrail_result = await asyncio.to_thread(
+            self._run_stage_zero_guardrails, request, api_key=api_key
         )
         request, opt_result = await self.prompt_optimizer.optimize_async(request)
         if config.CACHE_MODE == "shadow" or request.cache_bypassed:
@@ -3483,10 +3487,12 @@ class LlmRouterService:
         stream does not pay for it a second time.
         """
         if self.tenant_policy_service is not None:
-            self.tenant_policy_service.resolve_and_apply(request)
+            await asyncio.to_thread(
+                self.tenant_policy_service.resolve_and_apply, request
+            )
         request, pii_result = self.pii_scrubber.scrub_request(request)
-        request, guardrail_result = self._run_stage_zero_guardrails(
-            request, api_key=api_key
+        request, guardrail_result = await asyncio.to_thread(
+            self._run_stage_zero_guardrails, request, api_key=api_key
         )
         request, opt_result = await self.prompt_optimizer.optimize_async(request)
         service_name = request.service_name or config.DEFAULT_LLM_SERVICE
