@@ -87,17 +87,19 @@ def _apply_rls_context(session, transaction, connection) -> None:
         return
     ctx = get_rls_context()
     try:
+        # Execute all three transaction-local GUCs in one round-trip so remote
+        # Postgres deployments (e.g. Supabase) do not pay 3 sequential RTTs.
         connection.execute(
-            text("SELECT set_config('app.current_tenant', :tenant, true)"),
-            {"tenant": ctx.tenant_id},
-        )
-        connection.execute(
-            text("SELECT set_config('app.current_user', :user, true)"),
-            {"user": ctx.user_id or ""},
-        )
-        connection.execute(
-            text("SELECT set_config('app.rls_system', :system, true)"),
-            {"system": "on" if ctx.system else "off"},
+            text(
+                "SELECT set_config('app.current_tenant', :tenant, true), "
+                "set_config('app.current_user', :user, true), "
+                "set_config('app.rls_system', :system, true)"
+            ),
+            {
+                "tenant": ctx.tenant_id,
+                "user": ctx.user_id or "",
+                "system": "on" if ctx.system else "off",
+            },
         )
     except Exception:  # pragma: no cover - defensive, never break a request
         logger.exception("Failed to apply RLS context to transaction")

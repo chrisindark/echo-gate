@@ -185,6 +185,10 @@ class ApiKeyService:
         """
         if not api_key:
             return None
+        # Supabase session JWTs carry 3 dot-separated segments and never live in
+        # the api_keys table; avoid a wasted Postgres lookup on every JWT request.
+        if api_key.count(".") == 2 and not api_key.startswith(_KEY_PREFIX):
+            return None
 
         cache_key = hash_api_key(api_key)
         cached = self._resolve_cache.get(cache_key)

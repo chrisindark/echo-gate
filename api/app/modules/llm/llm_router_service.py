@@ -699,7 +699,20 @@ class LlmRouterService:
                     content_emitted = False
 
                     try:
-                        first_chunk = await candidate_iter.__anext__()
+                        first_chunk_timeout = config.LLM_PROVIDER_TIMEOUT_SECONDS
+                        if timeout_budget_ms is not None:
+                            elapsed_s = time.monotonic() - t_budget_start
+                            remaining_s = (timeout_budget_ms / 1000.0) - elapsed_s
+                            first_chunk_timeout = min(
+                                first_chunk_timeout, max(0.1, remaining_s)
+                            )
+                        if first_chunk_timeout and first_chunk_timeout > 0:
+                            first_chunk = await asyncio.wait_for(
+                                candidate_iter.__anext__(),
+                                timeout=first_chunk_timeout,
+                            )
+                        else:
+                            first_chunk = await candidate_iter.__anext__()
                     except StopAsyncIteration:
                         breaker.record_success()
                         return
@@ -3003,7 +3016,9 @@ class LlmRouterService:
         the response instead of only in the logs.
         """
         if self.tenant_policy_service is not None:
-            self.tenant_policy_service.resolve_and_apply(request)
+            await asyncio.to_thread(
+                self.tenant_policy_service.resolve_and_apply, request
+            )
         request, pii_result = self.pii_scrubber.scrub_request(request)
         request, guardrail_result = self._run_stage_zero_guardrails(
             request, api_key=api_key
@@ -3380,7 +3395,9 @@ class LlmRouterService:
         because this *is* the serving path for these requests.
         """
         if self.tenant_policy_service is not None:
-            self.tenant_policy_service.resolve_and_apply(request)
+            await asyncio.to_thread(
+                self.tenant_policy_service.resolve_and_apply, request
+            )
         request, pii_result = self.pii_scrubber.scrub_request(request)
         request, guardrail_result = self._run_stage_zero_guardrails(
             request, api_key=api_key
@@ -3483,7 +3500,9 @@ class LlmRouterService:
         stream does not pay for it a second time.
         """
         if self.tenant_policy_service is not None:
-            self.tenant_policy_service.resolve_and_apply(request)
+            await asyncio.to_thread(
+                self.tenant_policy_service.resolve_and_apply, request
+            )
         request, pii_result = self.pii_scrubber.scrub_request(request)
         request, guardrail_result = self._run_stage_zero_guardrails(
             request, api_key=api_key

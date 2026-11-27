@@ -192,6 +192,36 @@ def delete_conversation(
     )
 
 
+def _load_conversation_context(
+    db: Session,
+    conversation_id: str,
+    user_id: str,
+    tenant_id: str,
+    *,
+    release_transaction: bool = False,
+):
+    """Fetch conversation ownership and prior messages in one worker-thread call.
+
+    When ``release_transaction`` is True (streaming path), ends the read-only
+    transaction immediately via ``rollback()`` so the pooled connection is not
+    pinned ``IDLE IN TRANSACTION`` across the upstream LLM stream.
+    """
+    svc = ConversationService(db)
+    conv = svc.get_conversation(conversation_id, user_id=user_id, tenant_id=tenant_id)
+    if not conv:
+        if release_transaction and hasattr(db, "rollback"):
+            db.rollback()
+        return None, []
+
+    db_messages = svc.get_conversation_messages(conversation_id)
+    history_messages = [
+        ChatMessage(role=m.role, content=m.content) for m in db_messages
+    ]
+    if release_transaction and hasattr(db, "rollback"):
+        db.rollback()
+    return conv, history_messages
+
+
 @api_v1_router.post(
     "/{conversation_id}/chat",
     dependencies=[Depends(api_key_auth_optional_guard), Depends(llm_quota_guard)],
@@ -206,21 +236,18 @@ async def chat_in_conversation(
 ):
     user_id = resolve_caller_user(http_request)
     tenant_id = getattr(http_request.state, "tenant_id", None) or ANONYMOUS_TENANT
-    svc = ConversationService(db)
 
-    conv = await asyncio.to_thread(
-        svc.get_conversation, conversation_id, user_id=user_id, tenant_id=tenant_id
+    conv, history_messages = await asyncio.to_thread(
+        _load_conversation_context,
+        db,
+        conversation_id,
+        user_id,
+        tenant_id,
+        release_transaction=bool(request.stream),
     )
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    # Get conversation history from database
-    db_messages = await asyncio.to_thread(
-        svc.get_conversation_messages, conversation_id
-    )
-    history_messages = [
-        ChatMessage(role=m.role, content=m.content) for m in db_messages
-    ]
     # Append the new user turn for completion
     history_messages.append(ChatMessage(role="user", content=request.message))
 
@@ -343,7 +370,8 @@ async def chat_in_conversation(
                         conversation_id,
                     )
                 elif full_reply:
-                    _persist_conversation_turn(
+                    await asyncio.to_thread(
+                        _persist_conversation_turn,
                         conversation_id=conversation_id,
                         user_id=user_id,
                         tenant_id=tenant_id,
@@ -388,6 +416,17 @@ async def chat_in_conversation(
             stream_headers.update(quota_status.to_headers())
         if chat_req.cache_bypassed:
             stream_headers[EchoGateHeaders.CACHE] = "BYPASS"
+        elif (
+            first_chunk
+            and getattr(first_chunk, "cache_info", None)
+            and (
+                first_chunk.cache_info.get("cache_hit")
+                or first_chunk.cache_info.get("matched")
+            )
+        ):
+            stream_headers[EchoGateHeaders.CACHE] = "HIT"
+        else:
+            stream_headers[EchoGateHeaders.CACHE] = "MISS"
         if chat_req.disable_log:
             stream_headers[EchoGateHeaders.DISABLE_LOG] = "true"
 
@@ -457,7 +496,9 @@ async def chat_in_conversation(
             conversation_id,
         )
     elif assistant_content is not None:
-        svc.record_turn(
+        svc = ConversationService(db)
+        await asyncio.to_thread(
+            svc.record_turn,
             conversation=conv,
             user_content=persisted_user_message,
             assistant_content=assistant_content,

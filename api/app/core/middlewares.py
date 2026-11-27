@@ -3,9 +3,7 @@ import logging
 import time
 import uuid
 
-from fastapi import Request
-from starlette.datastructures import Headers
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.datastructures import Headers, MutableHeaders
 
 from app.core.constants import EchoGateHeaders
 from app.core.identity import (
@@ -20,74 +18,90 @@ from app.core.telemetry import correlation_trace_id, trace_context_from_id, trac
 logger = logging.getLogger(__name__)
 
 
-class CorrelationIdMiddleware(BaseHTTPMiddleware):
+class CorrelationIdMiddleware:
     """
-    Standard FastAPI / Starlette middlewares that:
+    Pure ASGI middleware that:
     1. Reads or generates request ID and correlation ID from incoming HTTP headers.
-    2. Sets correlation_id_ctx_var for the lifecycle of the request.
+    2. Sets correlation_id_ctx_var for the lifecycle of the request (including streaming).
     3. Appends X-Correlation-ID and X-Request-ID headers to the response.
     4. Logs structured access information with HTTP status and latency.
+
+    Implemented as pure ASGI (rather than ``BaseHTTPMiddleware``) so
+    ``StreamingResponse`` chunks flow directly without Starlette's task-group
+    stream wrapping or buffering.
     """
 
-    async def dispatch(self, request: Request, call_next):
-        # Extract request ID and correlation ID from headers or generate
-        request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
-        correlation_id = request.headers.get("x-correlation-id") or request_id
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        headers = Headers(scope=scope)
+        request_id = headers.get("x-request-id") or str(uuid.uuid4())
+        correlation_id = headers.get("x-correlation-id") or request_id
         trace_id = correlation_trace_id(correlation_id)
 
-        # Attach the correlation id as the OTel trace id so logs and traces join.
         if trace_id is not None:
-            request.scope["trace_id"] = trace_id
-            request.scope["otel_trace_id"] = format(trace_id, "032x")
-            request.scope["correlation_id"] = correlation_id
+            scope["trace_id"] = trace_id
+            scope["otel_trace_id"] = format(trace_id, "032x")
+            scope["correlation_id"] = correlation_id
 
-        # Set the correlation ID in the context variable
         token = correlation_id_ctx_var.set(correlation_id)
 
         start_time = time.perf_counter()
         status_code = 500
+        method = scope.get("method", "GET")
+        raw_path = scope.get("path", "/")
+        query_bytes = scope.get("query_string", b"")
+        query_str = query_bytes.decode("latin-1") if query_bytes else ""
+        full_path = f"{raw_path}?{query_str}" if query_str else raw_path
 
         span_attrs = {
-            "http.method": request.method,
-            "http.route": request.url.path,
+            "http.method": method,
+            "http.route": raw_path,
             "correlation_id": correlation_id,
         }
+
+        async def send_wrapper(message) -> None:
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = message["status"]
+                resp_headers = MutableHeaders(scope=message)
+                resp_headers[EchoGateHeaders.CORRELATION_ID] = correlation_id
+                resp_headers[EchoGateHeaders.REQUEST_ID] = request_id
+            await send(message)
+
         with (
             trace_context_from_id(trace_id),
             trace_span("http.server.request", span_attrs),
         ):
             try:
-                response = await call_next(request)
-                status_code = response.status_code
-                response.headers[EchoGateHeaders.CORRELATION_ID] = correlation_id
-                response.headers[EchoGateHeaders.REQUEST_ID] = request_id
-                return response
+                await self.app(scope, receive, send_wrapper)
             finally:
                 end_time = time.perf_counter()
                 process_time = end_time - start_time
                 duration_ms = round(process_time * 1000, 2)
 
-                # Extract client IP (handle proxy forwarded headers first)
-                forwarded_for = request.headers.get("x-forwarded-for")
+                forwarded_for = headers.get("x-forwarded-for")
+                client = scope.get("client")
                 if forwarded_for:
                     client_ip = forwarded_for.split(",")[0].strip()
-                elif request.client:
-                    client_ip = request.client.host
+                elif client:
+                    client_ip = client[0]
                 else:
                     client_ip = "unknown"
 
-                method = request.method
-                path = request.url.path
-                if request.url.query:
-                    path = f"{path}?{request.url.query}"
-                http_version = request.scope.get("http_version", "1.1")
+                http_version = scope.get("http_version", "1.1")
 
                 logger.info(
-                    f'{client_ip} - "{method} {path} HTTP/{http_version}" {status_code} '
+                    f'{client_ip} - "{method} {full_path} HTTP/{http_version}" {status_code} '
                     f"({process_time:.3f}s) [req_id={request_id}]",
                     extra={
                         "http_method": method,
-                        "http_path": path,
+                        "http_path": full_path,
                         "http_status": status_code,
                         "duration_ms": duration_ms,
                         "client_ip": client_ip,
@@ -98,22 +112,28 @@ class CorrelationIdMiddleware(BaseHTTPMiddleware):
                 correlation_id_ctx_var.reset(token)
 
 
-class UserMiddleware(BaseHTTPMiddleware):
+class UserMiddleware:
     """Publish the resolved caller identity as ``request.state.user``.
 
     ``TenantContextMiddleware`` runs first and is the only source of identity:
     an ``X-API-Key`` or ``Authorization: Bearer`` credential resolved
     server-side to a tenant/user, else ``anonymous``.
-    This middleware used to read ``X-User-ID``/``X-Session-ID``/``X-Tenant-ID``
-    itself, which let a caller name themselves freely even while presenting a
-    valid key.
+
+    Implemented as pure ASGI (rather than ``BaseHTTPMiddleware``) so
+    ``StreamingResponse`` passes through directly without stream buffering.
     """
 
-    async def dispatch(self, request: Request, call_next):
-        request.state.user = getattr(request.state, "user_id", None) or ANONYMOUS_TENANT
+    def __init__(self, app) -> None:
+        self.app = app
 
-        response = await call_next(request)
-        return response
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        state = scope.setdefault("state", {})
+        state["user"] = state.get("user_id") or ANONYMOUS_TENANT
+        await self.app(scope, receive, send)
 
 
 class TenantContextMiddleware:
