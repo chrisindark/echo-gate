@@ -1022,7 +1022,12 @@ class LlmRouterService:
         """
         # 1. Try exact match from Redis first
         t_redis_start = time.perf_counter()
-        response = await self._get_redis_exact_match(exact_hash, service_name)
+        try:
+            response = await self._get_redis_exact_match(exact_hash, service_name)
+        except Exception as e:
+            logger.warning("Redis exact-match lookup failed; degrading to LLM: %s", e)
+            mark_cache_degraded("redis_read_failed")
+            response = None
         t_redis_end = time.perf_counter()
         breakdown["redis_exact_ms"] = round((t_redis_end - t_redis_start) * 1000, 2)
         if response:
@@ -1922,7 +1927,14 @@ class LlmRouterService:
             if not self.redis_service:
                 return None
 
-            cached_data = await self.redis_service.get(exact_hash)
+            try:
+                cached_data = await self.redis_service.get(exact_hash)
+            except Exception as e:
+                logger.warning(
+                    "Redis exact-match lookup failed; degrading to LLM: %s", e
+                )
+                mark_cache_degraded("redis_read_failed")
+                return None
             if cached_data:
                 try:
                     data = json.loads(cached_data)
@@ -1950,7 +1962,10 @@ class LlmRouterService:
                     logger.warning(
                         f"Found cached mock response in Redis for {exact_hash}. Purging and ignoring."
                     )
-                    await self.redis_service.delete(exact_hash)
+                    try:
+                        await self.redis_service.delete(exact_hash)
+                    except Exception:
+                        logger.exception("Failed to purge mock response from Redis")
                     return None
 
                 logger.info(
