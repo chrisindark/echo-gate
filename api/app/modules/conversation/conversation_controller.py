@@ -343,7 +343,8 @@ async def chat_in_conversation(
                         conversation_id,
                     )
                 elif full_reply:
-                    _persist_conversation_turn(
+                    await asyncio.to_thread(
+                        _persist_conversation_turn,
                         conversation_id=conversation_id,
                         user_id=user_id,
                         tenant_id=tenant_id,
@@ -457,7 +458,8 @@ async def chat_in_conversation(
             conversation_id,
         )
     elif assistant_content is not None:
-        svc.record_turn(
+        await asyncio.to_thread(
+            svc.record_turn,
             conversation=conv,
             user_content=persisted_user_message,
             assistant_content=assistant_content,
