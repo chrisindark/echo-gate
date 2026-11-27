@@ -39,13 +39,15 @@ class QdrantClientService:
             self.client = client
         else:
             logger.info(f"Connecting to Qdrant at {self.url}")
-            self.client = QdrantClient(url=self.url, api_key=self.api_key)
+            self.client = QdrantClient(url=self.url, api_key=self.api_key, timeout=5)
 
     @property
     def async_client(self) -> AsyncQdrantClient:
         """Lazily initialize and return the asynchronous Qdrant client."""
         if self._async_client is None:
-            self._async_client = AsyncQdrantClient(url=self.url, api_key=self.api_key)
+            self._async_client = AsyncQdrantClient(
+                url=self.url, api_key=self.api_key, timeout=5
+            )
         return self._async_client
 
     def close(self) -> None:
